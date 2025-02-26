@@ -35,18 +35,7 @@ int main() {
   };
   os_assert(bytecode_check_header(&reader));
   os_assert(bytecode_check_version(&reader));
-  bool section_ok = false;
-
-  Bytecode_Section section;
-  section_ok = bytecode_parse_section(arena, &reader, &section);
-  os_assert(section_ok);
-
-  os_assert(section.id == Bytecode_Section_Id_Type);
-  os_assert(section.data.type_section.type_count == 1);
-  os_assert(section.data.type_section.function_types->param_count == 2);
-  os_assert(section.data.type_section.function_types->return_count == 1);
-  os_assert(section.data.type_section.function_types->return_types[0] ==
-            Bytecode_Type_Id_Num_I32);
+  os_assert(bytecode_parse(arena, &reader));
 
   arena_destroy(arena);
 }

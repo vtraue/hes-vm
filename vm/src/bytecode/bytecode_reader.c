@@ -34,8 +34,8 @@ uint8_t* bytecode_read_bytes(Arena* arena, Bytecode_Reader* reader,
 
 uint8_t bytecode_read_byte(Bytecode_Reader* reader) {
   os_assert(reader != nullptr);
-  os_assert(bytecode_reader_can_read(reader)) uint8_t out_val =
-      *bytecode_bytes_at(reader);
+  os_assert(bytecode_reader_can_read(reader));
+  uint8_t out_val = *bytecode_bytes_at(reader);
   reader->current_position += 1;
   return out_val;
 }

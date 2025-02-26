@@ -50,7 +50,7 @@ typedef struct Bytecode_Type_Section {
 
 typedef struct Bytecode_Function_Section {
 	size_t function_count;
-	int64_t type_idx;	
+	uint32_t* type_idx;	
 } Bytecode_Function_Section;
 
 typedef struct Bytecode_Section {
@@ -62,4 +62,3 @@ typedef struct Bytecode_Section {
 } Bytecode_Section;
 
 
-bool bytecode_parse_section(Arena* arena, Bytecode_Reader* reader, Bytecode_Section* out_section);
