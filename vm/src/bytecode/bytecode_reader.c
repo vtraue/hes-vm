@@ -2,7 +2,7 @@
 #include "../os.h"
 #include "../leb128.h"
 
-bool bytecode_can_read(Bytecode_Reader* reader) {
+bool bytecode_reader_can_read(Bytecode_Reader* reader) {
 	return reader != nullptr && reader->current_position < reader->data_size; 
 }
 
@@ -11,7 +11,7 @@ uint8_t* bytecode_bytes_at(Bytecode_Reader* reader) {
 	return reader->data + reader->current_position;
 }
 
-void bytecode_seek(Bytecode_Reader* reader, int64_t offset) {
+void bytecode_reader_skip_bytes(Bytecode_Reader* reader, int64_t offset) {
 	os_assert(reader != nullptr);
 	os_assert(reader->current_position + offset < reader->data_size);
 	reader->current_position += offset;
@@ -32,7 +32,7 @@ uint8_t* bytecode_read_bytes(Arena* arena, Bytecode_Reader* reader, size_t count
 
 uint8_t bytecode_read_byte(Bytecode_Reader* reader) {
 	os_assert(reader != nullptr);
-	os_assert(bytecode_can_read(reader))
+	os_assert(bytecode_reader_can_read(reader))
 	uint8_t out_val = *bytecode_bytes_at(reader);
 	reader->current_position += 1;
 	return out_val;
