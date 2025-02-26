@@ -48,6 +48,10 @@ typedef struct Bytecode_Type_Section {
 	Bytecode_Function_Type* function_types;
 } Bytecode_Type_Section;
 
+typedef struct Bytecode_Function_Section {
+	size_t function_count;
+	int64_t type_idx;	
+} Bytecode_Function_Section;
 
 typedef struct Bytecode_Section {
 	Bytecode_Section_Id id;
