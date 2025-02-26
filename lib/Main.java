@@ -8,7 +8,6 @@ class Main {
 
 	public static void main(String[] args) {
 		HexFormat hex = HexFormat.of();
-		WasmBuilder builder = new WasmBuilder();
 		int leb128Test = 123456;
 		ArrayList<Integer> leb128Out = new ArrayList<Integer>();
 		leb128Out = WasmBuilder.encodeI32ToLeb128(leb128Test);
@@ -16,12 +15,13 @@ class Main {
 		System.out.println(leb128Out.toString());
 		try {
 
-			builder.addLocalSet(123456);
+			WasmBuilder builder = new WasmBuilder();
+			builder.addLocalSet(1);
+			byte[] out = builder.out.toByteArray();
+			System.out.println("out: " + hex.formatHex(out));
 		} catch (IOException e) {
 			System.err.println(e.getMessage());
 		}
-		byte[] out = builder.out.toByteArray();
-		System.out.println("out: " + hex.formatHex(out));
 
 	}
 }

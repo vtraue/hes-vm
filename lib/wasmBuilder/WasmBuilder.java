@@ -82,6 +82,11 @@ public class WasmBuilder {
 
 	public ByteArrayOutputStream out = new ByteArrayOutputStream();
 
+	public WasmBuilder() throws IOException {
+		addBinaryMagic();
+		addBinaryVersion();
+	}
+
 	public void addLocalSet(int id) throws IOException {
 		ArrayList<Integer> encodedId = encodeI32ToLeb128(id);
 		byte[] b = { (byte) WasmInstructionOpCode.LOCAL_SET.code };
