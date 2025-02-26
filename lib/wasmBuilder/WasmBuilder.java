@@ -83,7 +83,7 @@ public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-	public String getOutAsHexString() {
+	public String getAsHexString() {
 		HexFormat hex = HexFormat.of();
 		return hex.formatHex(out.toByteArray());
 	}
@@ -115,14 +115,18 @@ public class WasmBuilder {
 		write(encodeI32ToLeb128(id));
 	}
 
-	public void addGobalSet(int id) throws IOException {
+	public void addGlobalSet(int id) throws IOException {
 		write((byte) WasmInstructionOpCode.GLOBAL_SET.code);
 		write(encodeI32ToLeb128(id));
 	}
 
-	public void addGobalGet(int id) throws IOException {
+	public void addGlobalGet(int id) throws IOException {
 		write((byte) WasmInstructionOpCode.GLOBAL_GET.code);
 		write(encodeI32ToLeb128(id));
+	}
+
+	public void addBinOp(WasmInstructionOpCode binop) throws IOException {
+		write((byte) binop.code);
 	}
 
 	public void addEnterTypeSection(List<FunctionType> functypes) {
