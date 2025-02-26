@@ -1,7 +1,6 @@
 #include "bytecode_reader.h"
 #include "../os.h"
 #include "../leb128.h"
-#include "../util.h"
 
 bool bytecode_can_read(Bytecode_Reader* reader) {
 	return reader != nullptr && reader->current_position < reader->data_size; 
@@ -59,17 +58,5 @@ uint64_t bytecode_read_var_uint(Bytecode_Reader* reader) {
 	return out_int;
 }
 
-bool bytecode_check_header(Bytecode_Reader* reader) {
-	os_assert(reader != nullptr);
-	
-	uint8_t header_data[4] = {0x0, 0x61, 0x73, 0x6D};
 
-	for(int i = 0; i < COUNT_OF(header_data); ++i) {
-		uint8_t val = bytecode_read_byte(reader);
-		if(val != header_data[i]) {
-			return false;
-		}
-	}
-	return true;
-}
 

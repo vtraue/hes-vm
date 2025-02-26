@@ -21,6 +21,7 @@ uint8_t* os_mem_reserve(size_t size) {
 void os_mem_unreserve(uint8_t* ptr, size_t size) {
 	os_assert(ptr != nullptr);
 	os_assert(size > 0);
+	
 	os_assert(munmap((void*)ptr, size) == 0);
 }
 

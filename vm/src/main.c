@@ -7,6 +7,7 @@
 #include "os.h"
 #include "leb128.h"
 #include "bytecode/bytecode_reader.h"
+#include "bytecode/bytecode_parser.h"
 int main() {
 	int leb_numbers[] = {0x45, 0x42, 0x30, 0x6C};
 	int64_t res = 0;
@@ -30,5 +31,8 @@ int main() {
 		.data = wasm_file_data,
 	};
 	os_assert(bytecode_check_header(&reader));
+	os_assert(bytecode_check_version(&reader));
 	arena_destroy(arena);
 }
+
+
