@@ -10,9 +10,12 @@ typedef struct Bytecode_Reader {
 } Bytecode_Reader;
 
 
-void bytecode_seek(Bytecode_Reader* reader, int64_t offset);
+
+bool bytecode_reader_can_read(Bytecode_Reader* reader);
+void bytecode_reader_skip_bytes(Bytecode_Reader* reader, int64_t offset);
 uint8_t* bytecode_bytes_at(Bytecode_Reader* reader);
 uint8_t* bytecode_read_bytes(Arena* arena, Bytecode_Reader* reader, size_t count);
 uint8_t bytecode_read_byte(Bytecode_Reader* reader);
 int64_t bytecode_read_var_int(Bytecode_Reader* reader);
 uint64_t bytecode_read_var_uint(Bytecode_Reader* reader);
+

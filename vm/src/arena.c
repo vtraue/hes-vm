@@ -36,3 +36,4 @@ void arena_reset(Arena* arena) {
 void arena_destroy(Arena* arena) {
 	os_mem_unreserve((void*)arena, arena->cap);
 }
+
