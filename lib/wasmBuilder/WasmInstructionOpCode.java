@@ -1,4 +1,6 @@
 
+package wasmBuilder;
+
 public enum WasmInstructionOpCode {
 	UNREACHABLE((short) 0x00),
 	NOP((short) 0x01),
@@ -35,7 +37,9 @@ public enum WasmInstructionOpCode {
 	I32_XOR((short) 0x73),
 	;
 
-	private WasmInstructionOpCode(short code) {
+	public short code;
 
+	private WasmInstructionOpCode(short code) {
+		this.code = code;
 	}
 }
