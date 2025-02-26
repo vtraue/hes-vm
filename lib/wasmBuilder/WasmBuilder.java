@@ -3,6 +3,7 @@ package wasmBuilder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 
 /*
@@ -80,21 +81,48 @@ import java.util.List;
 
 public class WasmBuilder {
 
-	public ByteArrayOutputStream out = new ByteArrayOutputStream();
+	private ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+	public String getOutAsHexString() {
+		HexFormat hex = HexFormat.of();
+		return hex.formatHex(out.toByteArray());
+	}
 
 	public WasmBuilder() throws IOException {
 		addBinaryMagic();
 		addBinaryVersion();
 	}
 
-	public void addLocalSet(int id) throws IOException {
-		ArrayList<Integer> encodedId = encodeI32ToLeb128(id);
-		byte[] b = { (byte) WasmInstructionOpCode.LOCAL_SET.code };
+	private void write(byte code) throws IOException {
+		byte[] b = { code };
 		out.write(b);
-		for (Integer e : encodedId) {
+	}
+
+	private void write(ArrayList<Integer> al) throws IOException {
+		for (Integer e : al) {
 			byte[] byteId = { (byte) e.intValue() };
 			out.write(byteId);
 		}
+	}
+
+	public void addLocalSet(int id) throws IOException {
+		write((byte) WasmInstructionOpCode.LOCAL_SET.code);
+		write(encodeI32ToLeb128(id));
+	}
+
+	public void addLocalGet(int id) throws IOException {
+		write((byte) WasmInstructionOpCode.LOCAL_GET.code);
+		write(encodeI32ToLeb128(id));
+	}
+
+	public void addGobalSet(int id) throws IOException {
+		write((byte) WasmInstructionOpCode.GLOBAL_SET.code);
+		write(encodeI32ToLeb128(id));
+	}
+
+	public void addGobalGet(int id) throws IOException {
+		write((byte) WasmInstructionOpCode.GLOBAL_GET.code);
+		write(encodeI32ToLeb128(id));
 	}
 
 	public void addEnterTypeSection(List<FunctionType> functypes) {
