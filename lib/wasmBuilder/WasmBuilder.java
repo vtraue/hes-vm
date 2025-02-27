@@ -6,137 +6,78 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 
-/*
-*
-* class FunctionType {
-* 	List<Type> params;
-* 	List<Type> results;
-* 	List<Variable> locals;
-*
-* }
-* class Variable {
-* 	private int id;
-* 	String name;
-* 	public Variable(String name) {
-* 		this.name = name;
-*		this.id = var_id;
-*		var_id ++;
-* 	}
-*
-* }
-* class CodeBuilder {
-* 	private int var_id = 0;
-* 	public CodeBuilder(List<FunctionType> functiontypes) (?)
-* 	private List<FunctionTypes> functiontypes;
-* 	public void setFunctionTypes(List<FunctionType> functiontypes)
-* 	public void emitAdd
-* 	public void enterFunction(String name, FunctionType f)
-* 	public void callFunction(String name)
-* 	public void getLocal(String name, FunctionType funtype) {
-*
-* 	}
-* }
-* CodeBuilder builder = new CodeBuilder()
-* ...
-* Function func = builder.enterFunction();
-* builder.emitStore(...);
-* builder.emitLoad(...);
-* builder.leaveFunction();
-* builder.callFunction(func);
-* ...
-* builder.build()
-* 
-* builder.enterFunction(returntype)
-* builder.leaveFunction
-* builder.callFunction(id)
-*
-* void test_fn(int a, int b) {
-	int c = 5;
-	{ 
-		int c = 4;
-		{ 
-			int c = 9;
-			printf(c)
-		}
-	}
-	*
-* }
-* int a;
-* int b;
-* a = 12;
-* b = 30;
-*
-* int c = a + b; 
-*
-* builder.emitLocalSet(a_id, 12);
-* builder.emitLocalSet(b_id, 30);
-*
-* builder.emitLocalGet(a_id)
-* builder.emitLocalGet(b_id)
-* builder.emitAdd();
-* int c_id = builder.declareLocal();
-* builder.emitLocalSet(c_id);
-*
-*/
-
 public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+	public WasmBuilder(ArrayList<FuncType> functypes) throws IOException {
+		addBinaryMagic();
+		addBinaryVersion();
+		addEnterTypeSection(functypes);
+	}
+
+	public byte[] getByteArray() {
+		return out.toByteArray();
+	}
 
 	public String getAsHexString() {
 		HexFormat hex = HexFormat.of();
 		return hex.formatHex(out.toByteArray());
 	}
 
-	public WasmBuilder() throws IOException {
-		addBinaryMagic();
-		addBinaryVersion();
-	}
-
-	private void write(byte code) throws IOException {
+	private void write(byte code, ByteArrayOutputStream os) throws IOException {
 		byte[] b = { code };
-		out.write(b);
+		os.write(b);
 	}
 
-	private void write(ArrayList<Integer> al) throws IOException {
+	private void write(ArrayList<Integer> al, ByteArrayOutputStream os) throws IOException {
 		for (Integer e : al) {
 			byte[] byteId = { (byte) e.intValue() };
-			out.write(byteId);
+			os.write(byteId);
+		}
+	}
+
+	private void writeFunctionTypes(ArrayList<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
+		for (FuncType f : functypes) {
+			write((byte) 0x60, os);
+			write((byte) f.getParams().size(), os);
+			write(f.getParams(), os);
+			write((byte) f.getResults().size(), os);
+			write(f.getResults(), os);
 		}
 	}
 
 	public void addLocalSet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_SET.code);
-		write(encodeI32ToLeb128(id));
+		write((byte) WasmInstructionOpCode.LOCAL_SET.code, out);
+		write(encodeI32ToLeb128(id), out);
 	}
 
 	public void addLocalGet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_GET.code);
-		write(encodeI32ToLeb128(id));
+		write((byte) WasmInstructionOpCode.LOCAL_GET.code, out);
+		write(encodeI32ToLeb128(id), out);
 	}
 
 	public void addGlobalSet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_SET.code);
-		write(encodeI32ToLeb128(id));
+		write((byte) WasmInstructionOpCode.GLOBAL_SET.code, out);
+		write(encodeI32ToLeb128(id), out);
 	}
 
 	public void addGlobalGet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_GET.code);
-		write(encodeI32ToLeb128(id));
+		write((byte) WasmInstructionOpCode.GLOBAL_GET.code, out);
+		write(encodeI32ToLeb128(id), out);
 	}
 
 	public void addBinOp(WasmInstructionOpCode binop) throws IOException {
-		write((byte) binop.code);
+		write((byte) binop.code, out);
 	}
 
-	public void addEnterTypeSection(List<FunctionType> functypes) {
-		// byte typeId = Byte.toUnsignedInt;
-		byte typeId = (byte) (SectionId.Type.ordinal());
+	public void addEnterTypeSection(ArrayList<FuncType> functypes) throws IOException {
 		ByteArrayOutputStream functypesBytes = new ByteArrayOutputStream();
-		for (FunctionType f : functypes) {
-
-		}
-		byte[] b = { typeId };
+		write(encodeI32ToLeb128(functypes.size()), functypesBytes);
+		writeFunctionTypes(functypes, functypesBytes);
+		write((byte) SectionId.Type.ordinal(), out);
+		write((byte) functypesBytes.size(), out);
+		out.write(functypesBytes.toByteArray());
 	}
 
 	public void addBinaryMagic() throws IOException {
