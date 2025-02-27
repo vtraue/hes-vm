@@ -36,6 +36,11 @@ void os_crash_with_message(char* message) {
 void* os_memcpy(void* dst, const void* src, size_t len) {
   return __builtin_memcpy(dst, src, len);
 }
+
+int os_strcmp(const char* str1, const char* str2) {
+  return __builtin_strcmp(str1, str2);
+}
+
 /*
 size_t os_get_file_size(const char* path) {
         SDL_PathInfo file_info = {0};

@@ -178,6 +178,79 @@ bool bytecode_is_section_parsed(Bytecode_Parser* parser,
   return parser->main_sections_present & (1 << (uint16_t)(id));
 }
 
+bool bytecode_parse_string(Arena* arena, Bytecode_Reader* reader,
+                           uint64_t* out_string_length, char** out_string) {
+  os_assert(bytecode_reader_can_read(reader));
+  os_assert(arena != nullptr);
+  os_assert(out_string_length != nullptr);
+  os_assert(out_string != nullptr);
+
+  uint64_t str_len = bytecode_read_var_uint(reader);
+  char* string_data =
+      (char*)bytecode_read_bytes_zero_term(arena, reader, str_len);
+  *out_string_length = str_len;
+  *out_string = string_data;
+  return true;
+}
+
+bool bytecode_parse_export(Bytecode_Parser* parser, Bytecode_Reader* reader,
+                           Bytecode_Export* out_export) {
+  os_assert(bytecode_reader_can_read(reader));
+  os_assert(out_export != nullptr);
+
+  uint64_t export_name_len = 0;
+  char* export_name = nullptr;
+
+  os_assert(bytecode_parse_string(parser->arena, reader, &export_name_len,
+                                  &export_name));
+  uint8_t desc_type_id = bytecode_read_byte(reader);
+  if (desc_type_id >= (uint8_t)Bytecode_Export_Desc_Type_Enum_Len) {
+    SDL_LogError(1, "Malfored export desc type");
+    return false;
+  }
+  Bytecode_Export_Desc_Type desc_type = (Bytecode_Export_Desc_Type)desc_type_id;
+  switch (desc_type) {
+    case Bytecode_Export_Desc_Type_Funcidx:
+      if (!bytecode_is_section_parsed(parser, Bytecode_Section_Id_Function)) {
+        SDL_LogError(1, "Malformed module: No function section");
+        return false;
+      }
+      uint64_t func_id = bytecode_read_var_uint(reader);
+
+      if (func_id > parser->function_section.function_count) {
+        SDL_LogError(1, "Export: Function id out of scope");
+        return false;
+      }
+      out_export->desc.id = func_id;
+      break;
+    default:
+      SDL_LogError(1, "Unimplemented");
+      break;
+  }
+  out_export->desc.type = desc_type;
+  out_export->name = export_name;
+  out_export->name_length = export_name_len;
+
+  return true;
+}
+
+bool bytecode_parse_export_section(Bytecode_Parser* parser,
+                                   Bytecode_Reader* reader,
+                                   Bytecode_Export_Section* out_section) {
+  os_assert(bytecode_reader_can_read(reader));
+  os_assert(out_section != nullptr);
+  uint64_t export_count = bytecode_read_var_uint(reader);
+  out_section->export_count = export_count;
+  out_section->export =
+      arena_push_count(parser->arena, Bytecode_Export, export_count);
+  if (export_count > 0) {
+    for (uint64_t i = 0; i < export_count; i++) {
+      os_assert(bytecode_parse_export(parser, reader, &out_section->export[i]));
+    }
+  }
+  return true;
+}
+
 bool bytecode_parse_section(Bytecode_Reader* reader, Bytecode_Parser* parser) {
   os_assert(parser->arena != nullptr);
   os_assert(bytecode_reader_can_read(reader));
@@ -218,23 +291,19 @@ bool bytecode_parse_section(Bytecode_Reader* reader, Bytecode_Parser* parser) {
           return false;
         }
         bytecode_set_section_parsed(parser, section_id);
+        break;
+
+      case Bytecode_Section_Id_Export:
+        SDL_LogInfo(1, "Reading Export Section");
+        if (!bytecode_parse_export_section(parser, reader,
+                                           &parser->export_section)) {
+          SDL_LogError(1, "Unable to read export section");
+          return false;
+        }
+        bytecode_set_section_parsed(parser, section_id);
+        break;
     }
   }
-  return true;
-}
-
-bool bytecode_parse_string(Arena* arena, Bytecode_Reader* reader,
-                           uint64_t* out_string_length, char** out_string) {
-  os_assert(bytecode_reader_can_read(reader));
-  os_assert(arena != nullptr);
-  os_assert(out_string_length != nullptr);
-  os_assert(out_string != nullptr);
-
-  uint64_t str_len = bytecode_read_var_uint(reader);
-  char* string_data =
-      (char*)bytecode_read_bytes_zero_term(arena, reader, str_len);
-  *out_string_length = str_len;
-  *out_string = string_data;
   return true;
 }
 
@@ -258,6 +327,16 @@ bool bytecode_parse(Arena* arena, Bytecode_Reader* reader) {
     SDL_LogError(1, "Unable to parse section 2");
     return false;
   }
+  os_assert(bytecode_is_section_parsed(&parser, Bytecode_Section_Id_Function));
+  os_assert(parser.function_section.function_count == 1);
 
+  section_ok = bytecode_parse_section(reader, &parser);
+  if (!section_ok) {
+    SDL_LogError(1, "Unable to parse section 3");
+    return false;
+  }
+  os_assert(bytecode_is_section_parsed(&parser, Bytecode_Section_Id_Export));
+  os_assert(parser.export_section.export_count == 1);
+  SDL_LogInfo(1, "Export fn name: %s", parser.export_section.export[0].name);
   return true;
 }
