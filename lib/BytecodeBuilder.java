@@ -3,15 +3,15 @@ import java.util.ArrayList;
 import wasmBuilder.*;
 
 public class BytecodeBuilder {
-	private ArrayList<FunctionType> functiontypes = new ArrayList<FunctionType>();
+	private ArrayList<FuncType> functiontypes = new ArrayList<FuncType>();
 	private WasmBuilder builder;
 
 	public WasmBuilder getWasmBuilder() {
 		return this.builder;
 	}
 
-	public BytecodeBuilder(ArrayList<FunctionType> functypes) throws IOException {
-		this.builder = new WasmBuilder();
+	public BytecodeBuilder(ArrayList<FuncType> functypes) throws IOException {
+		this.builder = new WasmBuilder(functypes);
 		this.functiontypes = functypes;
 	}
 
