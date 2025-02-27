@@ -1,4 +1,5 @@
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_messagebox.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -22,7 +23,8 @@ int main() {
   leb128_read_i64((uint8_t*)leb_numbers, 0, sizeof(leb_numbers), &res);
   printf("%ld\n", res);
   SDL_assert(res == -59);
-
+  char* cwd = SDL_GetCurrentDirectory();
+  printf("dir: %s\n", cwd);
   size_t wasm_file_size = 0;
   uint8_t* wasm_file_data = nullptr;
   Arena* arena = arena_create(MB(5));

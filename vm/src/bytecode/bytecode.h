@@ -49,7 +49,7 @@ typedef struct Bytecode_Type_Section {
 } Bytecode_Type_Section;
 
 typedef struct Bytecode_Function_Section {
-	size_t function_count;
+	uint64_t function_count;
 	uint32_t* type_idx;	
 } Bytecode_Function_Section;
 

@@ -6,6 +6,6 @@ tidy : format
 	clang-tidy --checks='clang-analyzer-*' {{sources}}
 
 build: format 
-	clang {{sources}} -std=c23 -g -Werror -Wall -fsanitize=address -lSDL3 -o ../out/debug.bin
+	clang {{sources}} -std=c23 -g -Werror -Wall -Wextra -pedantic-errors -Wconversion -Wsign-conversion -fsanitize=address -lSDL3 -o ../out/debug.bin
 run:
 	../out/debug.bin

@@ -26,13 +26,13 @@ bool io_read_entire_file(Arena* arena, const char* path, size_t* out_file_size,
     return false;
   }
 
-  uint8_t* buffer = arena_alloc(arena, file_size);
+  uint8_t* buffer = arena_alloc(arena, (size_t)file_size);
 
-  size_t bytes_read = SDL_ReadIO(stream, buffer, file_size);
+  size_t bytes_read = SDL_ReadIO(stream, buffer, (size_t)file_size);
   SDL_LogInfo(1, "bytes read: %ld", bytes_read);
 
   SDL_CloseIO(stream);
-  *out_file_size = file_size;
+  *out_file_size = (size_t)file_size;
   *out_file_data = buffer;
 
   return true;

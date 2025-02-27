@@ -10,7 +10,7 @@ bool bytecode_check_header(Bytecode_Reader* reader) {
 
   uint8_t header_data[4] = {0x0, 0x61, 0x73, 0x6D};
 
-  for (int i = 0; i < COUNT_OF(header_data); ++i) {
+  for (uint64_t i = 0; i < COUNT_OF(header_data); ++i) {
     uint8_t val = bytecode_read_byte(reader);
     if (val != header_data[i]) {
       return false;
@@ -24,7 +24,7 @@ bool bytecode_check_version(Bytecode_Reader* reader) {
 
   uint8_t version_data[4] = {0x01, 0x00, 0x00, 0x00};
 
-  for (int i = 0; i < COUNT_OF(version_data); ++i) {
+  for (uint64_t i = 0; i < COUNT_OF(version_data); ++i) {
     uint8_t val = bytecode_read_byte(reader);
     if (val != version_data[i]) {
       return false;
@@ -42,8 +42,7 @@ bool bytecode_parse_section_id(Bytecode_Reader* reader,
   return true;
 }
 
-bool bytecode_parse_type_id(Bytecode_Reader* reader, uint8_t id,
-                            Bytecode_Type_Id* out_id) {
+bool bytecode_parse_type_id(uint8_t id, Bytecode_Type_Id* out_id) {
   if (id > Bytecode_Type_Id_Num_I32 || id < Bytecode_Type_Id_Ref_Externref) {
     return false;
   }
@@ -64,9 +63,9 @@ bool bytecode_parse_function_type(Bytecode_Reader* reader,
       SDL_LogError(1, "Parameter Count exceeds max params");
       return false;
     }
-    for (int i = 0; i < func_type.param_count; i++) {
+    for (size_t i = 0; i < func_type.param_count; i++) {
       uint8_t id = bytecode_read_byte(reader);
-      if (!bytecode_parse_type_id(reader, id, &func_type.param_types[i])) {
+      if (!bytecode_parse_type_id(id, &func_type.param_types[i])) {
         SDL_LogError(1, "Invalid type id: %d",
                      (uint8_t)func_type.param_types[i]);
         return false;
@@ -82,9 +81,9 @@ bool bytecode_parse_function_type(Bytecode_Reader* reader,
       SDL_LogError(1, "Return Val Count exceeds max return ");
       return false;
     }
-    for (int i = 0; i < func_type.return_count; i++) {
+    for (size_t i = 0; i < func_type.return_count; i++) {
       uint8_t id = bytecode_read_byte(reader);
-      if (!bytecode_parse_type_id(reader, id, &func_type.return_types[i])) {
+      if (!bytecode_parse_type_id(id, &func_type.return_types[i])) {
         SDL_LogError(1, "Invalid type id");
         return false;
       }
@@ -99,16 +98,18 @@ bool bytecode_parse_function_type(Bytecode_Reader* reader,
 bool bytecode_parse_type_section(Arena* arena, Bytecode_Reader* reader,
                                  size_t section_size,
                                  Bytecode_Type_Section* out_type_section) {
+  UNUSED(section_size);
   os_assert(out_type_section != nullptr);
   os_assert(arena != nullptr);
-  os_assert(bytecode_reader_can_read(reader)) uint64_t function_type_count =
-      bytecode_read_var_uint(reader);
+  os_assert(bytecode_reader_can_read(reader));
+  uint64_t function_type_count = bytecode_read_var_uint(reader);
+
   if (function_type_count > 0) {
     out_type_section->type_count = function_type_count;
     out_type_section->function_types =
         arena_push_count(arena, Bytecode_Function_Type, function_type_count);
 
-    for (int i = 0; i < function_type_count; i++) {
+    for (uint64_t i = 0; i < function_type_count; i++) {
       uint8_t func_type_header = bytecode_read_byte(reader);
       if (func_type_header != FUNCTYPE_HEADER) {
         SDL_LogError(
@@ -125,13 +126,13 @@ bool bytecode_parse_type_section(Arena* arena, Bytecode_Reader* reader,
   }
   return true;
 }
-bool bytecode_parse_type_idx(Bytecode_Reader* reader, int type_count,
+bool bytecode_parse_type_idx(Bytecode_Reader* reader, uint64_t type_count,
                              uint32_t* out_type_id) {
   os_assert(bytecode_reader_can_read(reader));
   os_assert(out_type_id != nullptr);
-
-  *out_type_id = bytecode_read_var_uint(reader);
-  if (*out_type_id > type_count) {
+  os_assert(type_count >= 0);
+  *out_type_id = (uint32_t)bytecode_read_var_uint(reader);
+  if (*out_type_id > (uint32_t)type_count) {
     SDL_LogError(1, "Invalid type id out of scope");
     return false;
   }
@@ -139,7 +140,7 @@ bool bytecode_parse_type_idx(Bytecode_Reader* reader, int type_count,
 }
 
 bool bytecode_parse_function_section(
-    Arena* arena, Bytecode_Reader* reader, int type_count,
+    Arena* arena, Bytecode_Reader* reader, uint64_t type_count,
     Bytecode_Function_Section* out_function_section) {
   os_assert(bytecode_reader_can_read(reader));
   os_assert(out_function_section != nullptr);
@@ -155,7 +156,7 @@ bool bytecode_parse_function_section(
       return false;
     }
 
-    for (int i = 0; i < out_function_section->function_count; i++) {
+    for (uint64_t i = 0; i < out_function_section->function_count; i++) {
       bool type_ok = bytecode_parse_type_idx(
           reader, type_count, &out_function_section->type_idx[i]);
       if (!type_ok) {
@@ -222,12 +223,28 @@ bool bytecode_parse_section(Bytecode_Reader* reader, Bytecode_Parser* parser) {
   return true;
 }
 
+bool bytecode_parse_string(Arena* arena, Bytecode_Reader* reader,
+                           uint64_t* out_string_length, char** out_string) {
+  os_assert(bytecode_reader_can_read(reader));
+  os_assert(arena != nullptr);
+  os_assert(out_string_length != nullptr);
+  os_assert(out_string != nullptr);
+
+  uint64_t str_len = bytecode_read_var_uint(reader);
+  char* string_data =
+      (char*)bytecode_read_bytes_zero_term(arena, reader, str_len);
+  *out_string_length = str_len;
+  *out_string = string_data;
+  return true;
+}
+
 bool bytecode_parse(Arena* arena, Bytecode_Reader* reader) {
   Bytecode_Parser parser = {0};
   parser.arena = arena;
   bool section_ok = bytecode_parse_section(reader, &parser);
   if (!section_ok) {
     SDL_LogError(1, "Unable to parse section");
+    return false;
   }
   os_assert(bytecode_is_section_parsed(&parser, Bytecode_Section_Id_Type));
   os_assert(parser.type_section.type_count == 1);
@@ -239,6 +256,8 @@ bool bytecode_parse(Arena* arena, Bytecode_Reader* reader) {
   section_ok = bytecode_parse_section(reader, &parser);
   if (!section_ok) {
     SDL_LogError(1, "Unable to parse section 2");
+    return false;
   }
+
   return true;
 }
