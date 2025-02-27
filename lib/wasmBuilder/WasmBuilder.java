@@ -13,6 +13,7 @@ public class WasmBuilder {
 	private boolean inFunction = false;
 	private int currentFunction;
 
+	// TODO: Instructions als Code den Funktionen zuordnen
 	public void build() throws IOException {
 
 		writeBinaryMagic(out);
