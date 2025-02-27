@@ -6,6 +6,7 @@ typedef struct Bytecode_Parser {
 	Arena* arena;
 	Bytecode_Type_Section type_section;	
 	Bytecode_Function_Section function_section;
+	Bytecode_Export_Section export_section;
 	uint16_t main_sections_present;
 } Bytecode_Parser;
 

@@ -32,6 +32,31 @@ typedef enum Bytecode_Type_Id : uint8_t {
 	Bytecode_Type_Id_Ref_Externref = 0x6F,
 } Bytecode_Type_Id ;
 
+typedef enum Bytecode_Export_Desc_Type : uint8_t {
+	Bytecode_Export_Desc_Type_Funcidx = 0x00,
+	Bytecode_Export_Desc_Type_Tableidx = 0x01,
+	Bytecode_Export_Desc_Type_Memidx = 0x02,
+	Bytecode_Export_Desc_Type_Globalidx = 0x03,
+	Bytecode_Export_Desc_Type_Enum_Len = 0x04,
+} Bytecode_Export_Desc_Type;
+
+typedef struct Bytecode_Export_Desc {
+	Bytecode_Export_Desc_Type type;
+	uint64_t id;
+} Bytecode_Export_Desc;
+
+typedef struct Bytecode_Export {
+	char* name;
+	uint64_t name_length;
+
+	Bytecode_Export_Desc desc;	
+} Bytecode_Export;
+
+typedef struct Bytecode_Export_Section {
+	uint64_t export_count;
+	Bytecode_Export* export;
+} Bytecode_Export_Section;
+
 #define FUNCTION_TYPE_MAX_PARAMS 12 
 #define FUNCTION_TYPE_MAX_RETURN 12
 
@@ -55,10 +80,11 @@ typedef struct Bytecode_Function_Section {
 
 typedef struct Bytecode_Section {
 	Bytecode_Section_Id id;
-
+	
 	union {
 		Bytecode_Type_Section type_section;
 	} data;
 } Bytecode_Section;
+
 
 
