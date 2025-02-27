@@ -1,4 +1,11 @@
-build:
-	clang src/*.c src/bytecode/*.c -std=c23 -Werror -Wall -fsanitize=address -lSDL3 -o ../out/debug.bin
+sources := "src/*.c src/bytecode/*.c" 
+
+format:
+	clang-format -i --style=Google {{sources}}
+tidy : format
+	clang-tidy --checks='clang-analyzer-*' {{sources}}
+
+build: format 
+	clang {{sources}} -std=c23 -g -Werror -Wall -Wextra -pedantic-errors -Wconversion -Wsign-conversion -fsanitize=address -lSDL3 -o ../out/debug.bin
 run:
 	../out/debug.bin

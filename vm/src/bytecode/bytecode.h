@@ -48,6 +48,10 @@ typedef struct Bytecode_Type_Section {
 	Bytecode_Function_Type* function_types;
 } Bytecode_Type_Section;
 
+typedef struct Bytecode_Function_Section {
+	uint64_t function_count;
+	uint32_t* type_idx;	
+} Bytecode_Function_Section;
 
 typedef struct Bytecode_Section {
 	Bytecode_Section_Id id;
@@ -58,4 +62,3 @@ typedef struct Bytecode_Section {
 } Bytecode_Section;
 
 
-bool bytecode_parse_section(Arena* arena, Bytecode_Reader* reader, Bytecode_Section* out_section);
