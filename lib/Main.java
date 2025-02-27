@@ -23,7 +23,7 @@ class Main {
 			bbuilder.emitLe();
 			System.out.println("out (ByteCodeBuilder): " + bbuilder.getWasmBuilder().getAsHexString());
 
-			FileOutputStream out = new FileOutputStream("tesfile.wasm");
+			FileOutputStream out = new FileOutputStream("testfile.wasm");
 			out.write(bbuilder.getWasmBuilder().getByteArray());
 			out.close();
 		} catch (IOException e) {
