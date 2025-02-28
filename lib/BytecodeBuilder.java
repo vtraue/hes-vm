@@ -3,16 +3,26 @@ import java.util.ArrayList;
 import wasmBuilder.*;
 
 public class BytecodeBuilder {
-	private ArrayList<FuncType> functiontypes = new ArrayList<FuncType>();
 	private WasmBuilder builder;
 
 	public WasmBuilder getWasmBuilder() {
 		return this.builder;
 	}
 
-	public BytecodeBuilder(ArrayList<FuncType> functypes) throws IOException {
-		this.builder = new WasmBuilder(functypes);
-		this.functiontypes = functypes;
+	public BytecodeBuilder() throws IOException {
+		this.builder = new WasmBuilder();
+	}
+
+	public void build() throws IOException {
+		builder.build();
+	}
+
+	public void enterFunction(FuncType funcType) {
+		builder.addFuncType(funcType);
+	}
+
+	public void exitFunction() {
+		builder.setInFunction(false);
 	}
 
 	public void emitLocalSet(int id) throws IOException {

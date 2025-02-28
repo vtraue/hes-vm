@@ -12,15 +12,17 @@ class Main {
 
 	public static void main(String[] args) {
 		try {
-			ArrayList<Integer> params = new ArrayList<>();
-			params.add((int) WasmValueType.i32.code);
-			ArrayList<Integer> results = new ArrayList<>();
-			results.add((int) WasmValueType.i32.code);
-			ArrayList<wasmBuilder.FuncType> functypes = new ArrayList<>();
-			functypes.add(new FuncType(params, results));
+			ArrayList<WasmValueType> params = new ArrayList<>();
+			params.add(WasmValueType.i32);
+			ArrayList<WasmValueType> results = new ArrayList<>();
+			// results.add(WasmValueType.i32);
+			FuncType funcType = new FuncType(params, results);
 
-			BytecodeBuilder bbuilder = new BytecodeBuilder(functypes);
-			bbuilder.emitLe();
+			BytecodeBuilder bbuilder = new BytecodeBuilder();
+
+			bbuilder.enterFunction(funcType);
+			bbuilder.build();
+
 			System.out.println("out (ByteCodeBuilder): " + bbuilder.getWasmBuilder().getAsHexString());
 
 			FileOutputStream out = new FileOutputStream("testfile.wasm");

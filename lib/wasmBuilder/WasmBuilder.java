@@ -9,11 +9,28 @@ import java.util.List;
 public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
+	private ArrayList<FuncType> funcTypes = new ArrayList<>();
+	private boolean inFunction = false;
+	private int currentFunction;
 
-	public WasmBuilder(ArrayList<FuncType> functypes) throws IOException {
-		addBinaryMagic();
-		addBinaryVersion();
-		addEnterTypeSection(functypes);
+	// TODO: Instructions als Code den Funktionen zuordnen
+	public void build() throws IOException {
+
+		writeBinaryMagic(out);
+		writeBinaryVersion(out);
+		if (!funcTypes.isEmpty()) {
+			writeTypeSection(funcTypes, out);
+		}
+	}
+
+	public void addFuncType(FuncType funcType) {
+		this.funcTypes.add(funcType);
+		this.inFunction = true;
+		this.currentFunction = this.funcTypes.indexOf(funcType);
+	}
+
+	public void setInFunction(boolean b) {
+		this.inFunction = b;
 	}
 
 	public byte[] getByteArray() {
@@ -71,23 +88,30 @@ public class WasmBuilder {
 		write((byte) binop.code, out);
 	}
 
-	public void addEnterTypeSection(ArrayList<FuncType> functypes) throws IOException {
+	public void writeTypeSection(ArrayList<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream functypesBytes = new ByteArrayOutputStream();
 		write(encodeI32ToLeb128(functypes.size()), functypesBytes);
 		writeFunctionTypes(functypes, functypesBytes);
-		write((byte) SectionId.Type.ordinal(), out);
-		write((byte) functypesBytes.size(), out);
-		out.write(functypesBytes.toByteArray());
+
+		write((byte) SectionId.Type.ordinal(), os);
+		write((byte) functypesBytes.size(), os);
+		os.write(functypesBytes.toByteArray());
 	}
 
-	public void addBinaryMagic() throws IOException {
+	public void addFuncSection() throws IOException {
+		ByteArrayOutputStream funcsecBytes = new ByteArrayOutputStream();
+
+		write((byte) SectionId.Function.ordinal(), out);
+	}
+
+	public void writeBinaryMagic(ByteArrayOutputStream os) throws IOException {
 		byte[] wasmBinaryMagic = { 0x0, 'a', 's', 'm' };
-		out.write(wasmBinaryMagic);
+		os.write(wasmBinaryMagic);
 	}
 
-	public void addBinaryVersion() throws IOException {
+	public void writeBinaryVersion(ByteArrayOutputStream os) throws IOException {
 		byte[] wasmBinaryVersion = { 0x01, 0x00, 0x00, 0x00 };
-		out.write(wasmBinaryVersion);
+		os.write(wasmBinaryVersion);
 	}
 
 	public static ArrayList<Integer> encodeI32ToLeb128(int value) {
