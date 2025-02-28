@@ -1,5 +1,7 @@
 #include "arena.h"
 
+#include <stdint.h>
+
 #include "os.h"
 // TODO: (joh) Arenas sollten später wachsen können
 

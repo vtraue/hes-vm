@@ -17,7 +17,7 @@ void bytecode_reader_skip_bytes(Bytecode_Reader* reader, uint64_t offset) {
   os_assert(reader != nullptr);
   os_assert((reader->current_position + (int64_t)offset) <
             (int64_t)reader->data_size);
-  reader->current_position += offset;
+  reader->current_position += (int64_t)offset;
 }
 
 bool bytecode_read_bytes_into(Bytecode_Reader* reader, size_t count,
@@ -25,7 +25,7 @@ bool bytecode_read_bytes_into(Bytecode_Reader* reader, size_t count,
   os_assert(bytecode_reader_can_read(reader));
   os_assert(count <= buffer_size);
   os_memcpy(buffer, bytecode_bytes_at(reader), count);
-  reader->current_position += count;
+  reader->current_position += (int64_t)count;
 
   return true;
 }
@@ -53,7 +53,7 @@ uint8_t* bytecode_read_bytes_zero_term(Arena* arena, Bytecode_Reader* reader,
   uint8_t* buffer = arena_alloc(arena, count + 1);
   os_memcpy(buffer, bytecode_bytes_at(reader), count);
 
-  reader->current_position += count;
+  reader->current_position += (int64_t)count;
   buffer[count + 1] = 0;
 
   return buffer;

@@ -3,3 +3,7 @@
 -Werror 
 -Wall 
 -fsanitize=address 
+-Wextra 
+-pedantic-errors 
+-Wconversion 
+-Wsign-conversion
