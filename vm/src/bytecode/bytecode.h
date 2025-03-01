@@ -4,6 +4,7 @@
 
 #include "../arena.h"
 #include "bytecode_reader.h"
+#include "opcode.h"
 #define FUNCTYPE_HEADER 0x60
 
 typedef enum Bytecode_Section_Id : uint8_t {
@@ -93,14 +94,14 @@ typedef struct Bytecode_Locals {
 } Bytecode_Locals;
 
 typedef enum Bytecode_Instruction_Blocktype_Type {
-  Empty,
-  Valtype,
-  TypeIndex,
+  Bytecode_Instruction_Blocktype_Type_Empty,
+  Bytecode_Instruction_Blocktype_Type_Valtype,
+  Bytecode_Instruction_Blocktype_Type_TypeIndex,
 
 } Bytecode_Instruction_Blocktype_Type;
 
 typedef struct Bytecode_Instruction_Data_Blocktype {
-  Bytecode_Type_Id block_type;
+  Bytecode_Instruction_Blocktype_Type block_type;
   union {
     uint8_t valtype;
     uint32_t type_index;
@@ -118,70 +119,42 @@ typedef struct Bytecode_Instruction_Data_Memarg {
 } Bytecode_Instruction_Data_Memarg;
 
 typedef struct Bytecode_Instruction_Data_Vec_Valtype {
-  uint64_t count;
+  uint32_t count;
   Bytecode_Export_Desc_Type* valtypes;
 } Bytecode_Instruction_Data_Vec_Valtype;
 
-typedef enum Bytecode_Instruction_Type {
-  Bytecode_Op_unreachable,
-  Bytecode_Op_nop,
-  Bytecode_Op_block,
-  Bytecode_Op_loop,
-  Bytecode_Op_if,
-  Bytecode_Op_else,
-  Bytecode_Op_end,
-  Bytecode_Op_br,
-  Bytecode_Op_br_if,
-  Bytecode_Op_br_table,
-  Bytecode_Op_return,
-  Bytecode_Op_call,
-  Bytecode_Op_call_indirect,
-  Bytecode_Op_drop,
-  Bytecode_Op_select,
-  Bytecode_Op_select_t,
-  Bytecode_Op_local_get,
-  Bytecode_Op_local_set,
-  Bytecode_Op_local_tee,
-  Bytecode_Op_global_get,
-  Bytecode_Op_global_set,
-  Bytecode_Op_i32_load,
-  Bytecode_Op_i64_load,
-  Bytecode_Op_f32_load,
-  Bytecode_Op_f64_load,
-  Bytecode_Op_i32_load8_s,
-  Bytecode_Op_i32_store,
-  Bytecode_Op_i64_store,
-  Bytecode_Op_f32_store,
-  Bytecode_Op_i32_const,
-  Bytecode_Op_i64_const,
-  Bytecode_Op_i32_eqz,
-  Bytecode_Op_i32_eq,
-  Bytecode_Op_i32_ne,
-  Bytecode_Op_i32_lt_s,
-  Bytecode_Op_i32_lt_u,
-  Bytecode_Op_i32_gt_s,
-  Bytecode_Op_i32_gt_u,
-  Bytecode_Op_i32_le_s,
-  Bytecode_Op_i32_le_u,
-  Bytecode_Op_i32_ge_s,
-  Bytecode_Op_i32_ge_u,
-  Bytecode_Op_ref_null,
-  Bytecode_Op_ref_is_null,
-  Bytecode_Op_ref_func,
-} Bytecode_Instruction_Type;
+typedef struct Bytecode_Instruction_Data_Br_Table {
+  Bytecode_Instruction_Data_Vec_Valtype vec;
+  uint32_t label_id;
+} Bytecode_Instruction_Data_Br_Table;
 
 typedef struct Bytecode_Instruction {
-  Bytecode_Instruction_Type type;
+  Bytecode_Op opcode;
+  uint32_t suffix;
   union {
     Bytecode_Instruction_Data_Blocktype block;
     Bytecode_Instruction_Data_U32x2 u32x2;
     Bytecode_Instruction_Data_Memarg mem;
     Bytecode_Instruction_Data_Vec_Valtype valtypes;
+    Bytecode_Instruction_Data_Br_Table br_table;
+
     uint32_t u32;
     uint64_t u64;
     float f32;
   } args;
 } Bytecode_Instruction;
+
+#define INITAL_EXPRESSION_MAX_COUNT 255
+// TODO: (joh) Spaeter sollte das dynamisch wachsen koennen. Die
+// wahrscheinlichkeit, dass wir mehr als 255 Instruktionen in einer Expression
+// haben werden ist relativ hoch!
+typedef struct Bytecode_Expression {
+  uint64_t count;
+  uint64_t cap;
+  uint64_t size;
+  uint8_t* instructions;
+
+} Bytecode_Expression;
 
 /*
 typedef struct Bytecode_Func {

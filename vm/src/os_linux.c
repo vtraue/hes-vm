@@ -49,3 +49,10 @@ size_t os_get_file_size(const char* path) {
 }
 
 */
+bool buffer_copy(void* dest, size_t dest_size, void* src, size_t count) {
+  if (dest == nullptr || src == nullptr || count > dest_size) {
+    return false;
+  }
+  __builtin_memcpy(dest, src, count);
+  return true;
+}
