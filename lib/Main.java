@@ -1,10 +1,6 @@
-import java.io.File;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.List;
 
 import wasmBuilder.*;
 
@@ -19,9 +15,10 @@ class Main {
 			FuncType funcType = new FuncType(params, results);
 
 			BytecodeBuilder bbuilder = new BytecodeBuilder();
+			ArrayList<Func> funcs = new ArrayList<>();
 
-			bbuilder.enterFunction(funcType);
-			bbuilder.build();
+			funcs.add(bbuilder.createFunction(funcType));
+			bbuilder.build(funcs);
 
 			System.out.println("out (ByteCodeBuilder): " + bbuilder.getWasmBuilder().getAsHexString());
 

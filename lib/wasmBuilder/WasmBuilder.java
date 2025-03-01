@@ -10,11 +10,11 @@ public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private ArrayList<FuncType> funcTypes = new ArrayList<>();
-	private boolean inFunction = false;
+	private ArrayList<Func> funcs = new ArrayList<>();
 	private int currentFunction;
 
 	// TODO: Instructions als Code den Funktionen zuordnen
-	public void build() throws IOException {
+	public void build(ArrayList<Func> funcs) throws IOException {
 
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
@@ -23,14 +23,14 @@ public class WasmBuilder {
 		}
 	}
 
-	public void addFuncType(FuncType funcType) {
+	public Func addFunc(FuncType funcType) {
 		this.funcTypes.add(funcType);
-		this.inFunction = true;
-		this.currentFunction = this.funcTypes.indexOf(funcType);
+		return new Func(funcType);
+
 	}
 
-	public void setInFunction(boolean b) {
-		this.inFunction = b;
+	public Func getCurrentFunction() {
+		return this.funcs.get(currentFunction);
 	}
 
 	public byte[] getByteArray() {
@@ -42,12 +42,12 @@ public class WasmBuilder {
 		return hex.formatHex(out.toByteArray());
 	}
 
-	private void write(byte code, ByteArrayOutputStream os) throws IOException {
+	private static void write(byte code, ByteArrayOutputStream os) throws IOException {
 		byte[] b = { code };
 		os.write(b);
 	}
 
-	private void write(ArrayList<Integer> al, ByteArrayOutputStream os) throws IOException {
+	private static void write(ArrayList<Integer> al, ByteArrayOutputStream os) throws IOException {
 		for (Integer e : al) {
 			byte[] byteId = { (byte) e.intValue() };
 			os.write(byteId);
@@ -64,28 +64,28 @@ public class WasmBuilder {
 		}
 	}
 
-	public void addLocalSet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_SET.code, out);
-		write(encodeI32ToLeb128(id), out);
+	public static void addLocalSet(int id, ByteArrayOutputStream os) throws IOException {
+		write((byte) WasmInstructionOpCode.LOCAL_SET.code, os);
+		write(encodeI32ToLeb128(id), os);
 	}
 
-	public void addLocalGet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_GET.code, out);
-		write(encodeI32ToLeb128(id), out);
+	public static void addLocalGet(int id, ByteArrayOutputStream os) throws IOException {
+		write((byte) WasmInstructionOpCode.LOCAL_GET.code, os);
+		write(encodeI32ToLeb128(id), os);
 	}
 
-	public void addGlobalSet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_SET.code, out);
-		write(encodeI32ToLeb128(id), out);
+	public static void addGlobalSet(int id, ByteArrayOutputStream os) throws IOException {
+		write((byte) WasmInstructionOpCode.GLOBAL_SET.code, os);
+		write(encodeI32ToLeb128(id), os);
 	}
 
-	public void addGlobalGet(int id) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_GET.code, out);
-		write(encodeI32ToLeb128(id), out);
+	public static void addGlobalGet(int id, ByteArrayOutputStream os) throws IOException {
+		write((byte) WasmInstructionOpCode.GLOBAL_GET.code, os);
+		write(encodeI32ToLeb128(id), os);
 	}
 
-	public void addBinOp(WasmInstructionOpCode binop) throws IOException {
-		write((byte) binop.code, out);
+	public static void addBinOp(WasmInstructionOpCode binop, ByteArrayOutputStream os) throws IOException {
+		write((byte) binop.code, os);
 	}
 
 	public void writeTypeSection(ArrayList<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
@@ -98,10 +98,11 @@ public class WasmBuilder {
 		os.write(functypesBytes.toByteArray());
 	}
 
-	public void addFuncSection() throws IOException {
+	public void addFuncSection(ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcsecBytes = new ByteArrayOutputStream();
 
-		write((byte) SectionId.Function.ordinal(), out);
+		write((byte) SectionId.Function.ordinal(), os);
+		// TODO: Das ist noch nicht richtig
 	}
 
 	public void writeBinaryMagic(ByteArrayOutputStream os) throws IOException {
