@@ -1,7 +1,7 @@
 sources := "src/*.c src/bytecode/*.c" 
-
+headers := "src/*.h src/bytecode/*.h"
 format:
-	clang-format -i --style=Google {{sources}}
+	clang-format -i --style=Google {{sources}} {{headers}}
 
 tidy : format
 	clang-tidy --checks='clang-analyzer-*, performance-*, bugprone-*' {{sources}}
