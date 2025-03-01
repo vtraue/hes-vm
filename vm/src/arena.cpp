@@ -39,7 +39,7 @@ uint8_t *arena_alloc(Arena *arena, size_t size_bytes) {
 void arena_reset(Arena *arena) { arena->used = 0; }
 
 void arena_destroy(Arena *arena) {
-  os_mem_unreserve((void *)arena, arena->cap);
+  os_mem_unreserve((uint8_t *)arena, arena->cap);
 }
 
 uint8_t *arena_get_ptr(Arena *arena) { return arena->data + arena->used; }

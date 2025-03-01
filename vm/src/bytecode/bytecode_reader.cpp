@@ -58,6 +58,7 @@ uint8_t* bytecode_read_bytes_zero_term(Arena* arena, Bytecode_Reader* reader,
 
   return buffer;
 }
+
 uint8_t bytecode_read_byte(Bytecode_Reader* reader) {
   os_assert(reader != nullptr);
   os_assert(bytecode_reader_can_read(reader));

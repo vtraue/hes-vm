@@ -26,7 +26,7 @@ void os_mem_unreserve(uint8_t* ptr, size_t size) {
   os_assert(munmap((void*)ptr, size) == 0);
 }
 
-void os_crash_with_message(char* message) {
+void os_crash_with_message(const char* message) {
   fprintf(stderr, "PANIC: %s\n", message);
   SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Critical Error!", message,
                            nullptr);

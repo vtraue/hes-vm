@@ -56,7 +56,7 @@ typedef struct Bytecode_Export {
 
 typedef struct Bytecode_Export_Section {
   uint64_t export_count;
-  Bytecode_Export* export;
+  Bytecode_Export* exported;
 } Bytecode_Export_Section;
 
 #define FUNCTION_TYPE_MAX_PARAMS 12

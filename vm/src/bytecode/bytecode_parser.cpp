@@ -39,7 +39,7 @@ bool bytecode_parse_section_id(Bytecode_Reader* reader,
   if (id < 0 || id >= Bytecode_Section_Id_Enum_Max) {
     return false;
   }
-  *out_id = id;
+  *out_id = (Bytecode_Section_Id)id;
   return true;
 }
 
@@ -47,14 +47,14 @@ bool bytecode_parse_type_id(uint8_t id, Bytecode_Type_Id* out_id) {
   if (id > Bytecode_Type_Id_Num_I32 || id < Bytecode_Type_Id_Ref_Externref) {
     return false;
   }
-  *out_id = id;
+  *out_id = (Bytecode_Type_Id)id;
   return true;
 }
 
 //?: (joh) Sollen wir die 0x60 hier mitlesen oder lieber doch aussen?
 bool bytecode_parse_function_type(Bytecode_Reader* reader,
                                   Bytecode_Function_Type* out_function_type) {
-  Bytecode_Function_Type func_type = {0};
+  Bytecode_Function_Type func_type = {};
   os_assert(reader != nullptr);
   uint64_t param_count = bytecode_read_var_uint(reader);
 
@@ -211,7 +211,7 @@ bool bytecode_parse_export(Bytecode_Parser* parser, Bytecode_Reader* reader,
   }
   Bytecode_Export_Desc_Type desc_type = (Bytecode_Export_Desc_Type)desc_type_id;
   switch (desc_type) {
-    case Bytecode_Export_Desc_Type_Funcidx:
+    case Bytecode_Export_Desc_Type_Funcidx: {
       if (!bytecode_is_section_parsed(parser, Bytecode_Section_Id_Function)) {
         SDL_LogError(1, "Malformed module: No function section");
         return false;
@@ -223,10 +223,11 @@ bool bytecode_parse_export(Bytecode_Parser* parser, Bytecode_Reader* reader,
         return false;
       }
       out_export->desc.id = func_id;
-      break;
-    default:
+    } break;
+    default: {
       SDL_LogError(1, "Unimplemented");
       break;
+    }
   }
   out_export->desc.type = desc_type;
   out_export->name = export_name;
@@ -242,11 +243,12 @@ bool bytecode_parse_export_section(Bytecode_Parser* parser,
   os_assert(out_section != nullptr);
   uint64_t export_count = bytecode_read_var_uint(reader);
   out_section->export_count = export_count;
-  out_section->export =
+  out_section->exported =
       arena_push_count(parser->arena, Bytecode_Export, export_count);
   if (export_count > 0) {
     for (uint64_t i = 0; i < export_count; i++) {
-      os_assert(bytecode_parse_export(parser, reader, &out_section->export[i]));
+      os_assert(
+          bytecode_parse_export(parser, reader, &out_section->exported[i]));
     }
   }
   return true;
@@ -317,47 +319,46 @@ bool bytecode_parse_expression(Bytecode_Parser* parser, Bytecode_Reader* reader,
       // Blocktype:
       case Bytecode_Op_block:
       case Bytecode_Op_loop:
-      case Bytecode_Op_if:
-        Bytecode_Instruction_Data_Blocktype block_type = {0};
+      case Bytecode_Op_if: {
+        Bytecode_Instruction_Data_Blocktype block_type = {};
         if (bytecode_parse_blocktype(reader, &block_type)) {
           arena_copy_struct(parser->arena, &block_type);
           depth += 1;
         } else {
           return false;
         }
-        break;
+      } break;
 
-      case Bytecode_Op_end:
+      case Bytecode_Op_end: {
         if (depth == 0) {
           code_done = true;
           break;
         }
         depth -= 1;
-        break;
+      } break;
       case Bytecode_Op_br:
-      case Bytecode_Op_br_if:
+      case Bytecode_Op_br_if: {
         uint32_t id = (uint32_t)bytecode_read_var_uint(reader);
         arena_write(parser->arena, &id);
-
-        break;
-      case Bytecode_Op_call:
+      } break;
+      case Bytecode_Op_call: {
         uint32_t func_id = (uint32_t)bytecode_read_var_uint(reader);
         arena_write(parser->arena, &func_id);
-        break;
-      case Bytecode_Op_call_indirect:
+      } break;
+      case Bytecode_Op_call_indirect: {
         uint32_t type_id = (uint32_t)bytecode_read_var_uint(reader);
         uint32_t table_id = (uint32_t)bytecode_read_var_uint(reader);
         arena_write(parser->arena, &type_id);
         arena_write(parser->arena, &table_id);
-        break;
+      } break;
       case Bytecode_Op_local_get:
       case Bytecode_Op_local_set:
       case Bytecode_Op_local_tee:
       case Bytecode_Op_global_get:
-      case Bytecode_Op_global_set:
+      case Bytecode_Op_global_set: {
         uint32_t id_arg = (uint32_t)bytecode_read_var_uint(reader);
         arena_write(parser->arena, &id_arg);
-        break;
+      } break;
       case Bytecode_Op_i32_load:
       case Bytecode_Op_i64_load:
       case Bytecode_Op_f32_load:
@@ -400,7 +401,7 @@ bool bytecode_parse_expression(Bytecode_Parser* parser, Bytecode_Reader* reader,
 bool bytecode_parse_section(Bytecode_Reader* reader, Bytecode_Parser* parser) {
   os_assert(parser->arena != nullptr);
   os_assert(bytecode_reader_can_read(reader));
-  Bytecode_Section_Id section_id = 0;
+  Bytecode_Section_Id section_id = Bytecode_Section_Id_Custom;
   if (!bytecode_parse_section_id(reader, &section_id)) {
     SDL_LogError(1, "Malformed section id");
     return false;
@@ -454,7 +455,7 @@ bool bytecode_parse_section(Bytecode_Reader* reader, Bytecode_Parser* parser) {
 }
 
 bool bytecode_parse(Arena* arena, Bytecode_Reader* reader) {
-  Bytecode_Parser parser = {0};
+  Bytecode_Parser parser = {};
   parser.arena = arena;
   bool section_ok = bytecode_parse_section(reader, &parser);
   if (!section_ok) {
@@ -483,6 +484,6 @@ bool bytecode_parse(Arena* arena, Bytecode_Reader* reader) {
   }
   os_assert(bytecode_is_section_parsed(&parser, Bytecode_Section_Id_Export));
   os_assert(parser.export_section.export_count == 1);
-  SDL_LogInfo(1, "Export fn name: %s", parser.export_section.export[0].name);
+  SDL_LogInfo(1, "Export fn name: %s", parser.export_section.exported[0].name);
   return true;
 }
