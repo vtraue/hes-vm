@@ -4,6 +4,7 @@ package wasmBuilder;
 public enum WasmInstructionOpCode {
 	UNREACHABLE((short) 0x00),
 	NOP((short) 0x01),
+	END((short) 0x0b),
 	BLOCK((short) 0x02),
 	LOOP((short) 0x03),
 	IF((short) 0x04),
