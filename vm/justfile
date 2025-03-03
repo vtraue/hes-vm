@@ -5,10 +5,10 @@ format:
 	clang-format -i --style=Google {{sources}} {{headers}}
 
 tidy : format
-	clang-tidy --checks='clang-analyzer-*, performance-*, bugprone-*' {{sources}}
+	clang-tidy {{sources}}
 
 build: format 
-	clang++ src/all.cpp -std=c++23 -g -Werror -Wall -Wextra -pedantic-errors -Wconversion -Wsign-conversion -fsanitize=address -lSDL3 -o {{out}}
+	clang++ src/unity_build.cpp -std=c++23 -g -Werror -Wall -Wextra -pedantic-errors -Wconversion -Wunused-variable -Wsign-conversion -fsanitize=address -Wint-in-bool-context -Winvalid-utf8 -Wmain -Wmissing-noreturn -lSDL3 -o {{out}}
 
 run:
 	{{out}}

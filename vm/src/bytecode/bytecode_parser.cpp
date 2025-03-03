@@ -41,9 +41,7 @@ bool Parser::check_header(Reader& reader) {
 }
 
 bool Parser::check_version(Reader& reader) {
-  const uint8_t version_data[4] = {0x01, 0x00, 0x00, 0x00};
-
-  for (uint8_t i : version_data) {
+  for (int i : {0x01, 0x00, 0x00, 0x00}) {
     uint8_t val = reader.get<uint8_t>();
     if (val != i) {
       return false;
@@ -64,7 +62,7 @@ std::optional<Section_Id> Parser::parse_section_id(Reader& reader) {
 }
 
 std::optional<Function_Type> Parser::parse_function_type(Reader& reader) {
-  uint64_t param_count = reader.get<uint64_t>();
+  auto param_count = reader.get<uint64_t>();
 
   std::optional<std::span<Type_Id>> out_param_types = {};
   if (param_count != 0) {
@@ -82,7 +80,7 @@ std::optional<Function_Type> Parser::parse_function_type(Reader& reader) {
   }
 
   std::optional<std::span<Type_Id>> out_return_types = {};
-  uint64_t return_count = reader.get<uint64_t>();
+  auto return_count = reader.get<uint64_t>();
   if (return_count != 0) {
     auto return_types = this->arena->push<Type_Id>(return_count);
     for (size_t i = 0; i < return_count; i++) {
@@ -102,7 +100,7 @@ std::optional<Function_Type> Parser::parse_function_type(Reader& reader) {
 
 std::optional<Type_Section> Parser::parse_type_section(
     Reader& reader, [[maybe_unused]] size_t section_size) {
-  uint64_t function_type_count = reader.get<uint64_t>();
+  auto function_type_count = reader.get<uint64_t>();
   std::optional<Type_Section> out_type_section = {};
   if (function_type_count > 0) {
     out_type_section = this->arena->push<Function_Type>(function_type_count);
@@ -126,8 +124,10 @@ std::optional<Type_Section> Parser::parse_type_section(
 }
 
 std::optional<uint32_t> Parser::parse_type_idx(Reader& reader) {
-  uint32_t type_id = reader.get<uint32_t>();
-  os_assert(this->type_section);
+  auto type_id = reader.get<uint32_t>();
+  if (!this->type_section) {
+    return {};
+  }
   if (type_id > this->type_section.value().size()) {
     SDL_LogError(1, "Invalid type id out of scope");
     return {};
@@ -136,7 +136,7 @@ std::optional<uint32_t> Parser::parse_type_idx(Reader& reader) {
 }
 
 std::optional<Function_Section> Parser::parse_function_section(Reader& reader) {
-  uint64_t function_count = reader.get<uint64_t>();
+  auto function_count = reader.get<uint64_t>();
   if (function_count > 0) {
     if (!this->type_section || this->type_section.value().empty()) {
       SDL_LogError(1, "Missing type section");
@@ -156,7 +156,7 @@ std::optional<Function_Section> Parser::parse_function_section(Reader& reader) {
 }
 
 std::optional<std::string_view> Parser::parse_string(Reader& reader) {
-  uint64_t str_len = reader.get<uint64_t>();
+  auto str_len = reader.get<uint64_t>();
   auto string_data = reader.copy_bytes_alloc_zero_term(this->arena, str_len);
   if (!string_data) {
     return {};
@@ -172,12 +172,12 @@ std::optional<Export> Parser::parse_export(Reader& reader) {
     return {};
   }
   SDL_LogInfo(1, "Export name: %s", export_name.value().data());
-  uint8_t desc_type_id = reader.get<uint8_t>();
+  auto desc_type_id = reader.get<uint8_t>();
   if (desc_type_id >= static_cast<uint8_t>(Export_Desc::Type::Enum_Len)) {
     SDL_LogError(1, "Malformed export desc type");
     return {};
   }
-  Export_Desc::Type desc_type = static_cast<Export_Desc::Type>(desc_type_id);
+  auto desc_type = static_cast<Export_Desc::Type>(desc_type_id);
   uint64_t export_id = 0;
 
   switch (desc_type) {
@@ -203,7 +203,7 @@ std::optional<Export> Parser::parse_export(Reader& reader) {
 }
 
 std::optional<Export_Section> Parser::parse_export_section(Reader& reader) {
-  uint64_t export_count = reader.get<uint64_t>();
+  auto export_count = reader.get<uint64_t>();
   if (export_count) {
     auto exported = this->arena->push<Export>(export_count);
     for (uint64_t i = 0; i < export_count; i++) {
@@ -365,7 +365,7 @@ bool Parser::parse_next_section(Reader& reader) {
     SDL_LogError(1, "Malformed section id");
     return false;
   }
-  uint64_t section_size = reader.get<uint64_t>();
+  auto section_size = reader.get<uint64_t>();
   if (section_size > 0) {
     switch (section_id.value()) {
       case Section_Id::Custom: {
@@ -398,7 +398,10 @@ bool Parser::parse(Reader& reader) {
     SDL_LogError(1, "Unable to parse section");
     return false;
   }
-  os_assert(this->type_section);
+  // NOTE:(Joh): um Clang tidy happy zu machen
+  if (!this->type_section) {
+    os_assert(false);
+  }
   os_assert(this->type_section.value().size() == 1);
   auto func = this->type_section.value()[0];
   os_assert(func.param_types.has_value())

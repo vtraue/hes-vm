@@ -1,7 +1,6 @@
 #include "arena.hpp"
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <span>
 
 #include "os.h"
@@ -12,7 +11,7 @@ Arena *Arena::create(size_t cap) {
   size_t reserve_size = (cap + sizeof(Arena));
   uint8_t *data = os_mem_reserve(reserve_size);
 
-  Arena *arena = (Arena *)data;
+  auto *arena = reinterpret_cast<Arena *>(data);
 
   arena->data = data + sizeof(Arena);
   arena->cap = cap;

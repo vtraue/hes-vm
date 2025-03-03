@@ -5,8 +5,8 @@
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_iostream.h>
 #include <SDL3/SDL_log.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <optional>
 #include <span>
 
