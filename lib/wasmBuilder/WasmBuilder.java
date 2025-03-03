@@ -56,9 +56,9 @@ public class WasmBuilder {
 	private void writeFunctionTypes(ArrayList<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		for (FuncType f : functypes) {
 			write((byte) 0x60, os);
-			write((byte) f.getParams().size(), os);
+			write(encodeI32ToLeb128(f.getParams().size()), os);
 			write(f.getParams(), os);
-			write((byte) f.getResults().size(), os);
+			write(encodeI32ToLeb128(f.getResults().size()), os);
 			write(f.getResults(), os);
 		}
 	}
@@ -93,7 +93,7 @@ public class WasmBuilder {
 		writeFunctionTypes(functypes, functypesBytes);
 
 		write((byte) SectionId.Type.ordinal(), os);
-		write((byte) functypesBytes.size(), os);
+		write(encodeI32ToLeb128(functypesBytes.size()), os);
 		os.write(functypesBytes.toByteArray());
 	}
 
@@ -106,12 +106,23 @@ public class WasmBuilder {
 		}
 
 		write((byte) SectionId.Function.ordinal(), os);
-		write((byte) funcIdsBytes.size(), os);
+		write(encodeI32ToLeb128(funcIdsBytes.size()), os);
 		os.write(funcIdsBytes.toByteArray());
 	}
 
-	public void writeCodeSection(ArrayList<Func> funcs, ByteArrayOutputStream os) {
+	public void writeCodeSection(ArrayList<Func> funcs, ByteArrayOutputStream os) throws IOException {
+		ByteArrayOutputStream funcBodiesBytes = new ByteArrayOutputStream();
+		for (Func func : funcs) {
+			writeFuncBody(func, funcBodiesBytes);
+		}
 
+		write((byte) SectionId.Code.ordinal(), os);
+
+	}
+
+	public void writeFuncBody(Func f, ByteArrayOutputStream os) throws IOException {
+		write(encodeI32ToLeb128(f.getBody().size()), os);
+		os.write(f.getBody().toByteArray());
 	}
 
 	public void writeBinaryMagic(ByteArrayOutputStream os) throws IOException {
