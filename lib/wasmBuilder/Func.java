@@ -8,10 +8,12 @@ public class Func {
 	private FuncType funcType;
 	private int Id;
 	private ByteArrayOutputStream body;
-	private ArrayList<WasmValueType> locals = new ArrayList<>();
+	private ArrayList<WasmValueType> locals;
 
 	public Func(FuncType funcType) {
 		this.funcType = funcType;
+		this.body = new ByteArrayOutputStream();
+		this.locals = new ArrayList<>();
 
 	}
 
@@ -28,6 +30,10 @@ public class Func {
 		ByteArrayOutputStream locals = new ByteArrayOutputStream();
 		ByteArrayOutputStream funcCode = new ByteArrayOutputStream();
 		return funcCode;
+	}
+
+	public void emitEnd() throws IOException {
+		WasmBuilder.addEnd(body);
 	}
 
 	public void emitLocalSet(int id) throws IOException {

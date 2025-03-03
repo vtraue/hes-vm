@@ -19,6 +19,7 @@ public class WasmBuilder {
 		if (!funcTypes.isEmpty()) {
 			writeTypeSection(funcTypes, out);
 			writeFuncSection(funcTypes, out);
+			writeCodeSection(funcs, out);
 		}
 	}
 
@@ -61,6 +62,10 @@ public class WasmBuilder {
 			write(encodeI32ToLeb128(f.getResults().size()), os);
 			write(f.getResults(), os);
 		}
+	}
+
+	public static void addEnd(ByteArrayOutputStream os) throws IOException {
+		write((byte) WasmInstructionOpCode.END.code, os);
 	}
 
 	public static void addLocalSet(int id, ByteArrayOutputStream os) throws IOException {
@@ -117,6 +122,8 @@ public class WasmBuilder {
 		}
 
 		write((byte) SectionId.Code.ordinal(), os);
+		write(encodeI32ToLeb128(funcBodiesBytes.size()), os);
+		os.write(funcBodiesBytes.toByteArray());
 
 	}
 
