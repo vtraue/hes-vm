@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HexFormat;
-import java.util.List;
 
 public class WasmBuilder {
 
@@ -13,13 +12,13 @@ public class WasmBuilder {
 	private ArrayList<Func> funcs = new ArrayList<>();
 	private int currentFunction;
 
-	// TODO: Instructions als Code den Funktionen zuordnen
 	public void build(ArrayList<Func> funcs) throws IOException {
 
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
 		if (!funcTypes.isEmpty()) {
 			writeTypeSection(funcTypes, out);
+			writeFuncSection(funcTypes, out);
 		}
 	}
 
@@ -98,11 +97,21 @@ public class WasmBuilder {
 		os.write(functypesBytes.toByteArray());
 	}
 
-	public void addFuncSection(ByteArrayOutputStream os) throws IOException {
-		ByteArrayOutputStream funcsecBytes = new ByteArrayOutputStream();
+	public void writeFuncSection(ArrayList<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {
+		ByteArrayOutputStream funcIdsBytes = new ByteArrayOutputStream();
+
+		write(encodeI32ToLeb128(funcTypes.size()), funcIdsBytes);
+		for (FuncType funcType : funcTypes) {
+			write((byte) funcTypes.indexOf(funcType), funcIdsBytes);
+		}
 
 		write((byte) SectionId.Function.ordinal(), os);
-		// TODO: Das ist noch nicht richtig
+		write((byte) funcIdsBytes.size(), os);
+		os.write(funcIdsBytes.toByteArray());
+	}
+
+	public void writeCodeSection(ArrayList<Func> funcs, ByteArrayOutputStream os) {
+
 	}
 
 	public void writeBinaryMagic(ByteArrayOutputStream os) throws IOException {
