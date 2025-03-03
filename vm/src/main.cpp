@@ -3,6 +3,7 @@
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_messagebox.h>
 #include <SDL3/SDL_oldnames.h>
+#include <SDL3/SDL_stdinc.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -29,6 +30,7 @@ int main() {
   SDL_assert(res == -59);
   char* cwd = SDL_GetCurrentDirectory();
   printf("dir: %s\n", cwd);
+  SDL_free(cwd);
   size_t wasm_file_size = 0;
   uint8_t* wasm_file_data = nullptr;
   Arena* arena = arena_create(MB(5));
@@ -36,8 +38,9 @@ int main() {
                                  &wasm_file_data));
 
   Bytecode_Reader reader = {
-      .data_size = wasm_file_size,
       .data = wasm_file_data,
+      .data_size = wasm_file_size,
+      .current_position = 0,
   };
 
   os_assert(bytecode_check_header(&reader));
