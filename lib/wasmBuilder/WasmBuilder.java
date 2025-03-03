@@ -4,6 +4,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Optional;
 
 public class WasmBuilder {
 
@@ -12,7 +14,7 @@ public class WasmBuilder {
 	private ArrayList<Func> funcs = new ArrayList<>();
 	private int currentFunction;
 
-	public void build(ArrayList<Func> funcs) throws IOException {
+	public void build(List<Func> funcs) throws IOException {
 
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
@@ -23,9 +25,9 @@ public class WasmBuilder {
 		}
 	}
 
-	public Func addFunc(FuncType funcType) {
+	public Func addFunc(FuncType funcType, Optional<List<WasmValueType>> locals) {
 		this.funcTypes.add(funcType);
-		return new Func(funcType);
+		return new Func(funcType, locals);
 
 	}
 
@@ -47,14 +49,14 @@ public class WasmBuilder {
 		os.write(b);
 	}
 
-	private static void write(ArrayList<Integer> al, ByteArrayOutputStream os) throws IOException {
+	private static void write(List<Integer> al, ByteArrayOutputStream os) throws IOException {
 		for (Integer e : al) {
 			byte[] byteId = { (byte) e.intValue() };
 			os.write(byteId);
 		}
 	}
 
-	private void writeFunctionTypes(ArrayList<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
+	private void writeFunctionTypes(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		for (FuncType f : functypes) {
 			write((byte) 0x60, os);
 			write(encodeI32ToLeb128(f.getParams().size()), os);
@@ -92,7 +94,7 @@ public class WasmBuilder {
 		write((byte) binop.code, os);
 	}
 
-	public void writeTypeSection(ArrayList<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
+	public void writeTypeSection(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream functypesBytes = new ByteArrayOutputStream();
 		write(encodeI32ToLeb128(functypes.size()), functypesBytes);
 		writeFunctionTypes(functypes, functypesBytes);
@@ -102,7 +104,7 @@ public class WasmBuilder {
 		os.write(functypesBytes.toByteArray());
 	}
 
-	public void writeFuncSection(ArrayList<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {
+	public void writeFuncSection(List<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcIdsBytes = new ByteArrayOutputStream();
 
 		write(encodeI32ToLeb128(funcTypes.size()), funcIdsBytes);
@@ -115,21 +117,58 @@ public class WasmBuilder {
 		os.write(funcIdsBytes.toByteArray());
 	}
 
-	public void writeCodeSection(ArrayList<Func> funcs, ByteArrayOutputStream os) throws IOException {
+	public void writeCodeSection(List<Func> funcs, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodiesBytes = new ByteArrayOutputStream();
+		// Anzahl der Funktionen
+		write(encodeI32ToLeb128(funcs.size()), funcBodiesBytes);
 		for (Func func : funcs) {
 			writeFuncBody(func, funcBodiesBytes);
 		}
 
 		write((byte) SectionId.Code.ordinal(), os);
+		// Größe der Code-Section in Byte
 		write(encodeI32ToLeb128(funcBodiesBytes.size()), os);
 		os.write(funcBodiesBytes.toByteArray());
 
 	}
 
 	public void writeFuncBody(Func f, ByteArrayOutputStream os) throws IOException {
-		write(encodeI32ToLeb128(f.getBody().size()), os);
-		os.write(f.getBody().toByteArray());
+		ByteArrayOutputStream funcBodyBytes = new ByteArrayOutputStream();
+		writeFuncLocals(f.getLocals(), funcBodyBytes);
+		funcBodyBytes.write(f.getBody().toByteArray());
+
+		// Größe des Bodies in Byte mit local decl und instructions
+		write(encodeI32ToLeb128(funcBodyBytes.size()), os);
+		os.write(funcBodyBytes.toByteArray());
+	}
+
+	public void writeFuncLocals(List<WasmValueType> locals, ByteArrayOutputStream os) throws IOException {
+		if (locals.isEmpty()) {
+			write(encodeI32ToLeb128(0), os);
+		} else {
+			int declCount = 1, typeCount = 0;
+			WasmValueType lastType = locals.get(0);
+			ByteArrayOutputStream declsBytes = new ByteArrayOutputStream();
+			// i32 i32 i64 i32 i32 -> 2 i32 1 i64 2 i32
+			for (WasmValueType wasmValueType : locals) {
+				if (wasmValueType == lastType) {
+					typeCount++;
+				} else {
+					write(encodeI32ToLeb128(typeCount), declsBytes);
+					write((byte) lastType.code, declsBytes);
+					typeCount = 1;
+					declCount++;
+					lastType = wasmValueType;
+				}
+			}
+			if (typeCount > 1) {
+				write(encodeI32ToLeb128(typeCount), declsBytes);
+				write((byte) lastType.code, declsBytes);
+				declCount++;
+			}
+			write(encodeI32ToLeb128(declCount), os);
+			os.write(declsBytes.toByteArray());
+		}
 	}
 
 	public void writeBinaryMagic(ByteArrayOutputStream os) throws IOException {
