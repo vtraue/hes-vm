@@ -1,8 +1,10 @@
 import java.io.IOException;
+import java.util.ArrayList;
 import my.pkg.*;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
+import wasm_builder.*;
 
 public class Main {
   public String getGreeting() {
@@ -10,6 +12,11 @@ public class Main {
   }
 
   public static void main(String... args) throws IOException {
+
+    BytecodeBuilder bbuilder = new BytecodeBuilder();
+    ArrayList<Func> funcs = new ArrayList<>();
+    bbuilder.build(funcs);
+
     System.out.println(new Main().getGreeting());
 
     String input = "2 + 8 * 2;";
