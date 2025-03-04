@@ -37,7 +37,8 @@ class Main {
 					new ArrayList<WasmValueType>());
 
 			FuncType emptyFuncType = new FuncType();
-			// testile1.wat sollte funktionieren
+			// testfile1_simple.wat sollte funktionieren (simplifiziert ohne import, call
+			// und start)
 
 			List<WasmValueType> mainLocals = (List.of(WasmValueType.i32));
 			List<WasmValueType> try1Locals = (List.of(WasmValueType.i32, WasmValueType.i32));

@@ -1,0 +1,6 @@
+build:
+	javac Main.java
+
+run:
+	java Main
+	mv testfile.wasm ../out/testfile.wasm

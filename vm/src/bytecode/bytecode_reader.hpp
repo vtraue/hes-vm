@@ -39,7 +39,7 @@ struct Reader {
   T get()
     requires std::integral<T>
   {
-    os_assert((size_t)this->current_position < this->data.size_bytes());
+    os_assert((size_t)this->current_position <= this->data.size_bytes());
     auto leb_result = Leb128::read<T>(this->bytes());
     this->current_position += leb_result.bytes_read;
 
@@ -48,7 +48,7 @@ struct Reader {
 
   template <>
   uint8_t get<uint8_t>() {
-    os_assert((size_t)this->current_position + 1 < this->data.size_bytes());
+    os_assert((size_t)this->current_position + 1 <= this->data.size_bytes());
     uint8_t data = this->data[(size_t)current_position];
     this->current_position += 1;
 

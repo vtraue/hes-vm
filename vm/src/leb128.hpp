@@ -40,14 +40,14 @@ Result<T> read(std::span<uint8_t> buffer)
       Result<T>::empty();
     }
     current_byte = buffer[position];
-    res |= (uint64_t)(current_byte & 0x7f) << shift_pos;
+    res |= (int64_t)(current_byte & 0x7f) << shift_pos;
 
     position += 1;
     shift_pos += 7;
   } while ((current_byte & 0x80) != 0);
 
   if ((shift_pos < result_bit_size) && (current_byte & 0x40) != 0) {
-    res |= (uint64_t)(~0 << shift_pos);
+    res |= (int64_t)(~0 << shift_pos);
   }
   os_assert(position >= 0);
 

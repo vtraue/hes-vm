@@ -242,6 +242,8 @@ bool Parser::parse_next_section(Reader& reader) {
     SDL_LogError(1, "Malformed section id");
     return false;
   }
+  SDL_LogInfo(1, "Reading Section: %hhu",
+              static_cast<uint8_t>(section_id.value()));
   auto section_size = reader.get<uint64_t>();
   if (section_size > 0) {
     switch (section_id.value()) {
@@ -254,7 +256,7 @@ bool Parser::parse_next_section(Reader& reader) {
         this->type_section = this->parse_type_section(reader, section_size);
       } break;
       case Section_Id::Function: {
-        SDL_LogInfo(1, "Reading type section");
+        SDL_LogInfo(1, "Reading function section");
         this->function_section = this->parse_function_section(reader);
       } break;
       case Section_Id::Export: {
@@ -264,7 +266,7 @@ bool Parser::parse_next_section(Reader& reader) {
       case Section_Id::Code: {
         SDL_LogInfo(1, "Reading code section");
         this->code_section = this->parse_code_section(reader);
-      }
+      } break;
       default: {
         SDL_LogInfo(1, "Skipping unimpl section");
         reader.skip_bytes(section_size);
@@ -317,12 +319,7 @@ bool Parser::parse(Reader& reader) {
   if (!this->type_section) {
     os_assert(false);
   }
-  os_assert(this->type_section.value().size() == 1);
-  auto func = this->type_section.value()[0];
-  os_assert(func.param_types.has_value())
-      os_assert(func.param_types.value().size() == 2);
-  os_assert(func.return_types.value().size() == 1);
-  os_assert(func.return_types.value()[0] == Type_Id::Num_I32);
+  os_assert(this->type_section.value().size() == 3);
 
   section_ok = this->parse_next_section(reader);
   if (!section_ok) {
@@ -330,31 +327,34 @@ bool Parser::parse(Reader& reader) {
     return false;
   }
   os_assert(this->function_section);
-  os_assert(this->function_section.value().size() == 1);
+  os_assert(this->function_section.value().size() == 3);
 
-  section_ok = this->parse_next_section(reader);
-  if (!section_ok) {
-    SDL_LogError(1, "Unable to parse section");
-    return false;
-  }
-  os_assert(this->export_section);
-  os_assert(this->export_section.value().size() == 1);
-  SDL_LogInfo(1, "Export fn name %s",
-              this->export_section.value()[0].name.data());
+  /*
+section_ok = this->parse_next_section(reader);
+if (!section_ok) {
+SDL_LogError(1, "Unable to parse section");
+return false;
+}
+os_assert(this->export_section);
+os_assert(this->export_section.value().size() == 1);
+SDL_LogInfo(1, "Export fn name %s",
+        this->export_section.value()[0].name.data());
 
+  */
   section_ok = this->parse_next_section(reader);
   if (!section_ok) {
     SDL_LogError(1, "Unable to parse section");
     return false;
   }
   os_assert(this->code_section);
+  SDL_LogInfo(1, "Done!");
   return true;
 }
 
 std::optional<Locals> Parser::parse_locals(Reader& reader) {
   auto count = reader.get<uint32_t>();
   SDL_LogInfo(1, "Locals Count: %d", count);
-  if (count > 0) {
+  if (count <= 0) {
     return {};
   }
   auto locals = this->arena->push<Locals_of_T>(count);
@@ -379,7 +379,9 @@ std::optional<Expression> Parser::parse_expression(Reader& reader) {
   auto instr_buffer_ptr = reinterpret_cast<Instruction*>(this->arena->ptr());
   size_t instruction_count = 0;
   while (!code_done) {
+    SDL_LogInfo(1, "Next instruction");
     auto opcode = reader.get<uint8_t>();
+    SDL_LogInfo(1, "Reading op: %04x", opcode);
     auto op = static_cast<Op>(opcode);
     Instruction instr = {};
     instr.op = op;
@@ -401,7 +403,7 @@ std::optional<Expression> Parser::parse_expression(Reader& reader) {
       case Op::I32_le_u:
       case Op::I32_ge_s:
       case Op::I32_ge_u:
-			case Op::I32_add:
+      case Op::I32_add:
       case Op::Select:
         break;
 

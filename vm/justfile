@@ -16,6 +16,5 @@ run:
 	{{out}}
 
 run-valgrind:
-	valgrind --tool=memcheck --leak-check=yes {{out}}
-
+	valgrind --tool=memcheck --leak-check=full --show-leak-kinds=all --verbose --track-origins=yes {{out}}
 
