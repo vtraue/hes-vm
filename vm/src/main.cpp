@@ -28,7 +28,7 @@ int main() {
   char* cwd = SDL_GetCurrentDirectory();
   SDL_free(cwd);
   Arena* arena = Arena::create(MB(5));
-  auto test_file = Io::read_entire_file_alloc(arena, "test.wasm");
+  auto test_file = Io::read_entire_file_alloc(arena, "../out/testfile.wasm");
   if (!test_file) {
     SDL_LogError(1, "Unable to read test file");
     return -1;
