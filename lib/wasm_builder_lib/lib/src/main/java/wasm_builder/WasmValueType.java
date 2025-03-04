@@ -1,5 +1,5 @@
 
-package wasmBuilder;
+package wasm_builder;
 
 public enum WasmValueType {
 	i32((short) 0x7F),

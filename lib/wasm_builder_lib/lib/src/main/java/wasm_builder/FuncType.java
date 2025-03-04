@@ -1,4 +1,4 @@
-package wasmBuilder;
+package wasm_builder;
 
 import java.util.ArrayList;
 import java.util.List;

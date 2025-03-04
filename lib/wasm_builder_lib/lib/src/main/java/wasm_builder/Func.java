@@ -1,4 +1,4 @@
-package wasmBuilder;
+package wasm_builder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

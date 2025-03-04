@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Arrays;
 
-import wasmBuilder.*;
+import wasm_builder.*;
 
 class Main {
 

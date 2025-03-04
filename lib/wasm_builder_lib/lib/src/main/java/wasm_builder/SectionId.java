@@ -1,5 +1,5 @@
 
-package wasmBuilder;
+package wasm_builder;
 
 enum SectionId {
 	Custom, // 0

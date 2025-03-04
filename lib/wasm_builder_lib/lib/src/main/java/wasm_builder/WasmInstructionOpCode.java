@@ -1,5 +1,5 @@
 
-package wasmBuilder;
+package wasm_builder;
 
 public enum WasmInstructionOpCode {
 	UNREACHABLE((short) 0x00),

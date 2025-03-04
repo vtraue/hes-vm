@@ -1,6 +1,12 @@
 build:
-	javac Main.java
+	javac -d ./out/ ./wasm_builder/*.java
+
+build-main:
+	javac -d ./out Main.java
 
 run:
-	java Main
-	mv testfile.wasm ../out/testfile.wasm
+	java -classpath ./out Main 
+	mv testfile.wasm ./out/testfile.wasm
+
+jar:
+	jar -cvf ./out/BytecodeBuiler.jar ./out/wasm_builder/*.class
