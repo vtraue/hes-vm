@@ -2,10 +2,9 @@
 
 #include <SDL3/SDL_log.h>
 
-#include "../os.h"
+#include "../os.hpp"
 #include "../util.h"
 #include "bytecode.hpp"
-#include "bytecode_reader.hpp"
 #include "opcode.hpp"
 
 namespace Bytecode {
@@ -317,36 +316,24 @@ bool Parser::parse(Reader& reader) {
   }
   // NOTE:(Joh): um Clang tidy happy zu machen
   if (!this->type_section) {
-    os_assert(false);
+    assert(false);
   }
-  os_assert(this->type_section.value().size() == 3);
+  assert(this->type_section.value().size() == 3);
 
   section_ok = this->parse_next_section(reader);
   if (!section_ok) {
     SDL_LogError(1, "Unable to parse section");
     return false;
   }
-  os_assert(this->function_section);
-  os_assert(this->function_section.value().size() == 3);
+  assert(this->function_section);
+  assert(this->function_section.value().size() == 3);
 
-  /*
-section_ok = this->parse_next_section(reader);
-if (!section_ok) {
-SDL_LogError(1, "Unable to parse section");
-return false;
-}
-os_assert(this->export_section);
-os_assert(this->export_section.value().size() == 1);
-SDL_LogInfo(1, "Export fn name %s",
-        this->export_section.value()[0].name.data());
-
-  */
   section_ok = this->parse_next_section(reader);
   if (!section_ok) {
     SDL_LogError(1, "Unable to parse section");
     return false;
   }
-  os_assert(this->code_section);
+  assert(this->code_section);
   SDL_LogInfo(1, "Done!");
   return true;
 }

@@ -1,10 +1,7 @@
-#pragma once
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string_view>
+#ifndef BYTECODE_HPP
+#define BYTECODE_HPP
 
+#include "../core.hpp"
 #include "opcode.hpp"
 constexpr uint8_t FUNCTYPE_HEADER = 0x60;
 
@@ -61,7 +58,8 @@ struct Function_Type {
   std::optional<std::span<Type_Id>> return_types;
 };
 
-using Function_Section = std::span<uint32_t>;
+using Type_Index = uint32_t;
+using Function_Section = std::span<Type_Index>;
 using Export_Section = std::span<Export>;
 using Type_Section = std::span<Function_Type>;
 
@@ -149,61 +147,86 @@ struct Code {
 };
 
 using Code_Section = std::span<Code>;
+
+struct Reader {
+  std::span<uint8_t> data;
+  int64_t current_position;
+
+  static Reader from_buffer(std::span<uint8_t> buffer) {
+    return Reader{.data = buffer, .current_position = 0};
+  }
+  bool can_read() {
+    return this->current_position >= 0 &&
+           this->current_position < (int64_t)this->data.size_bytes();
+  }
+
+  uint8_t* ptr() {
+    return this->data
+        .subspan((size_t)this->current_position,
+                 this->data.size() - (size_t)this->current_position)
+        .data();
+  }
+
+  void skip_bytes(size_t offset) {
+    assert((this->current_position + (int64_t)offset) <
+           (int64_t)this->data.size_bytes());
+    this->current_position += (int64_t)offset;
+  }
+
+  bool copy_bytes_into(size_t count, std::span<uint8_t> dest) {
+    assert(count <= dest.size_bytes());
+    std::memcpy(dest.data(), this->ptr(), count);
+    this->current_position += (int64_t)count;
+    return true;
+  }
+
+  std::optional<std::span<uint8_t>> copy_bytes_alloc(Arena* arena,
+                                                     size_t count) {
+    assert(this->current_position + (int64_t)count <
+           (int64_t)(this->data.size_bytes()));
+    std::span<uint8_t> buffer = arena->push<uint8_t>(count);
+    this->copy_bytes_into(count, buffer);
+    return buffer;
+  }
+  std::optional<std::span<uint8_t>> copy_bytes_alloc_zero_term(Arena* arena,
+                                                               size_t count) {
+    assert(this->current_position + (int64_t)count <
+           (int64_t)(this->data.size_bytes()));
+    std::span<uint8_t> buffer = arena->push<uint8_t>(count + 1);
+    this->copy_bytes_into(count, buffer);
+    buffer[count] = 0;
+    return buffer;
+  }
+
+  std::span<uint8_t> bytes() {
+    return this->data.subspan(
+        (size_t)this->current_position,
+        this->data.size() - (size_t)this->current_position);
+  }
+
+  template <typename T>
+  T get();
+
+  template <typename T>
+  T get()
+    requires std::integral<T>
+  {
+    assert((size_t)this->current_position <= this->data.size_bytes());
+    auto leb_result = Leb128::read<T>(this->bytes());
+    this->current_position += leb_result.bytes_read;
+
+    return leb_result.num;
+  }
+
+  template <>
+  uint8_t get<uint8_t>() {
+    assert((size_t)this->current_position + 1 <= this->data.size_bytes());
+    uint8_t data = this->data[(size_t)current_position];
+    this->current_position += 1;
+
+    return data;
+  }
+};
+
 }  // namespace Bytecode
-
-/*
-typedef struct Bytecode_Instruction_Data_U32x2 {
-  uint32_t a;
-  uint32_t b;
-} Bytecode_Instruction_Data_U32x2;
-
-typedef struct Bytecode_Instruction_Data_Memarg {
-  uint32_t align;
-  uint32_t offset;
-} Bytecode_Instruction_Data_Memarg;
-
-typedef struct Bytecode_Instruction_Data_Vec_Valtype {
-  uint32_t count;
-  Bytecode_Export_Desc_Type* valtypes;
-} Bytecode_Instruction_Data_Vec_Valtype;
-
-typedef struct Bytecode_Instruction_Data_Br_Table {
-  Bytecode_Instruction_Data_Vec_Valtype vec;
-  uint32_t label_id;
-} Bytecode_Instruction_Data_Br_Table;
-
-typedef struct Bytecode_Instruction {
-  Bytecode_Op opcode;
-  uint32_t suffix;
-  union {
-    Bytecode_Instruction_Data_Blocktype block;
-    Bytecode_Instruction_Data_U32x2 u32x2;
-    Bytecode_Instruction_Data_Memarg mem;
-    Bytecode_Instruction_Data_Vec_Valtype valtypes;
-    Bytecode_Instruction_Data_Br_Table br_table;
-
-    uint32_t u32;
-    uint64_t u64;
-    float f32;
-  } args;
-} Bytecode_Instruction;
-*/
-
-// TODO: (joh) Spaeter sollte das dynamisch wachsen koennen. Die
-// wahrscheinlichkeit, dass wir mehr als 255 Instruktionen in einer Expression
-// haben werden ist relativ hoch!
-/*
-typedef struct Bytecode_Expression {
-  uint64_t count;
-  uint64_t cap;
-  uint64_t size;
-  uint8_t* instructions;
-
-} Bytecode_Expression;
-*/
-/*
-typedef struct Bytecode_Func {
-        uint64_t locals_count;
-        Bytecode_Locals* locals;
-}
-*/
+#endif

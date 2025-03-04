@@ -5,13 +5,11 @@
 #include <SDL3/SDL_oldnames.h>
 #include <SDL3/SDL_stdinc.h>
 
-#include "arena.hpp"
+#include "bytecode/bytecode.hpp"
 #include "bytecode/bytecode_parser.hpp"
-#include "bytecode/bytecode_reader.hpp"
-#include "io.hpp"
-#include "leb128.hpp"
-#include "mem.h"
-#include "os.h"
+#include "core.hpp"
+#include "os.hpp"
+
 int main() {
   std::array<int, 4> leb_numbers = {0x45, 0x42, 0x30, 0x6C};
   std::span<uint8_t> leb_buffer =
@@ -27,7 +25,7 @@ int main() {
   SDL_assert(res == -59);
   char* cwd = SDL_GetCurrentDirectory();
   SDL_free(cwd);
-  Arena* arena = Arena::create(MB(5));
+  Arena* arena = Arena::create(Os::Mem::MB(5));
   auto test_file = Io::read_entire_file_alloc(arena, "../out/testfile.wasm");
   if (!test_file) {
     SDL_LogError(1, "Unable to read test file");
@@ -38,9 +36,9 @@ int main() {
 
   auto parser = Bytecode::Parser(arena);
 
-  os_assert(parser.check_header(reader));
-  os_assert(parser.check_version(reader));
-  os_assert(parser.parse(reader));
+  assert(parser.check_header(reader));
+  assert(parser.check_version(reader));
+  assert(parser.parse(reader));
 
   arena->destroy();
 }
