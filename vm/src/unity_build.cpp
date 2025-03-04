@@ -1,0 +1,7 @@
+#include "arena.cpp"
+#include "bytecode/bytecode_parser.cpp"
+#include "bytecode/bytecode_reader.cpp"
+#include "io.cpp"
+#include "leb128.cpp"
+#include "main.cpp"
+#include "os_linux.cpp"

@@ -1,18 +1,16 @@
 #include <SDL3/SDL_messagebox.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/mman.h>
+
+#include <cstdio>
+#include <cstdlib>
 
 #include "os.h"
 
 uint8_t* os_mem_reserve(size_t size) {
   os_assert(size > 0);
   // TODO: (joh) Reservieren ohne commit mit PROT_NONE
-  void* out_ptr =
-      mmap(0, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+  void* out_ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                       MAP_ANON | MAP_PRIVATE, -1, 0);
   os_assert(out_ptr != MAP_FAILED);
   os_assert(out_ptr != nullptr);
 
@@ -26,8 +24,8 @@ void os_mem_unreserve(uint8_t* ptr, size_t size) {
   os_assert(munmap((void*)ptr, size) == 0);
 }
 
-void os_crash_with_message(const char* message) {
-  fprintf(stderr, "PANIC: %s\n", message);
+void os_crash_with_message [[noreturn]] (const char* message) {
+  SDL_LogError(1, "PANIC: %s\n", message);
   SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Critical Error!", message,
                            nullptr);
   exit(1);

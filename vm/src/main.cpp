@@ -4,48 +4,43 @@
 #include <SDL3/SDL_messagebox.h>
 #include <SDL3/SDL_oldnames.h>
 #include <SDL3/SDL_stdinc.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
 
-#include "arena.h"
-#include "bytecode/bytecode.h"
-#include "bytecode/bytecode_parser.h"
-#include "bytecode/bytecode_reader.h"
-#include "io.h"
-#include "leb128.h"
+#include "arena.hpp"
+#include "bytecode/bytecode_parser.hpp"
+#include "bytecode/bytecode_reader.hpp"
+#include "io.hpp"
+#include "leb128.hpp"
 #include "mem.h"
 #include "os.h"
 int main() {
-  int leb_numbers[] = {0x45, 0x42, 0x30, 0x6C};
+  std::array<int, 4> leb_numbers = {0x45, 0x42, 0x30, 0x6C};
+  std::span<uint8_t> leb_buffer =
+      std::span<uint8_t>((uint8_t*)leb_numbers.data(), sizeof(leb_numbers));
+
   int64_t res = 0;
   SDL_SetLogPriorities(SDL_LOG_PRIORITY_INFO);
-  uint64_t ures = 0;
-  leb128_read_u64((uint8_t*)leb_numbers, 0, sizeof(leb_numbers), &ures);
-  printf("%ld\n", ures);
-  SDL_assert(ures == 69);
 
-  leb128_read_i64((uint8_t*)leb_numbers, 0, sizeof(leb_numbers), &res);
-  printf("%ld\n", res);
+  auto ures = Leb128::read<uint64_t>(leb_buffer);
+  SDL_assert(ures.num == 69);
+
+  res = Leb128::read<int64_t>(leb_buffer).num;
   SDL_assert(res == -59);
   char* cwd = SDL_GetCurrentDirectory();
-  printf("dir: %s\n", cwd);
   SDL_free(cwd);
-  size_t wasm_file_size = 0;
-  uint8_t* wasm_file_data = nullptr;
-  Arena* arena = arena_create(MB(5));
-  SDL_assert(io_read_entire_file(arena, "test.wasm", &wasm_file_size,
-                                 &wasm_file_data));
+  Arena* arena = Arena::create(MB(5));
+  auto test_file = Io::read_entire_file_alloc(arena, "test.wasm");
+  if (!test_file) {
+    SDL_LogError(1, "Unable to read test file");
+    return -1;
+  }
 
-  Bytecode_Reader reader = {
-      .data = wasm_file_data,
-      .data_size = wasm_file_size,
-      .current_position = 0,
-  };
+  auto reader = Bytecode::Reader::from_buffer(test_file.value());
 
-  os_assert(bytecode_check_header(&reader));
-  os_assert(bytecode_check_version(&reader));
-  os_assert(bytecode_parse(arena, &reader));
+  auto parser = Bytecode::Parser(arena);
 
-  arena_destroy(arena);
+  os_assert(parser.check_header(reader));
+  os_assert(parser.check_version(reader));
+  os_assert(parser.parse(reader));
+
+  arena->destroy();
 }

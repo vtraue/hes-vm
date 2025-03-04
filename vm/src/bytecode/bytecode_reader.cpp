@@ -1,71 +1,62 @@
-#include "bytecode_reader.h"
+#include "bytecode_reader.hpp"
 
-#include "../leb128.h"
+#include <SDL3/SDL_log.h>
+
 #include "../os.h"
 
-bool bytecode_reader_can_read(Bytecode_Reader* reader) {
-  return reader != nullptr && reader->current_position >= 0 &&
-         reader->current_position < (int64_t)reader->data_size;
+namespace Bytecode {
+bool Reader::can_read() {
+  return this->current_position >= 0 &&
+         this->current_position < (int64_t)this->data.size_bytes();
 }
 
-uint8_t* bytecode_bytes_at(Bytecode_Reader* reader) {
-  os_assert(reader != nullptr);
-  return reader->data + reader->current_position;
+uint8_t* Reader::ptr() {
+  return this->data
+      .subspan((size_t)this->current_position,
+               this->data.size() - (size_t)this->current_position)
+      .data();
 }
 
-void bytecode_reader_skip_bytes(Bytecode_Reader* reader, uint64_t offset) {
-  os_assert(reader != nullptr);
-  os_assert((reader->current_position + (int64_t)offset) <
-            (int64_t)reader->data_size);
-  reader->current_position += (int64_t)offset;
+void Reader::skip_bytes(uint64_t offset) {
+  os_assert((this->current_position + (int64_t)offset) <
+            (int64_t)this->data.size_bytes());
+  this->current_position += (int64_t)offset;
 }
 
-bool bytecode_read_bytes_into(Bytecode_Reader* reader, size_t count,
-                              size_t buffer_size, uint8_t* buffer) {
-  os_assert(bytecode_reader_can_read(reader));
-  os_assert(count <= buffer_size);
-  os_memcpy(buffer, bytecode_bytes_at(reader), count);
-  reader->current_position += (int64_t)count;
-
+bool Reader::copy_bytes_into(size_t count, std::span<uint8_t> dest) {
+  os_assert(count <= dest.size_bytes());
+  os_memcpy(dest.data(), this->ptr(), count);
+  this->current_position += (int64_t)count;
   return true;
 }
 
-uint8_t* bytecode_read_bytes_alloc(Arena* arena, Bytecode_Reader* reader,
-                                   size_t count) {
-  os_assert(arena != nullptr);
-  os_assert(reader != nullptr);
-  os_assert(reader->current_position + (int64_t)count <
-            (int64_t)(reader->data_size));
-
-  uint8_t* buffer = arena_alloc(arena, count);
-  os_assert(bytecode_read_bytes_into(reader, count, count, buffer));
-
+std::optional<std::span<uint8_t>> Reader::copy_bytes_alloc(Arena* arena,
+                                                           size_t count) {
+  os_assert(this->current_position + (int64_t)count <
+            (int64_t)(this->data.size_bytes()));
+  std::span<uint8_t> buffer = arena->push<uint8_t>(count);
+  this->copy_bytes_into(count, buffer);
   return buffer;
 }
 
-uint8_t* bytecode_read_bytes_zero_term(Arena* arena, Bytecode_Reader* reader,
-                                       size_t count) {
-  os_assert(arena != nullptr);
-  os_assert(reader != nullptr);
-  os_assert(reader->current_position + (int64_t)count <
-            (int64_t)(reader->data_size));
-
-  uint8_t* buffer = arena_alloc(arena, count + 1);
-  os_memcpy(buffer, bytecode_bytes_at(reader), count);
-
-  reader->current_position += (int64_t)count;
-  buffer[count + 1] = 0;
-
+std::optional<std::span<uint8_t>> Reader::copy_bytes_alloc_zero_term(
+    Arena* arena, size_t count) {
+  os_assert(this->current_position + (int64_t)count <
+            (int64_t)(this->data.size_bytes()));
+  std::span<uint8_t> buffer = arena->push<uint8_t>(count + 1);
+  this->copy_bytes_into(count, buffer);
+  buffer[count] = 0;
   return buffer;
 }
 
-uint8_t bytecode_read_byte(Bytecode_Reader* reader) {
-  os_assert(reader != nullptr);
-  os_assert(bytecode_reader_can_read(reader));
-  uint8_t out_val = *bytecode_bytes_at(reader);
-  reader->current_position += 1;
-  return out_val;
+Reader Reader::from_buffer(std::span<uint8_t> buffer) {
+  return Reader{.data = buffer, .current_position = 0};
 }
+
+}  // namespace Bytecode
+
+/*
+uint8_t bytecode_read_byte(Bytecode_Reader* reader) {}
 
 int64_t bytecode_read_var_int(Bytecode_Reader* reader) {
   os_assert(reader != nullptr);
@@ -88,3 +79,4 @@ uint64_t bytecode_read_var_uint(Bytecode_Reader* reader) {
   reader->current_position += bytes_read;
   return out_int;
 }
+*/
