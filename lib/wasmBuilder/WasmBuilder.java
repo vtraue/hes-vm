@@ -145,11 +145,16 @@ public class WasmBuilder {
 	public void writeFuncLocals(List<WasmValueType> locals, ByteArrayOutputStream os) throws IOException {
 		if (locals.isEmpty()) {
 			write(encodeI32ToLeb128(0), os);
+		} else if (locals.size() == 1) {
+			write(encodeI32ToLeb128(1), os); // Anzahl Deklarationen
+			write(encodeI32ToLeb128(1), os); // Anzahl Typ
+			write((byte) locals.get(0).code, os);
 		} else {
-			int declCount = 1, typeCount = 0;
+			int declCount = 0, typeCount = 0;
 			WasmValueType lastType = locals.get(0);
 			ByteArrayOutputStream declsBytes = new ByteArrayOutputStream();
 			// i32 i32 i64 i32 i32 -> 2 i32 1 i64 2 i32
+
 			for (WasmValueType wasmValueType : locals) {
 				if (wasmValueType == lastType) {
 					typeCount++;
