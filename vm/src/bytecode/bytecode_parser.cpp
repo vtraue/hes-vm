@@ -2,9 +2,6 @@
 
 #include <SDL3/SDL_log.h>
 
-#include <string_view>
-#include <variant>
-
 #include "../os.h"
 #include "../util.h"
 #include "bytecode.hpp"
@@ -220,144 +217,24 @@ std::optional<Export_Section> Parser::parse_export_section(Reader& reader) {
   return {};
 }
 
-std::optional<Blocktype> Parser::parse_blocktype(Reader& reader) {
+std::optional<Imm::Blocktype> Parser::parse_blocktype(Reader& reader) {
   uint8_t blocktype_byte = reader.get<uint8_t>();
   constexpr uint8_t blocktype_empty_id = 0x40;
-
+  Imm::Blocktype res = {};
   if (blocktype_byte == blocktype_empty_id) {
-    return std::monostate{};
+    res.tag = Imm::Blocktype::Tag::Empty;
   } else {
     auto block_valtype = this->parse_type_id(reader);
     if (block_valtype) {
-      return block_valtype.value();
+      res.tag = Imm::Blocktype::Tag::Val_Type;
+      res.data.val_type = block_valtype.value();
     } else {
-      return static_cast<Block_Type_Index>(reader.get<int32_t>());
+      res.tag = Imm::Blocktype::Tag::Type_Index;
+      res.data.type_id = reader.get<int32_t>();
     }
   }
+  return res;
 }
-
-/*
-
-bool bytecode_parse_expression(Bytecode_Parser* parser, Bytecode_Reader* reader,
-                               Bytecode_Expression* out_expression) {
-  os_assert(bytecode_reader_can_read(reader));
-  os_assert(out_expression != nullptr);
-
-  uint64_t cap = INITAL_EXPRESSION_MAX_COUNT;
-  out_expression->instructions = parser->arena->ptr();
-  out_expression->cap = cap;
-  out_expression->count = 0;
-
-  uint64_t instruction_index = 0;
-  int depth = 0;
-  bool code_done = false;
-  while (!code_done) {
-    uint8_t opcode = bytecode_read_byte(reader);
-    parser->arena->write_byte(opcode);
-
-    switch ((Bytecode_Op)opcode) {
-      // Keine Parameter:
-      case Bytecode_Op_unreachable:
-      case Bytecode_Op_nop:
-      case Bytecode_Op_else:
-      case Bytecode_Op_drop:
-      case Bytecode_Op_return:
-      case Bytecode_Op_i32_eqz:
-      case Bytecode_Op_i32_eq:
-      case Bytecode_Op_i32_ne:
-      case Bytecode_Op_i32_lt_s:
-      case Bytecode_Op_i32_lt_u:
-      case Bytecode_Op_i32_gt_s:
-      case Bytecode_Op_i32_gt_u:
-      case Bytecode_Op_i32_le_s:
-      case Bytecode_Op_i32_le_u:
-      case Bytecode_Op_i32_ge_s:
-      case Bytecode_Op_i32_ge_u:
-      case Bytecode_Op_select:
-        break;
-
-      // Blocktype:
-      case Bytecode_Op_block:
-      case Bytecode_Op_loop:
-      case Bytecode_Op_if: {
-        Bytecode_Instruction_Data_Blocktype block_type = {};
-        if (bytecode_parse_blocktype(reader, &block_type)) {
-          parser->arena->write(&block_type);
-          depth += 1;
-        } else {
-          return false;
-        }
-      } break;
-
-      case Bytecode_Op_end: {
-        if (depth == 0) {
-          code_done = true;
-          break;
-        }
-        depth -= 1;
-      } break;
-      case Bytecode_Op_br:
-      case Bytecode_Op_br_if: {
-        uint32_t id = (uint32_t)bytecode_read_var_uint(reader);
-        parser->arena->write(&id);
-      } break;
-      case Bytecode_Op_call: {
-        uint32_t func_id = (uint32_t)bytecode_read_var_uint(reader);
-        parser->arena->write(&func_id);
-      } break;
-      case Bytecode_Op_call_indirect: {
-        uint32_t type_id = (uint32_t)bytecode_read_var_uint(reader);
-        uint32_t table_id = (uint32_t)bytecode_read_var_uint(reader);
-        parser->arena->write(&type_id);
-        parser->arena->write(&table_id);
-      } break;
-      case Bytecode_Op_local_get:
-      case Bytecode_Op_local_set:
-      case Bytecode_Op_local_tee:
-      case Bytecode_Op_global_get:
-      case Bytecode_Op_global_set: {
-        uint32_t id_arg = (uint32_t)bytecode_read_var_uint(reader);
-        parser->arena->write(&id_arg);
-      } break;
-      case Bytecode_Op_i32_load:
-      case Bytecode_Op_i64_load:
-      case Bytecode_Op_f32_load:
-      case Bytecode_Op_f64_load:
-      case Bytecode_Op_i32_load8_s:
-      case Bytecode_Op_i32_store:
-      case Bytecode_Op_i64_store:
-      case Bytecode_Op_f32_store: {
-        uint32_t align = (uint32_t)bytecode_read_var_uint(reader);
-        uint32_t offset = (uint32_t)bytecode_read_var_uint(reader);
-        parser->arena->write(&align);
-        parser->arena->write(&offset);
-      } break;
-      case Bytecode_Op_i32_const: {
-        uint32_t const_val = (uint32_t)bytecode_read_var_uint(reader);
-        parser->arena->write(&const_val);
-      }
-      case Bytecode_Op_i64_const: {
-        uint64_t const_val = bytecode_read_var_uint(reader);
-        parser->arena->write(&const_val);
-      } break;
-      case Bytecode_Op_select_t: {
-        uint64_t count = bytecode_read_var_uint(reader);
-        parser->arena->write(&count);
-        for (uint64_t i = 0; i < count; i++) {
-          Bytecode_Type_Id type_id =
-              (Bytecode_Type_Id)bytecode_read_byte(reader);
-          parser->arena->write(&type_id);
-        }
-      } break;
-      default:
-        SDL_LogError(1, "Parsing Opcode %d not implemented", opcode);
-    }
-    instruction_index += 1;
-  }
-  out_expression->count = instruction_index;
-  return true;
-}
-*/
 
 bool Parser::parse_next_section(Reader& reader) {
   auto section_id = this->parse_section_id(reader);
@@ -384,6 +261,10 @@ bool Parser::parse_next_section(Reader& reader) {
         SDL_LogInfo(1, "Reading export section");
         this->export_section = this->parse_export_section(reader);
       } break;
+      case Section_Id::Code: {
+        SDL_LogInfo(1, "Reading code section");
+        this->code_section = this->parse_code_section(reader);
+      }
       default: {
         SDL_LogInfo(1, "Skipping unimpl section");
         reader.skip_bytes(section_size);
@@ -392,6 +273,40 @@ bool Parser::parse_next_section(Reader& reader) {
   }
   return true;
 }
+std::optional<Code> Parser::parse_code(Reader& reader) {
+  auto size = reader.get<uint32_t>();
+  SDL_LogInfo(1, "Code size in bytes: %d", size);
+
+  auto locals = this->parse_locals(reader);
+  auto expression = this->parse_expression(reader);
+  if (!expression) {
+    SDL_LogError(1, "Unable to read expression");
+    return {};
+  }
+  Code out_code{
+      .size_bytes = size, .locals = locals, .expr = expression.value()};
+  return out_code;
+}
+
+std::optional<Code_Section> Parser::parse_code_section(Reader& reader) {
+  auto count = reader.get<uint32_t>();
+  auto buffer = this->arena->push<Code>(count);
+  SDL_LogInfo(1, "Code: Found %d Code entries", count);
+
+  if (count > 0) {
+    for (uint32_t i = 0; i < count; i++) {
+      auto code = this->parse_code(reader);
+      if (!code) {
+        SDL_LogError(1, "Unable to parse code");
+        return {};
+      }
+      buffer[i] = code.value();
+    }
+    return buffer;
+  }
+  return {};
+}
+
 bool Parser::parse(Reader& reader) {
   bool section_ok = this->parse_next_section(reader);
   if (!section_ok) {
@@ -426,41 +341,135 @@ bool Parser::parse(Reader& reader) {
   os_assert(this->export_section.value().size() == 1);
   SDL_LogInfo(1, "Export fn name %s",
               this->export_section.value()[0].name.data());
-  return true;
-}
-/*
-bool bytecode_parse(Arena* aren, Bytecode_Reader* reader) {
-  Bytecode_Parser parser = {};
-  parser.arena = arena;
-  bool section_ok = bytecode_parse_section(reader, &parser);
+
+  section_ok = this->parse_next_section(reader);
   if (!section_ok) {
     SDL_LogError(1, "Unable to parse section");
     return false;
   }
-  os_assert(bytecode_is_section_parsed(&parser, Bytecode_Section_Id_Type));
-  os_assert(parser.type_section.type_count == 1);
-  os_assert(parser.type_section.function_types->param_count == 2);
-  os_assert(parser.type_section.function_types->return_count == 1);
-  os_assert(parser.type_section.function_types->return_types[0] ==
-            Bytecode_Type_Id_Num_I32);
-
-  section_ok = bytecode_parse_section(reader, &parser);
-  if (!section_ok) {
-    SDL_LogError(1, "Unable to parse section 2");
-    return false;
-  }
-  os_assert(bytecode_is_section_parsed(&parser, Bytecode_Section_Id_Function));
-  os_assert(parser.function_section.function_count == 1);
-
-  section_ok = bytecode_parse_section(reader, &parser);
-  if (!section_ok) {
-    SDL_LogError(1, "Unable to parse section 3");
-    return false;
-  }
-  os_assert(bytecode_is_section_parsed(&parser, Bytecode_Section_Id_Export));
-  os_assert(parser.export_section.export_count == 1);
-  SDL_LogInfo(1, "Export fn name: %s", parser.export_section.exported[0].name);
+  os_assert(this->code_section);
   return true;
 }
-*/
+
+std::optional<Locals> Parser::parse_locals(Reader& reader) {
+  auto count = reader.get<uint32_t>();
+  SDL_LogInfo(1, "Locals Count: %d", count);
+  if (count > 0) {
+    return {};
+  }
+  auto locals = this->arena->push<Locals_of_T>(count);
+
+  for (uint32_t i = 0; i < count; i++) {
+    auto n = reader.get<uint32_t>();
+    auto t = this->parse_type_id(reader);
+    if (!t) {
+      SDL_LogError(1, "Unable to parse type id");
+      return {};
+    }
+    locals[i] = Locals_of_T{.count = n, .valtype = t.value()};
+  }
+
+  Locals res = {.data = locals};
+  return res;
+}
+
+std::optional<Expression> Parser::parse_expression(Reader& reader) {
+  int depth = 0;
+  bool code_done = false;
+  auto instr_buffer_ptr = reinterpret_cast<Instruction*>(this->arena->ptr());
+  size_t instruction_count = 0;
+  while (!code_done) {
+    auto opcode = reader.get<uint8_t>();
+    auto op = static_cast<Op>(opcode);
+    Instruction instr = {};
+    instr.op = op;
+
+    switch (op) {
+      case Op::Unreachable:
+      case Op::Nop:
+      case Op::Else:
+      case Op::Drop:
+      case Op::Return:
+      case Op::I32_eqz:
+      case Op::I32_eq:
+      case Op::I32_ne:
+      case Op::I32_lt_s:
+      case Op::I32_lt_u:
+      case Op::I32_gt_s:
+      case Op::I32_gt_u:
+      case Op::I32_le_s:
+      case Op::I32_le_u:
+      case Op::I32_ge_s:
+      case Op::I32_ge_u:
+			case Op::I32_add:
+      case Op::Select:
+        break;
+
+      case Op::Block:
+      case Op::Loop:
+      case Op::If: {
+        auto blocktype = this->parse_blocktype(reader);
+        if (!blocktype) {
+          SDL_LogError(1, "Unable to parse blocktype");
+          return {};
+        }
+        instr.args.block_type = blocktype.value();
+        depth += 1;
+      } break;
+      case Op::Local_get:
+      case Op::Local_set:
+      case Op::Local_tee:
+      case Op::Global_get:
+      case Op::Global_set:
+      case Op::Br:
+      case Op::Call:
+      case Op::Br_if: {
+        instr.args.u32 = reader.get<uint32_t>();
+      } break;
+      case Op::I32_load:
+      case Op::I64_load:
+      case Op::F32_load:
+      case Op::F64_load:
+      case Op::I32_load8_s:
+      case Op::I32_store:
+      case Op::I64_store:
+      case Op::F32_store:
+      case Op::Call_indirect: {
+        instr.args.pair_u32.x = reader.get<uint32_t>();
+        instr.args.pair_u32.y = reader.get<uint32_t>();
+      } break;
+      case Op::I64_const: {
+        instr.args.i64 = reader.get<int64_t>();
+      } break;
+      case Op::I32_const: {
+        instr.args.i32 = reader.get<int32_t>();
+      } break;
+      case Op::Select_t: {
+        auto arg_count = reader.get<uint32_t>();
+        auto args = this->arena->push<Type_Id>(arg_count);
+        for (uint32_t i = 0; i < arg_count; ++i) {
+          auto type_id = this->parse_type_id(reader);
+          if (!type_id) {
+            SDL_LogError(1, "Unable to parse type id");
+            return {};
+          }
+          args[i] = type_id.value();
+        }
+      } break;
+      case Op::End: {
+        if (depth > 0) {
+          depth -= 1;
+        } else {
+          code_done = true;
+        }
+      } break;
+      default:
+        SDL_LogError(1, "Cant parse opcode");
+        return {};
+    }
+    this->arena->write(&instr);
+    instruction_count += 1;
+  }
+  return std::span<Instruction>(instr_buffer_ptr, instruction_count);
+}
 }  // namespace Bytecode

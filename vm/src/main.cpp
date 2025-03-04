@@ -5,8 +5,6 @@
 #include <SDL3/SDL_oldnames.h>
 #include <SDL3/SDL_stdinc.h>
 
-#include <print>
-
 #include "arena.hpp"
 #include "bytecode/bytecode_parser.hpp"
 #include "bytecode/bytecode_reader.hpp"

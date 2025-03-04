@@ -13,6 +13,7 @@ struct Parser {
   std::optional<Type_Section> type_section{};
   std::optional<Function_Section> function_section{};
   std::optional<Export_Section> export_section{};
+  std::optional<Code_Section> code_section{};
 
   bool check_header(Reader& reader);
   bool check_version(Reader& reader);
@@ -26,7 +27,12 @@ struct Parser {
   std::optional<std::string_view> parse_string(Reader& reader);
   std::optional<Export> parse_export(Reader& reader);
   std::optional<Export_Section> parse_export_section(Reader& reader);
-  std::optional<Blocktype> parse_blocktype(Reader& reader);
+  std::optional<Imm::Blocktype> parse_blocktype(Reader& reader);
+  std::optional<Expression> parse_expression(Reader& reader);
+  std::optional<Locals> parse_locals(Reader& reader);
+  std::optional<Code> parse_code(Reader& reader);
+  std::optional<Code_Section> parse_code_section(Reader& reader);
+
   bool parse_next_section(Reader& reader);
   bool parse(Reader& reader);
 };

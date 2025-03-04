@@ -1,5 +1,5 @@
 #pragma once
-#include <stdint.h>
+#include <cstdint>
 namespace Bytecode {
 enum class Op : uint8_t {
   Unreachable = 0x00,
@@ -46,6 +46,8 @@ enum class Op : uint8_t {
   I32_ge_u = 0x4F,
   Ref_null = 0xD0,
   Ref_is_null = 0xD1,
-  Ref_func = 0xF2
+  Ref_func = 0xF2,
+  I32_add = 0x6A,
+
 };
 }

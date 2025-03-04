@@ -1,11 +1,11 @@
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
-#include <variant>
+
+#include "opcode.hpp"
 constexpr uint8_t FUNCTYPE_HEADER = 0x60;
 
 namespace Bytecode {
@@ -65,10 +65,90 @@ using Function_Section = std::span<uint32_t>;
 using Export_Section = std::span<Export>;
 using Type_Section = std::span<Function_Type>;
 
-using Block_Type_Index = int32_t;
-using Blocktype = std::variant<std::monostate, Type_Id, Block_Type_Index>;
-
 constexpr int INITAL_EXPRESSION_MAX_COUNT = 255;
+using Label_Id = uint32_t;
+
+namespace Imm {
+using Block_Type_Index = int32_t;
+
+struct Blocktype {
+  enum class Tag : uint8_t { Empty, Val_Type, Type_Index };
+  Tag tag;
+  union {
+    Type_Id val_type;
+    int32_t type_id;
+  } data;
+};
+
+template <typename T>
+struct Pair {
+  T x;
+  T y;
+};
+
+struct Br_Table {
+  std::span<Label_Id> label_idx;
+  Label_Id ln;
+};
+
+union Data {
+  uint32_t u32;
+  int32_t i32;
+  int64_t i64;
+  uint8_t u8;
+  std::span<Type_Id> valtypes;
+  Br_Table br_table;
+  Pair<uint32_t> pair_u32;
+  Blocktype block_type;
+};
+}  // namespace Imm
+
+struct Instruction {
+  Op op;
+  uint32_t suffix;
+  Imm::Data args;
+};
+
+using Expression = std::span<Instruction>;
+
+struct Locals_of_T {
+  uint32_t count;
+  Type_Id valtype;
+};
+
+struct Locals {
+  std::span<Locals_of_T> data;
+
+  size_t concat_count() {
+    size_t count = 0;
+    for (Locals_of_T locals : this->data) {
+      count += locals.count;
+    }
+    return count;
+  }
+
+  bool concat(std::span<Type_Id> dest) {
+    size_t i = 0;
+    for (Locals_of_T locals : this->data) {
+      for (uint32_t c = 0; c < locals.count; c++) {
+        if (i >= dest.size()) {
+          return false;
+        }
+        dest[i] = locals.valtype;
+        i += 1;
+      }
+    }
+    return true;
+  }
+};
+
+struct Code {
+  uint32_t size_bytes;
+  std::optional<Locals> locals;
+  Expression expr;
+};
+
+using Code_Section = std::span<Code>;
 }  // namespace Bytecode
 
 /*

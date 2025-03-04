@@ -1,19 +1,21 @@
 sources := "src/*.cpp src/bytecode/*.cpp" 
 headers := "src/*.hpp src/bytecode/*.hpp"
 out := "../out/debug.bin" 
+unity_build_source := "src/unity_build.cpp"
+
 format:
 	clang-format -i --style=Google {{sources}} {{headers}}
 
 tidy : format
-	clang-tidy {{sources}}
+	clang-tidy {{sources}} {{headers}}
 
 build: format 
-	clang++ src/unity_build.cpp -std=c++23 -g -Werror -Wall -Wextra -pedantic-errors -Wconversion -Wunused-variable -Wsign-conversion -fsanitize=address -Wint-in-bool-context -Winvalid-utf8 -Wmain -Wmissing-noreturn -lSDL3 -o {{out}}
+	clang++ {{unity_build_source}} -std=c++23 -g -Werror -Wall -Wextra -pedantic-errors -Wconversion -Wunused-variable -Wsign-conversion -fsanitize=address -Wint-in-bool-context -Winvalid-utf8 -Wmain -Wmissing-noreturn -ftime-trace -lSDL3 -o {{out}}
 
 run:
 	{{out}}
 
 run-valgrind:
-	valgrind --leak-check=yes {{out}}
+	valgrind --tool=memcheck --leak-check=yes {{out}}
 
 
