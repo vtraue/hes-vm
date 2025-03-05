@@ -2,6 +2,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
+
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -23,8 +25,9 @@ public class Main {
 			
 			ParseTree tree = parser.program();
 			AstVisitor visitor = new AstVisitor();
-			System.out.println("Huh?");
 			visitor.visit(tree);
+			var ast = visitor.statements;	
+			System.out.println(ast.stream().map(s -> s.toDebugText()).collect(Collectors.joining("\n")));	
 		}
   }
 }

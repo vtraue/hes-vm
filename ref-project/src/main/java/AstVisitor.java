@@ -138,6 +138,7 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 	//NOTE: (joh): das geht bestimmt besser
 	@Override
 	public AstNode visitTInt(ReflangParser.TIntContext ctx) {
+		System.out.println("tint");
 		return Type.Int;
 	}
 	@Override

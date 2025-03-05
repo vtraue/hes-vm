@@ -29,7 +29,7 @@ block	  : '{' statements = statement* '}';
 while   :  'while' '(' expr ')' block ;
 cond    :  'if' '(' cond_expr = expr ')' if_block = block ('else' else_block = block)? ;
 
-type    : TYPE_INT  #TInt 
+type    : TYPE_INT #TInt 
 				| TYPE_STRING #TString 
 				| TYPE_BOOL #TBool ;
 
@@ -53,12 +53,13 @@ expr 		: fncall #fnc
 bool_literal : TRUE #LiteralTrue | FALSE #LiteralFalse;
 
 // Lexer
-ID      :  [a-z][a-zA-Z0-9_]* ;
-NUMBER  :  [0-9]+ ;
-
 TYPE_INT		  : 'int'; 
 TYPE_STRING		: 'string'; 
 TYPE_BOOL		  : 'bool';
+
+ID      :  [a-z][a-zA-Z0-9_]* ;
+NUMBER  :  [0-9]+ ;
+
 
 STRING  :  '"' (~[\n\r"])* '"' ;
 
