@@ -106,18 +106,10 @@ record FncallArgs(List<Expression> args) implements AstNode {
 ;
 
 record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
-<<<<<<< HEAD
 	public String toDebugText() {
 		return String.format("%s%s", id.toDebugText(), params.map(FncallArgs::toDebugText).orElse(""));
 	}
 };
-=======
-  public String toDebugText() {
-    return String.format("%s(%s)", id, params.map(FncallArgs::toDebugText).orElse(""));
-  }
-}
-;
->>>>>>> c0560b1153c7bec5fb02b136ee3a127fbb144945
 
 record VarDecl(Id id, Type type, Optional<Expression> expr) implements Statement {
   public String toDebugText() {
@@ -136,7 +128,6 @@ record Assign(Id id, Expression expr) implements Statement {
 ;
 
 record Block(List<Statement> statements) implements Statement {
-<<<<<<< HEAD
 	public String toDebugText() {
 		String statementsString = statements
 			.stream()
@@ -145,15 +136,6 @@ record Block(List<Statement> statements) implements Statement {
 		return String.format("{\n  %s\n}", statementsString);
 	}
 };
-=======
-  public String toDebugText() {
-    String statementsString =
-        statements.stream().map(s -> s.toDebugText()).collect(Collectors.joining("\n"));
-    return String.format("{\n%s\n}", statementsString);
-  }
-}
-;
->>>>>>> c0560b1153c7bec5fb02b136ee3a127fbb144945
 
 record Params(List<Param> params) implements AstNode {
   public String toDebugText() {

@@ -15,7 +15,6 @@ public class Main {
   public static void main(String... args) throws IOException {
     File folder = new File("test");
 
-<<<<<<< HEAD
 		for(File entry : folder.listFiles()) {
 			String content = new String(Files.readAllBytes(entry.toPath()));
 			ReflangLexer lexer = new ReflangLexer(CharStreams.fromString(content));
@@ -29,19 +28,5 @@ public class Main {
 				System.out.println(s.toDebugText());
 			}
 		}
-=======
-    for (File entry : folder.listFiles()) {
-      String content = new String(Files.readAllBytes(entry.toPath()));
-      ReflangLexer lexer = new ReflangLexer(CharStreams.fromString(content));
-      CommonTokenStream tokens = new CommonTokenStream(lexer);
-      ReflangParser parser = new ReflangParser(tokens);
-
-      ParseTree tree = parser.program();
-      AstVisitor visitor = new AstVisitor();
-      visitor.visit(tree);
-      var ast = visitor.statements;
-      System.out.println(ast.stream().map(s -> s.toDebugText()).collect(Collectors.joining("\n")));
-    }
->>>>>>> c0560b1153c7bec5fb02b136ee3a127fbb144945
   }
 }
