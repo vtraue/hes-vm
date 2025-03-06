@@ -11,10 +11,10 @@ repositories {
 
 dependencies {
     antlr 'org.antlr:antlr4:4.13.2'
-	implementation files("../lib/wasm_builder_lib/lib/build/libs/lib.jar")
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.1'
     testImplementation 'org.mockito:mockito-core:5.14.1'
+	implementation project(':lib')
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)  // use current Long-Term Support (LTS) release
