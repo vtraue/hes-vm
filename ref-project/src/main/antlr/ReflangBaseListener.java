@@ -5,12 +5,12 @@ import org.antlr.v4.runtime.tree.ErrorNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
 /**
- * This class provides an empty implementation of {@link ReflangListener},
- * which can be extended to create a listener which only needs to handle a subset
- * of the available methods.
+ * This class provides an empty implementation of {@link ReflangListener}, which can be extended to
+ * create a listener which only needs to handle a subset of the available methods.
  */
 @SuppressWarnings("CheckReturnValue")
 public class ReflangBaseListener implements ReflangListener {
+<<<<<<< HEAD
 	/**
 	 * {@inheritDoc}
 	 *
@@ -443,29 +443,581 @@ public class ReflangBaseListener implements ReflangListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitLiteralFalse(ReflangParser.LiteralFalseContext ctx) { }
+=======
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterProgram(ReflangParser.ProgramContext ctx) {}
+>>>>>>> c0560b1153c7bec5fb02b136ee3a127fbb144945
 
-	/**
-	 * {@inheritDoc}
-	 *
-	 * <p>The default implementation does nothing.</p>
-	 */
-	@Override public void enterEveryRule(ParserRuleContext ctx) { }
-	/**
-	 * {@inheritDoc}
-	 *
-	 * <p>The default implementation does nothing.</p>
-	 */
-	@Override public void exitEveryRule(ParserRuleContext ctx) { }
-	/**
-	 * {@inheritDoc}
-	 *
-	 * <p>The default implementation does nothing.</p>
-	 */
-	@Override public void visitTerminal(TerminalNode node) { }
-	/**
-	 * {@inheritDoc}
-	 *
-	 * <p>The default implementation does nothing.</p>
-	 */
-	@Override public void visitErrorNode(ErrorNode node) { }
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitProgram(ReflangParser.ProgramContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterStatement(ReflangParser.StatementContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitStatement(ReflangParser.StatementContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterVardecl(ReflangParser.VardeclContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitVardecl(ReflangParser.VardeclContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterAssign(ReflangParser.AssignContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitAssign(ReflangParser.AssignContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterFndecl(ReflangParser.FndeclContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitFndecl(ReflangParser.FndeclContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterParam(ReflangParser.ParamContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitParam(ReflangParser.ParamContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterParams(ReflangParser.ParamsContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitParams(ReflangParser.ParamsContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterReturn(ReflangParser.ReturnContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitReturn(ReflangParser.ReturnContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterFncall(ReflangParser.FncallContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitFncall(ReflangParser.FncallContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterArgs(ReflangParser.ArgsContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitArgs(ReflangParser.ArgsContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterBlock(ReflangParser.BlockContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitBlock(ReflangParser.BlockContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterWhile(ReflangParser.WhileContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitWhile(ReflangParser.WhileContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterCond(ReflangParser.CondContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitCond(ReflangParser.CondContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterInt(ReflangParser.IntContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitInt(ReflangParser.IntContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterString(ReflangParser.StringContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitString(ReflangParser.StringContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterBool(ReflangParser.BoolContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitBool(ReflangParser.BoolContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterAdd(ReflangParser.AddContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitAdd(ReflangParser.AddContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterSub(ReflangParser.SubContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitSub(ReflangParser.SubContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterNmb(ReflangParser.NmbContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitNmb(ReflangParser.NmbContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterLt(ReflangParser.LtContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitLt(ReflangParser.LtContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterBlit(ReflangParser.BlitContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitBlit(ReflangParser.BlitContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterEq(ReflangParser.EqContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitEq(ReflangParser.EqContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterGt(ReflangParser.GtContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitGt(ReflangParser.GtContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterStr(ReflangParser.StrContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitStr(ReflangParser.StrContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterDiv(ReflangParser.DivContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitDiv(ReflangParser.DivContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterMult(ReflangParser.MultContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitMult(ReflangParser.MultContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterLe(ReflangParser.LeContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitLe(ReflangParser.LeContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterFnc(ReflangParser.FncContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitFnc(ReflangParser.FncContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterId(ReflangParser.IdContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitId(ReflangParser.IdContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterNeq(ReflangParser.NeqContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitNeq(ReflangParser.NeqContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterGe(ReflangParser.GeContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitGe(ReflangParser.GeContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterParen(ReflangParser.ParenContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitParen(ReflangParser.ParenContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterTrue(ReflangParser.TrueContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitTrue(ReflangParser.TrueContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterFalse(ReflangParser.FalseContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitFalse(ReflangParser.FalseContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void enterEveryRule(ParserRuleContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void exitEveryRule(ParserRuleContext ctx) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void visitTerminal(TerminalNode node) {}
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The default implementation does nothing.
+   */
+  @Override
+  public void visitErrorNode(ErrorNode node) {}
 }

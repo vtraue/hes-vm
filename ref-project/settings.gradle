@@ -1,0 +1,6 @@
+
+rootProject.name = 'ref-project'
+
+include(':lib')
+include(':src')
+project(':lib').projectDir = new File("../wasm_builder_lib/lib")

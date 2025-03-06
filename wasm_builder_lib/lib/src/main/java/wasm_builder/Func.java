@@ -40,6 +40,10 @@ public class Func {
 		WasmBuilder.addEnd(body);
 	}
 
+	public void emitCall(int id) throws IOException {
+		WasmBuilder.addCall(id, body);
+	}
+
 	public void emitLocalSet(int id) throws IOException {
 		WasmBuilder.addLocalSet(id, body);
 	}

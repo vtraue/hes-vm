@@ -15,7 +15,6 @@ public class WasmBuilder {
 	private int currentFunction;
 
 	public void build(List<Func> funcs) throws IOException {
-
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
 		if (!funcTypes.isEmpty()) {
@@ -64,6 +63,11 @@ public class WasmBuilder {
 			write(encodeI32ToLeb128(f.getResults().size()), os);
 			write(f.getResults(), os);
 		}
+	}
+
+	public static void addCall(int id, ByteArrayOutputStream os) throws IOException {
+		write((byte) WasmInstructionOpCode.CALL.code, os);
+		write(encodeI32ToLeb128(id), os);
 	}
 
 	public static void addEnd(ByteArrayOutputStream os) throws IOException {
