@@ -40,6 +40,18 @@ public class ReflangBaseListener implements ReflangListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
+	@Override public void enterStmtExpr(ReflangParser.StmtExprContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitStmtExpr(ReflangParser.StmtExprContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
 	@Override public void enterVardecl(ReflangParser.VardeclContext ctx) { }
 	/**
 	 * {@inheritDoc}
@@ -59,6 +71,18 @@ public class ReflangBaseListener implements ReflangListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitAssign(ReflangParser.AssignContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterVarname(ReflangParser.VarnameContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitVarname(ReflangParser.VarnameContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -172,37 +196,37 @@ public class ReflangBaseListener implements ReflangListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void enterInt(ReflangParser.IntContext ctx) { }
+	@Override public void enterTInt(ReflangParser.TIntContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void exitInt(ReflangParser.IntContext ctx) { }
+	@Override public void exitTInt(ReflangParser.TIntContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void enterString(ReflangParser.StringContext ctx) { }
+	@Override public void enterTString(ReflangParser.TStringContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void exitString(ReflangParser.StringContext ctx) { }
+	@Override public void exitTString(ReflangParser.TStringContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void enterBool(ReflangParser.BoolContext ctx) { }
+	@Override public void enterTBool(ReflangParser.TBoolContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void exitBool(ReflangParser.BoolContext ctx) { }
+	@Override public void exitTBool(ReflangParser.TBoolContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -232,13 +256,13 @@ public class ReflangBaseListener implements ReflangListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void enterNmb(ReflangParser.NmbContext ctx) { }
+	@Override public void enterLiteralBool(ReflangParser.LiteralBoolContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void exitNmb(ReflangParser.NmbContext ctx) { }
+	@Override public void exitLiteralBool(ReflangParser.LiteralBoolContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -256,13 +280,13 @@ public class ReflangBaseListener implements ReflangListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void enterBlit(ReflangParser.BlitContext ctx) { }
+	@Override public void enterLiteralStr(ReflangParser.LiteralStrContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void exitBlit(ReflangParser.BlitContext ctx) { }
+	@Override public void exitLiteralStr(ReflangParser.LiteralStrContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -287,18 +311,6 @@ public class ReflangBaseListener implements ReflangListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitGt(ReflangParser.GtContext ctx) { }
-	/**
-	 * {@inheritDoc}
-	 *
-	 * <p>The default implementation does nothing.</p>
-	 */
-	@Override public void enterStr(ReflangParser.StrContext ctx) { }
-	/**
-	 * {@inheritDoc}
-	 *
-	 * <p>The default implementation does nothing.</p>
-	 */
-	@Override public void exitStr(ReflangParser.StrContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -352,6 +364,18 @@ public class ReflangBaseListener implements ReflangListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
+	@Override public void enterLiteralNmb(ReflangParser.LiteralNmbContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitLiteralNmb(ReflangParser.LiteralNmbContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
 	@Override public void enterId(ReflangParser.IdContext ctx) { }
 	/**
 	 * {@inheritDoc}
@@ -400,25 +424,25 @@ public class ReflangBaseListener implements ReflangListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void enterTrue(ReflangParser.TrueContext ctx) { }
+	@Override public void enterLiteralTrue(ReflangParser.LiteralTrueContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void exitTrue(ReflangParser.TrueContext ctx) { }
+	@Override public void exitLiteralTrue(ReflangParser.LiteralTrueContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void enterFalse(ReflangParser.FalseContext ctx) { }
+	@Override public void enterLiteralFalse(ReflangParser.LiteralFalseContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
-	@Override public void exitFalse(ReflangParser.FalseContext ctx) { }
+	@Override public void exitLiteralFalse(ReflangParser.LiteralFalseContext ctx) { }
 
 	/**
 	 * {@inheritDoc}

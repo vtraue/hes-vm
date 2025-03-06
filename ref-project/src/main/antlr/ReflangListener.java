@@ -27,6 +27,16 @@ public interface ReflangListener extends ParseTreeListener {
 	 */
 	void exitStatement(ReflangParser.StatementContext ctx);
 	/**
+	 * Enter a parse tree produced by {@link ReflangParser#stmtExpr}.
+	 * @param ctx the parse tree
+	 */
+	void enterStmtExpr(ReflangParser.StmtExprContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link ReflangParser#stmtExpr}.
+	 * @param ctx the parse tree
+	 */
+	void exitStmtExpr(ReflangParser.StmtExprContext ctx);
+	/**
 	 * Enter a parse tree produced by {@link ReflangParser#vardecl}.
 	 * @param ctx the parse tree
 	 */
@@ -46,6 +56,16 @@ public interface ReflangListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	void exitAssign(ReflangParser.AssignContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link ReflangParser#varname}.
+	 * @param ctx the parse tree
+	 */
+	void enterVarname(ReflangParser.VarnameContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link ReflangParser#varname}.
+	 * @param ctx the parse tree
+	 */
+	void exitVarname(ReflangParser.VarnameContext ctx);
 	/**
 	 * Enter a parse tree produced by {@link ReflangParser#fndecl}.
 	 * @param ctx the parse tree
@@ -137,41 +157,41 @@ public interface ReflangListener extends ParseTreeListener {
 	 */
 	void exitCond(ReflangParser.CondContext ctx);
 	/**
-	 * Enter a parse tree produced by the {@code Int}
+	 * Enter a parse tree produced by the {@code TInt}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 */
-	void enterInt(ReflangParser.IntContext ctx);
+	void enterTInt(ReflangParser.TIntContext ctx);
 	/**
-	 * Exit a parse tree produced by the {@code Int}
+	 * Exit a parse tree produced by the {@code TInt}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 */
-	void exitInt(ReflangParser.IntContext ctx);
+	void exitTInt(ReflangParser.TIntContext ctx);
 	/**
-	 * Enter a parse tree produced by the {@code String}
+	 * Enter a parse tree produced by the {@code TString}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 */
-	void enterString(ReflangParser.StringContext ctx);
+	void enterTString(ReflangParser.TStringContext ctx);
 	/**
-	 * Exit a parse tree produced by the {@code String}
+	 * Exit a parse tree produced by the {@code TString}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 */
-	void exitString(ReflangParser.StringContext ctx);
+	void exitTString(ReflangParser.TStringContext ctx);
 	/**
-	 * Enter a parse tree produced by the {@code Bool}
+	 * Enter a parse tree produced by the {@code TBool}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 */
-	void enterBool(ReflangParser.BoolContext ctx);
+	void enterTBool(ReflangParser.TBoolContext ctx);
 	/**
-	 * Exit a parse tree produced by the {@code Bool}
+	 * Exit a parse tree produced by the {@code TBool}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 */
-	void exitBool(ReflangParser.BoolContext ctx);
+	void exitTBool(ReflangParser.TBoolContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code Add}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -197,17 +217,17 @@ public interface ReflangListener extends ParseTreeListener {
 	 */
 	void exitSub(ReflangParser.SubContext ctx);
 	/**
-	 * Enter a parse tree produced by the {@code Nmb}
+	 * Enter a parse tree produced by the {@code LiteralBool}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
 	 */
-	void enterNmb(ReflangParser.NmbContext ctx);
+	void enterLiteralBool(ReflangParser.LiteralBoolContext ctx);
 	/**
-	 * Exit a parse tree produced by the {@code Nmb}
+	 * Exit a parse tree produced by the {@code LiteralBool}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
 	 */
-	void exitNmb(ReflangParser.NmbContext ctx);
+	void exitLiteralBool(ReflangParser.LiteralBoolContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code Lt}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -221,17 +241,17 @@ public interface ReflangListener extends ParseTreeListener {
 	 */
 	void exitLt(ReflangParser.LtContext ctx);
 	/**
-	 * Enter a parse tree produced by the {@code Blit}
+	 * Enter a parse tree produced by the {@code LiteralStr}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
 	 */
-	void enterBlit(ReflangParser.BlitContext ctx);
+	void enterLiteralStr(ReflangParser.LiteralStrContext ctx);
 	/**
-	 * Exit a parse tree produced by the {@code Blit}
+	 * Exit a parse tree produced by the {@code LiteralStr}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
 	 */
-	void exitBlit(ReflangParser.BlitContext ctx);
+	void exitLiteralStr(ReflangParser.LiteralStrContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code Eq}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -256,18 +276,6 @@ public interface ReflangListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	void exitGt(ReflangParser.GtContext ctx);
-	/**
-	 * Enter a parse tree produced by the {@code Str}
-	 * labeled alternative in {@link ReflangParser#expr}.
-	 * @param ctx the parse tree
-	 */
-	void enterStr(ReflangParser.StrContext ctx);
-	/**
-	 * Exit a parse tree produced by the {@code Str}
-	 * labeled alternative in {@link ReflangParser#expr}.
-	 * @param ctx the parse tree
-	 */
-	void exitStr(ReflangParser.StrContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code Div}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -317,6 +325,18 @@ public interface ReflangListener extends ParseTreeListener {
 	 */
 	void exitFnc(ReflangParser.FncContext ctx);
 	/**
+	 * Enter a parse tree produced by the {@code LiteralNmb}
+	 * labeled alternative in {@link ReflangParser#expr}.
+	 * @param ctx the parse tree
+	 */
+	void enterLiteralNmb(ReflangParser.LiteralNmbContext ctx);
+	/**
+	 * Exit a parse tree produced by the {@code LiteralNmb}
+	 * labeled alternative in {@link ReflangParser#expr}.
+	 * @param ctx the parse tree
+	 */
+	void exitLiteralNmb(ReflangParser.LiteralNmbContext ctx);
+	/**
 	 * Enter a parse tree produced by the {@code Id}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
@@ -365,27 +385,27 @@ public interface ReflangListener extends ParseTreeListener {
 	 */
 	void exitParen(ReflangParser.ParenContext ctx);
 	/**
-	 * Enter a parse tree produced by the {@code True}
+	 * Enter a parse tree produced by the {@code LiteralTrue}
 	 * labeled alternative in {@link ReflangParser#bool_literal}.
 	 * @param ctx the parse tree
 	 */
-	void enterTrue(ReflangParser.TrueContext ctx);
+	void enterLiteralTrue(ReflangParser.LiteralTrueContext ctx);
 	/**
-	 * Exit a parse tree produced by the {@code True}
+	 * Exit a parse tree produced by the {@code LiteralTrue}
 	 * labeled alternative in {@link ReflangParser#bool_literal}.
 	 * @param ctx the parse tree
 	 */
-	void exitTrue(ReflangParser.TrueContext ctx);
+	void exitLiteralTrue(ReflangParser.LiteralTrueContext ctx);
 	/**
-	 * Enter a parse tree produced by the {@code False}
+	 * Enter a parse tree produced by the {@code LiteralFalse}
 	 * labeled alternative in {@link ReflangParser#bool_literal}.
 	 * @param ctx the parse tree
 	 */
-	void enterFalse(ReflangParser.FalseContext ctx);
+	void enterLiteralFalse(ReflangParser.LiteralFalseContext ctx);
 	/**
-	 * Exit a parse tree produced by the {@code False}
+	 * Exit a parse tree produced by the {@code LiteralFalse}
 	 * labeled alternative in {@link ReflangParser#bool_literal}.
 	 * @param ctx the parse tree
 	 */
-	void exitFalse(ReflangParser.FalseContext ctx);
+	void exitLiteralFalse(ReflangParser.LiteralFalseContext ctx);
 }

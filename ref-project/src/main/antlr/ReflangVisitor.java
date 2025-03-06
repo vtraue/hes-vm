@@ -22,6 +22,12 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitStatement(ReflangParser.StatementContext ctx);
 	/**
+	 * Visit a parse tree produced by {@link ReflangParser#stmtExpr}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitStmtExpr(ReflangParser.StmtExprContext ctx);
+	/**
 	 * Visit a parse tree produced by {@link ReflangParser#vardecl}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
@@ -33,6 +39,12 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 * @return the visitor result
 	 */
 	T visitAssign(ReflangParser.AssignContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link ReflangParser#varname}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitVarname(ReflangParser.VarnameContext ctx);
 	/**
 	 * Visit a parse tree produced by {@link ReflangParser#fndecl}.
 	 * @param ctx the parse tree
@@ -88,26 +100,26 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitCond(ReflangParser.CondContext ctx);
 	/**
-	 * Visit a parse tree produced by the {@code Int}
+	 * Visit a parse tree produced by the {@code TInt}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	T visitInt(ReflangParser.IntContext ctx);
+	T visitTInt(ReflangParser.TIntContext ctx);
 	/**
-	 * Visit a parse tree produced by the {@code String}
+	 * Visit a parse tree produced by the {@code TString}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	T visitString(ReflangParser.StringContext ctx);
+	T visitTString(ReflangParser.TStringContext ctx);
 	/**
-	 * Visit a parse tree produced by the {@code Bool}
+	 * Visit a parse tree produced by the {@code TBool}
 	 * labeled alternative in {@link ReflangParser#type}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	T visitBool(ReflangParser.BoolContext ctx);
+	T visitTBool(ReflangParser.TBoolContext ctx);
 	/**
 	 * Visit a parse tree produced by the {@code Add}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -123,12 +135,12 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitSub(ReflangParser.SubContext ctx);
 	/**
-	 * Visit a parse tree produced by the {@code Nmb}
+	 * Visit a parse tree produced by the {@code LiteralBool}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	T visitNmb(ReflangParser.NmbContext ctx);
+	T visitLiteralBool(ReflangParser.LiteralBoolContext ctx);
 	/**
 	 * Visit a parse tree produced by the {@code Lt}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -137,12 +149,12 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitLt(ReflangParser.LtContext ctx);
 	/**
-	 * Visit a parse tree produced by the {@code Blit}
+	 * Visit a parse tree produced by the {@code LiteralStr}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	T visitBlit(ReflangParser.BlitContext ctx);
+	T visitLiteralStr(ReflangParser.LiteralStrContext ctx);
 	/**
 	 * Visit a parse tree produced by the {@code Eq}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -157,13 +169,6 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 * @return the visitor result
 	 */
 	T visitGt(ReflangParser.GtContext ctx);
-	/**
-	 * Visit a parse tree produced by the {@code Str}
-	 * labeled alternative in {@link ReflangParser#expr}.
-	 * @param ctx the parse tree
-	 * @return the visitor result
-	 */
-	T visitStr(ReflangParser.StrContext ctx);
 	/**
 	 * Visit a parse tree produced by the {@code Div}
 	 * labeled alternative in {@link ReflangParser#expr}.
@@ -193,6 +198,13 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitFnc(ReflangParser.FncContext ctx);
 	/**
+	 * Visit a parse tree produced by the {@code LiteralNmb}
+	 * labeled alternative in {@link ReflangParser#expr}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitLiteralNmb(ReflangParser.LiteralNmbContext ctx);
+	/**
 	 * Visit a parse tree produced by the {@code Id}
 	 * labeled alternative in {@link ReflangParser#expr}.
 	 * @param ctx the parse tree
@@ -221,17 +233,17 @@ public interface ReflangVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitParen(ReflangParser.ParenContext ctx);
 	/**
-	 * Visit a parse tree produced by the {@code True}
+	 * Visit a parse tree produced by the {@code LiteralTrue}
 	 * labeled alternative in {@link ReflangParser#bool_literal}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	T visitTrue(ReflangParser.TrueContext ctx);
+	T visitLiteralTrue(ReflangParser.LiteralTrueContext ctx);
 	/**
-	 * Visit a parse tree produced by the {@code False}
+	 * Visit a parse tree produced by the {@code LiteralFalse}
 	 * labeled alternative in {@link ReflangParser#bool_literal}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	T visitFalse(ReflangParser.FalseContext ctx);
+	T visitLiteralFalse(ReflangParser.LiteralFalseContext ctx);
 }

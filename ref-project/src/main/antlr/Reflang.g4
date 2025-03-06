@@ -6,26 +6,27 @@ program : statement* EOF;
 statement:
 				   vardecl
         |  assign
+        |  stmtExpr 
     		|  fndecl
-        |  expr ';'
+        |  cond
         |  block
         |  while
-        |  cond
         |  return
         ;
 
-vardecl :  name=ID ':' t=type ('=' init_expr=expr)? ';' ;
-assign  :  name=ID '=' init_expr=expr ';' ;
+stmtExpr : e = expr ';' ;
+vardecl :  name=varname ':' t=type ('=' init_expr=expr)? ';' ;
+assign  :  name=varname '=' init_expr=expr ';' ;
+varname : name=ID;
+fndecl 	: FN name=varname '(' decl_params=params? ')' '->' ret_type=type decl_block=block;
 
-fndecl 	: FN name=ID '(' decl_params=params? ')' '->' ret_type=type decl_block=block;
-
-param 	: name=ID ':' t=type;
+param 	: name=varname ':' t=type;
 params	: first = param (',' rest+=param)* ;
 
 return  : 'return' expr ';' ;
-fncall  : name = ID '(' args? ')' ;
+fncall  : name=varname '(' args? ')' ;
 args    :  first = expr (',' rest += expr)* ;
-block	  : '{' statements = statement* '}';
+block	  : '{' statements += statement* '}';
 while   :  'while' '(' expr ')' block ;
 cond    :  'if' '(' cond_expr = expr ')' if_block = block ('else' else_block = block)? ;
 
@@ -44,7 +45,7 @@ expr 		: fncall #fnc
         |  lhs = expr '>=' rhs = expr # Ge
         |  lhs = expr '<' rhs = expr # Lt
         |  lhs = expr '<=' rhs = expr # Le
-				| ID # Id 
+				| varname # Id 
 				| NUMBER # LiteralNmb
 				| STRING # LiteralStr
 				| bool_literal #LiteralBool

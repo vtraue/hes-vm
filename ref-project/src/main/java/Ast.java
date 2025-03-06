@@ -93,7 +93,7 @@ record FncallArgs(List<Expression> args) implements AstNode {
 
 record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
 	public String toDebugText() {
-		return String.format("%s(%s)", id, params.map(FncallArgs::toDebugText).orElse(""));
+		return String.format("%s%s", id.toDebugText(), params.map(FncallArgs::toDebugText).orElse(""));
 	}
 };
 
@@ -114,8 +114,8 @@ record Block(List<Statement> statements) implements Statement {
 		String statementsString = statements
 			.stream()
 			.map(s -> s.toDebugText())
-			.collect(Collectors.joining("\n"));	
-		return String.format("{\n%s\n}", statementsString);
+			.collect(Collectors.joining("  \n  "));	
+		return String.format("{\n  %s\n}", statementsString);
 	}
 };
 

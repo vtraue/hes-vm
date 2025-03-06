@@ -26,8 +26,9 @@ public class Main {
 			ParseTree tree = parser.program();
 			AstVisitor visitor = new AstVisitor();
 			visitor.visit(tree);
-			var ast = visitor.statements;	
-			System.out.println(ast.stream().map(s -> s.toDebugText()).collect(Collectors.joining("\n")));	
+			for(Statement s : visitor.statements) {
+				System.out.println(s.toDebugText());
+			}
 		}
   }
 }
