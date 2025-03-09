@@ -1,5 +1,5 @@
 grammar Reflang;
-
+@header {package org.example;}
 // Parser
 program : statement* EOF;
 
