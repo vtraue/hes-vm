@@ -379,6 +379,15 @@ record Return(Expression expr) implements Statement {
   public String toDebugText() {
     return String.format("return %s", expr.toDebugText());
   }
+	@Override
+	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+		var typedExpression = this.expr.getTypedAstNode(builder);
+		if(!typedExpression.isOk()) {
+			return typedExpression;
+		}
+
+		return new Ok<>((TypedExpression)typedExpression.unwrap());
+	}
 }
 ;
 
@@ -386,6 +395,23 @@ record While(Expression expr, Block block) implements Statement {
   public String toDebugText() {
     return String.format("while(%s) %s", expr.toDebugText(), block.toDebugText());
   }
+	
+	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+		var typedCond = this.expr.getTypedAstNode(builder);
+		if(!typedCond.isOk()) {
+			return new Err<>(typedCond.getErr());
+		}
+		var typedBlock = this.block.getTypedAstNode(builder);
+		if(!typedBlock.isOk()) {
+			return typedBlock;
+		}
+
+		var condExpr = (TypedExpression)typedCond.unwrap();
+		if(!condExpr.getType().equals(Type.Bool)) {
+			return new Err<>(String.format("Expected bool type in while, got %s", condExpr.getType().toDebugText()));
+		}
+		return new Ok<>(new TypedWhile(condExpr, (TypedBlock)typedBlock.unwrap()));
+	}
 }
 
 record Cond(Expression cond, Block ifBlock, Optional<Block> elseBlock) implements Statement {
@@ -394,6 +420,35 @@ record Cond(Expression cond, Block ifBlock, Optional<Block> elseBlock) implement
         "if(%s) %s %s",
         cond.toDebugText(), ifBlock.toDebugText(), elseBlock.map(b -> "else %s" + b).orElse(""));
   }
+
+
+@Override
+public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+	var typedCond = this.cond.getTypedAstNode(builder);
+		if(!typedCond.isOk()) {
+			return new Err<>(typedCond.getErr());
+		}
+		var condExpr = (TypedExpression)typedCond.unwrap();
+		if(!condExpr.getType().equals(Type.Bool)) {
+			return new Err<>(String.format("Expected bool type in if, got %s", condExpr.getType().toDebugText()));
+		}
+
+		var typedBlock = this.ifBlock.getTypedAstNode(builder);
+		if(!typedBlock.isOk()) {
+			return typedBlock;
+		}
+		
+		Optional<TypedBlock> typedElseBlock = Optional.empty();
+		if(elseBlock.isPresent()) {
+			var typedElseResult = this.elseBlock.get().getTypedAstNode(builder);
+			if(!typedElseResult.isOk()) {
+				return typedElseResult;
+			}
+			typedElseBlock = Optional.of((TypedBlock)typedElseResult.unwrap());
+		}
+		var ifBlock = (TypedBlock)typedBlock.unwrap();
+		return new Ok<>(new TypedCond(condExpr, ifBlock, typedElseBlock));
+}
 }
 ;
 
