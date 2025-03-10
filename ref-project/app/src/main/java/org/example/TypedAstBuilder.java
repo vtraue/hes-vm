@@ -10,10 +10,10 @@ public class TypedAstBuilder {
 		Type type
 	) {};
 
-	public class Function {
-		Type returnType;
-		List<Type> argTypes;
-	}
+	public record Function (
+		Type returnType,
+		Optional<Params> argTypes
+	) {};
 
 	public class Enviroment {
 		public Optional<Enviroment> parent;
@@ -37,7 +37,6 @@ public class TypedAstBuilder {
 			return Optional.ofNullable(this.variables.get(name));
 		}
 
-
 		Optional<Symbol> searchVariable(String name) {
 				Optional<Enviroment> current = Optional.of(this);	
 
@@ -53,8 +52,30 @@ public class TypedAstBuilder {
 	}
 
 	public Enviroment currentEnv = new Enviroment(Optional.empty());
-		private Map<String, Function> functions;	
-	
+	private Map<String, Function> functions = new HashMap<>();
+		
+	Result<Function, Function> enterNewFunction(String name, Type returnType, Optional<Params> args) {
+		Function f = new Function(returnType, args);	
+
+		Optional<Function> found = Optional.ofNullable(this.functions.get(name));
+		if(found.isPresent()) {
+			return new Err<>(found.get());
+		}
+		this.functions.put(name, f);
+
+		this.enterNewScope();
+		if(args.isPresent()) {
+			System.out.println("Blubbi");
+			args
+				.get()
+				.params()
+				.stream()
+				.forEach(a -> this.addVariable(a.id().name(), a.type()));
+		}
+
+		return new Ok<>(f); 
+	}
+
 	Result<Symbol, Symbol> addVariable(String name, Type t) {
 		Symbol new_sym = new Symbol(t);
 		var res = this.currentEnv.addSymbol(name, new Symbol(t));

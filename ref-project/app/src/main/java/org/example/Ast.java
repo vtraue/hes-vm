@@ -205,7 +205,7 @@ record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
 		if(!funcType.isPresent()) {
 			return new Err<>(String.format("Function %s not resolved", this.id));
 		}
-		return new Ok<>(new TypedFncall((TypedId)tId.unwrap(), tArgs, funcType.get().returnType));
+		return new Ok<>(new TypedFncall((TypedId)tId.unwrap(), tArgs, funcType.get().returnType()));
 	}	
 };
 
@@ -305,6 +305,7 @@ record Param(Id id, Type type) implements AstNode {
   public String toDebugText() {
     return String.format("%s : %s", id.toDebugText(), type.toString());
   }
+
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);
@@ -331,14 +332,19 @@ record Params(List<Param> params) implements AstNode {
 			if(!typedResult.isOk()) {
 				hasErrors = true;
 				errorMessageBuilder.append(typedResult.getErr() + "\n");
-			}
+			} else {
 				TypedAstNode typedNode = typedResult.unwrap(); 
 				typedParams.add((TypedParam)typedNode);
 			}
+		}
 		if(hasErrors) {
 			return new Err<>(errorMessageBuilder.toString());
 		}
 		return new Ok<>(new TypedParams(typedParams));
+	}
+
+	public List<Type> toTypes() {
+		return this.params.stream().map(p -> p.type()).toList();
 	}
 }
 ;
@@ -356,12 +362,8 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		// TODO Auto-generated method stub
-		var tId = this.id.getTypedAstNode(builder);
-		if(!tId.isOk()) {
-			return new Err<>(tId.getErr());
-		}
-		Optional<TypedParams> typedParams = Optional.empty();  		
+		//Optional<TypedParams> typedParams = Optional.empty();  		
+		/*
 		if(params.isPresent()) {
 			var typedParamsNode = this.params.get().getTypedAstNode(builder);
 			if(!typedParamsNode.isOk()) {
@@ -369,11 +371,17 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 			}
 			typedParams = Optional.of((TypedParams)typedParamsNode.unwrap());
 		}
+		*/
+
+		builder.enterNewFunction(id.name(), returnType, params);
 		var typedBlockResult = this.block.getTypedAstNode(builder);
+
 		if(!typedBlockResult.isOk()) {
 			return new Err<>(typedBlockResult.getErr());
 		}
-		return new Ok<>(new TypedFndecl((TypedId)tId.unwrap(), typedParams, returnType, (TypedBlock)typedBlockResult.unwrap()));
+		builder.leaveScope();	
+	
+		return new Ok<>(new TypedFndecl(id.name(), params, returnType, (TypedBlock)typedBlockResult.unwrap()));
 	}
 }
 ;

@@ -53,6 +53,7 @@ expr 		: fncall #fnc
 				;
 bool_literal : TRUE #LiteralTrue | FALSE #LiteralFalse;
 
+FN		  : 'fn';
 // Lexer
 TYPE_INT		  : 'int'; 
 TYPE_STRING		: 'string'; 
@@ -69,5 +70,4 @@ FALSE : 'false' ;
 
 COMMENT :  '#' ~[\n\r]* -> skip ;
 WS      :  [ \t\n\r]+ -> skip ;
-FN		  : 'fn';
 
