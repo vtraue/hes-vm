@@ -163,9 +163,22 @@ public class WasmBuilder {
 		os.write(wasmBinaryVersion);
 	}
 
+	public static ArrayList<Integer> encodeU32ToLeb128(int value) {
+		value |= 0;
+		ArrayList<Integer> result = new ArrayList<>();
+		while (true) {
+			int byte_ = value & 0x7f;
+			value >>= 7;
+			if (value == 0) {
+				return result;
+			}
+			result.add(byte_ | 0x80);
+		}
+	}
+
 	public static ArrayList<Integer> encodeI32ToLeb128(int value) {
 		value |= 0;
-		ArrayList<Integer> result = new ArrayList<Integer>();
+		ArrayList<Integer> result = new ArrayList<>();
 		while (true) {
 
 			int byte_ = value & 0x7f;
