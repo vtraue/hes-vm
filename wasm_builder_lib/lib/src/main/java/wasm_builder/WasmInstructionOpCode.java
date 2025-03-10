@@ -8,6 +8,7 @@ public enum WasmInstructionOpCode {
 	BLOCK((short) 0x02),
 	LOOP((short) 0x03),
 	IF((short) 0x04),
+	ELSE((short) 0x05),
 	BR((short) 0x0C),
 	BR_IF((short) 0x0D),
 	RETURN((short) 0x0F),

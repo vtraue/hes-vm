@@ -46,6 +46,10 @@ class TestMain {
 
 	}
 
+	static void createTestfile1() throws IOException {
+
+	}
+
 	static void createTestfile1Simple() throws IOException {
 		/*
 		 * SEHR simple Testfile

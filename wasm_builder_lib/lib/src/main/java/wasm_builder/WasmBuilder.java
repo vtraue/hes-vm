@@ -11,8 +11,6 @@ public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private ArrayList<FuncType> funcTypes = new ArrayList<>();
-	private ArrayList<Func> funcs = new ArrayList<>();
-	private int currentFunction;
 
 	public void build(List<Func> funcs) throws IOException {
 		writeBinaryMagic(out);
@@ -20,6 +18,9 @@ public class WasmBuilder {
 		if (!funcTypes.isEmpty()) {
 			writeTypeSection(funcTypes, out);
 			writeFuncSection(funcTypes, out);
+		}
+		writeMemSection(out);
+		if (!funcTypes.isEmpty()) {
 			writeCodeSection(funcs, out);
 		}
 	}
@@ -28,10 +29,6 @@ public class WasmBuilder {
 		this.funcTypes.add(funcType);
 		return new Func(funcType, locals);
 
-	}
-
-	public Func getCurrentFunction() {
-		return this.funcs.get(currentFunction);
 	}
 
 	public byte[] getByteArray() {
@@ -43,12 +40,12 @@ public class WasmBuilder {
 		return hex.formatHex(out.toByteArray());
 	}
 
-	private static void write(byte code, ByteArrayOutputStream os) throws IOException {
+	static void write(byte code, ByteArrayOutputStream os) throws IOException {
 		byte[] b = { code };
 		os.write(b);
 	}
 
-	private static void write(List<Integer> al, ByteArrayOutputStream os) throws IOException {
+	static void write(List<Integer> al, ByteArrayOutputStream os) throws IOException {
 		for (Integer e : al) {
 			byte[] byteId = { (byte) e.intValue() };
 			os.write(byteId);
@@ -63,39 +60,6 @@ public class WasmBuilder {
 			write(encodeI32ToLeb128(f.getResults().size()), os);
 			write(f.getResults(), os);
 		}
-	}
-
-	public static void addCall(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.CALL.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addEnd(ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.END.code, os);
-	}
-
-	public static void addLocalSet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_SET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addLocalGet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_GET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addGlobalSet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_SET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addGlobalGet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_GET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addBinOp(WasmInstructionOpCode binop, ByteArrayOutputStream os) throws IOException {
-		write((byte) binop.code, os);
 	}
 
 	public void writeTypeSection(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
@@ -119,6 +83,15 @@ public class WasmBuilder {
 		write((byte) SectionId.Function.ordinal(), os);
 		write(encodeI32ToLeb128(funcIdsBytes.size()), os);
 		os.write(funcIdsBytes.toByteArray());
+	}
+
+	public void writeMemSection(ByteArrayOutputStream os) throws IOException {
+		write((byte) SectionId.Memory.ordinal(), os);
+		write(encodeI32ToLeb128(3), os); // Section Size
+		write(encodeI32ToLeb128(1), os); // Num Memories
+		write(encodeI32ToLeb128(0), os); // limits flags
+		write(encodeI32ToLeb128(0), os); // limits min / initial
+
 	}
 
 	public void writeCodeSection(List<Func> funcs, ByteArrayOutputStream os) throws IOException {
@@ -190,9 +163,22 @@ public class WasmBuilder {
 		os.write(wasmBinaryVersion);
 	}
 
+	public static ArrayList<Integer> encodeU32ToLeb128(int value) {
+		value |= 0;
+		ArrayList<Integer> result = new ArrayList<>();
+		while (true) {
+			int byte_ = value & 0x7f;
+			value >>= 7;
+			if (value == 0) {
+				return result;
+			}
+			result.add(byte_ | 0x80);
+		}
+	}
+
 	public static ArrayList<Integer> encodeI32ToLeb128(int value) {
 		value |= 0;
-		ArrayList<Integer> result = new ArrayList<Integer>();
+		ArrayList<Integer> result = new ArrayList<>();
 		while (true) {
 
 			int byte_ = value & 0x7f;

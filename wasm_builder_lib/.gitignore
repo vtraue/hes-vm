@@ -6,4 +6,11 @@ build
 
 # Ignore out directory for generated wasm files
 out
+
+
+*.class
 ./lib/.settings/
+lib/bin
+.classpath
+.settings/
+.project

@@ -68,25 +68,25 @@ Die Expression in dem Beispiel sollte in jeder Situation den gleichen WASM Code 
         - Ich glaube das ist nicht einfach zu implementieren
 ### Fall 1:
 - Sprache kann keine Referenzen / Pointer haben
-- Structs / Klasen nur seperat über Pointer oder garnicht
+- Structs / Klassen nur seperat über Pointer oder garnicht
 
-- C:
+- C
 ```c
     int a = 5;
 ```
-- Wasm:
+- Wasm
 ```wat
     ;; 5
     i32.const 5
     ;; int a = 
     local.set $a
 ```
+
 - C
 ```c
     a = a + 10;
 ```
 - Wasm
-
 ```wat
     ;; a 
     local.get $a
@@ -98,11 +98,12 @@ Die Expression in dem Beispiel sollte in jeder Situation den gleichen WASM Code 
     local.set $a
     
 ```
-C
+
+- C
 ```c
     a = b;
 ```
-Wasm
+- Wasm
 ```wat
     ;; b
     local.get $b
@@ -114,11 +115,11 @@ Wasm
 - Implementiert von Studierenden oder VM muss Stack handeln
 - Mögliche Implementation:
 
-- C:
+- C
 ```c
     int a = 5;
 ```
-- Wasm:
+- Wasm
 ```wat
     ;; int a;
     global.get $sp
@@ -134,12 +135,12 @@ Wasm
     i32.store 0 1
      
 ```
+
 - C
 ```c
     a = a + 10;
 ```
 - Wasm
-
 ```wat
     ;; a 
     local.get $a
@@ -154,13 +155,12 @@ Wasm
     i32.store 0 1
     
 ```
-```
-C
+
+- C
 ```c
     a = b;
 ```
-
-Wasm
+- Wasm
 ```wat
     ;; b
     local.get $b
@@ -170,12 +170,11 @@ Wasm
     i32.store 0 1 
 ```
 
-```
-C
+- C
 ```c
     int *c = &b; 
 ```
-Wasm
+- Wasm
 ```wat
     ;; int* c
     global.get $sp
@@ -192,11 +191,12 @@ Wasm
     i32.store 0 1 
 
 ```
-C
+
+- C
 ```c
     b = *c + 5; 
 ```
-Wasm
+- Wasm
 ```wat
     ;; *c
     local.get $c
