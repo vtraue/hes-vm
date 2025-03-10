@@ -8,6 +8,6 @@ fn test_fn(a: int, b: bool) -> int {
 	a_var = a + 5;
 	a_var = "hallo";
 
-	return "hallo";
+	return 1; 
 }
 

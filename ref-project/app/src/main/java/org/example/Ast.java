@@ -115,6 +115,7 @@ record StringLiteral(String literal) implements Literal {
   public String toDebugText() {
     return String.format("%s", this.literal);
   }
+
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		return new Ok<>(new TypedLiteral(this, Type.String));
 	}
@@ -251,7 +252,7 @@ record Assign(Id id, Expression expr) implements Statement {
 		if(!tId.isOk()) {
 			return new Err<>(tId.getErr());
 		}
-		Result<TypedAstNode, String> typedExpressionRes = this.id.getTypedAstNode(builder);
+		Result<TypedAstNode, String> typedExpressionRes = this.expr.getTypedAstNode(builder);
 		if(!typedExpressionRes.isOk()) {
 			return new Err<>(tId.getErr());
 		}
@@ -259,6 +260,8 @@ record Assign(Id id, Expression expr) implements Statement {
 		TypedExpression typedExpression = (TypedExpression) typedExpressionRes.unwrap(); 
 		TypedId typedId = (TypedId) tId.unwrap();
 
+		System.out.printf("TypedExpression: %s\n", typedExpression.getType().toString()); 
+		System.out.printf("TypedID: %s\n", typedId.getType().toString()); 
 		if(!typedExpression.getType().equals(typedId.getType())) {
 			return new Err<>(String.format("Cannot assign an expression of type %s to variable %s", typedExpression.getType(), typedId.getType()));
 		}
