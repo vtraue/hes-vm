@@ -11,8 +11,6 @@ public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private ArrayList<FuncType> funcTypes = new ArrayList<>();
-	private ArrayList<Func> funcs = new ArrayList<>();
-	private int currentFunction;
 
 	public void build(List<Func> funcs) throws IOException {
 		writeBinaryMagic(out);
@@ -30,10 +28,6 @@ public class WasmBuilder {
 
 	}
 
-	public Func getCurrentFunction() {
-		return this.funcs.get(currentFunction);
-	}
-
 	public byte[] getByteArray() {
 		return out.toByteArray();
 	}
@@ -43,12 +37,12 @@ public class WasmBuilder {
 		return hex.formatHex(out.toByteArray());
 	}
 
-	private static void write(byte code, ByteArrayOutputStream os) throws IOException {
+	static void write(byte code, ByteArrayOutputStream os) throws IOException {
 		byte[] b = { code };
 		os.write(b);
 	}
 
-	private static void write(List<Integer> al, ByteArrayOutputStream os) throws IOException {
+	static void write(List<Integer> al, ByteArrayOutputStream os) throws IOException {
 		for (Integer e : al) {
 			byte[] byteId = { (byte) e.intValue() };
 			os.write(byteId);
@@ -63,39 +57,6 @@ public class WasmBuilder {
 			write(encodeI32ToLeb128(f.getResults().size()), os);
 			write(f.getResults(), os);
 		}
-	}
-
-	public static void addCall(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.CALL.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addEnd(ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.END.code, os);
-	}
-
-	public static void addLocalSet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_SET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addLocalGet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.LOCAL_GET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addGlobalSet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_SET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addGlobalGet(int id, ByteArrayOutputStream os) throws IOException {
-		write((byte) WasmInstructionOpCode.GLOBAL_GET.code, os);
-		write(encodeI32ToLeb128(id), os);
-	}
-
-	public static void addBinOp(WasmInstructionOpCode binop, ByteArrayOutputStream os) throws IOException {
-		write((byte) binop.code, os);
 	}
 
 	public void writeTypeSection(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
