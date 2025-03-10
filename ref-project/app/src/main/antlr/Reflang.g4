@@ -59,14 +59,15 @@ TYPE_INT		  : 'int';
 TYPE_STRING		: 'string'; 
 TYPE_BOOL		  : 'bool';
 
+TRUE : 'true'  ;
+FALSE : 'false' ;
+
 ID      :  [a-z][a-zA-Z0-9_]* ;
 NUMBER  :  [0-9]+ ;
 
 
 STRING  :  '"' (~[\n\r"])* '"' ;
 
-TRUE : 'true'  ;
-FALSE : 'false' ;
 
 COMMENT :  '#' ~[\n\r]* -> skip ;
 WS      :  [ \t\n\r]+ -> skip ;

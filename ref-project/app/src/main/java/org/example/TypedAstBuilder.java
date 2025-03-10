@@ -53,7 +53,8 @@ public class TypedAstBuilder {
 
 	public Enviroment currentEnv = new Enviroment(Optional.empty());
 	private Map<String, Function> functions = new HashMap<>();
-		
+	private Optional<String> currentFunction = Optional.empty();		
+
 	Result<Function, Function> enterNewFunction(String name, Type returnType, Optional<Params> args) {
 		Function f = new Function(returnType, args);	
 
@@ -72,10 +73,23 @@ public class TypedAstBuilder {
 				.stream()
 				.forEach(a -> this.addVariable(a.id().name(), a.type()));
 		}
+		this.currentFunction = Optional.of(name);
 
 		return new Ok<>(f); 
 	}
+	
+	Optional<Function> getCurrentFunction() {
+		if(this.currentFunction.isEmpty()) {
+			return Optional.empty();
+		}
+		return Optional.of(this.functions.get(this.currentFunction.get()));
+	}
 
+	void leaveFunction() {
+		this.leaveScope();
+		this.currentFunction = Optional.empty();
+
+	}
 	Result<Symbol, Symbol> addVariable(String name, Type t) {
 		Symbol new_sym = new Symbol(t);
 		var res = this.currentEnv.addSymbol(name, new Symbol(t));

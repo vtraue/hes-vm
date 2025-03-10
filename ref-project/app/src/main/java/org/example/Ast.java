@@ -379,7 +379,7 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 		if(!typedBlockResult.isOk()) {
 			return new Err<>(typedBlockResult.getErr());
 		}
-		builder.leaveScope();	
+		builder.leaveFunction();	
 	
 		return new Ok<>(new TypedFndecl(id.name(), params, returnType, (TypedBlock)typedBlockResult.unwrap()));
 	}
@@ -390,14 +390,23 @@ record Return(Expression expr) implements Statement {
   public String toDebugText() {
     return String.format("return %s", expr.toDebugText());
   }
+
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		var typedExpression = this.expr.getTypedAstNode(builder);
-		if(!typedExpression.isOk()) {
-			return typedExpression;
+		var typedExpressionResult = this.expr.getTypedAstNode(builder);
+		if(!typedExpressionResult.isOk()) {
+			return typedExpressionResult;
 		}
+		var typedExpression = (TypedExpression)typedExpressionResult.unwrap();
+		Optional<Function> currentFunction = builder.getCurrentFunction();
 
-		return new Ok<>((TypedExpression)typedExpression.unwrap());
+		if(currentFunction.isEmpty()) {
+			return new Err<>("Return used outside of function");
+		}
+		if(!currentFunction.get().returnType().equals(typedExpression.getType())) {
+			return new Err<>(String.format("Function expects return type of %s", currentFunction.get().returnType())); 
+		}
+		return new Ok<>(typedExpression);
 	}
 }
 ;
