@@ -6,3 +6,5 @@ build
 
 # Ignore out directory for generated wasm files
 out
+
+*.class
