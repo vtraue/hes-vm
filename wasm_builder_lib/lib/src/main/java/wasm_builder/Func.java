@@ -8,7 +8,6 @@ import java.util.Optional;
 
 public class Func {
 	private FuncType funcType;
-	private int Id;
 	private ByteArrayOutputStream body;
 	private ArrayList<WasmValueType> locals;
 
@@ -30,18 +29,24 @@ public class Func {
 		return funcType;
 	}
 
-	public ByteArrayOutputStream getFuncCode() {
-		ByteArrayOutputStream locals = new ByteArrayOutputStream();
-		ByteArrayOutputStream funcCode = new ByteArrayOutputStream();
-		return funcCode;
-	}
-
 	public void emitEnd() throws IOException {
 		Instructions.addEnd(body);
 	}
 
 	public void emitCall(int id) throws IOException {
 		Instructions.addCall(id, body);
+	}
+
+	public void emitLoad() throws IOException {
+		Instructions.addI32Load(body);
+	}
+
+	public void emitStore() throws IOException {
+		Instructions.addI32Store(body);
+	}
+
+	public void emitConst(int value) throws IOException {
+		Instructions.addI32Const(value, body);
 	}
 
 	public void emitLocalSet(int id) throws IOException {
@@ -52,6 +57,10 @@ public class Func {
 		Instructions.addLocalGet(id, body);
 	}
 
+	public void emitLocalTee(int id) throws IOException {
+		Instructions.addLocalTee(id, body);
+	}
+
 	public void emitGlobalSet(int id) throws IOException {
 		Instructions.addGlobalSet(id, body);
 	}
@@ -60,6 +69,7 @@ public class Func {
 		Instructions.addGlobalGet(id, body);
 	}
 
+	// binops
 	public void emitAdd() throws IOException {
 		Instructions.addBinOp(WasmInstructionOpCode.I32_ADD, body);
 	}
@@ -118,5 +128,36 @@ public class Func {
 
 	public void emitGe() throws IOException {
 		Instructions.addBinOp(WasmInstructionOpCode.I32_GE_S, body);
+	}
+
+	// control
+	public void emitIf() throws IOException {
+		Instructions.addIf(body);
+	}
+
+	public void emitElse() throws IOException {
+		Instructions.addElse(body);
+	}
+
+	public void emitBlock() throws IOException {
+		Instructions.addBlock(body);
+	}
+
+	public void emitLoop() throws IOException {
+		Instructions.addLoop(body);
+	}
+
+	public void emitBlockType() throws IOException {
+		Instructions.addBlock(body);
+	}
+
+	public void emitBlockType(WasmValueType valtype) throws IOException {
+		Instructions.addBlockType(valtype, body);
+
+	}
+
+	public void emitBlockType(int typeidx) throws IOException {
+		Instructions.addBlockType(typeidx, body);
+
 	}
 }
