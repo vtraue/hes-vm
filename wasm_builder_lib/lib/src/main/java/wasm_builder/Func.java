@@ -29,6 +29,10 @@ public class Func {
 		return funcType;
 	}
 
+	public void addLocal(WasmValueType localType) {
+		this.locals.add(localType);
+	}
+
 	public void emitEnd() throws IOException {
 		Instructions.addEnd(body);
 	}
