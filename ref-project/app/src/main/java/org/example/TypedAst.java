@@ -12,7 +12,7 @@ sealed interface TypedExpression extends TypedStatement{
 record TypedId(String name, TypedAstBuilder.Symbol sym) implements TypedExpression {
 	@Override
 	public Type getType() {
-		return sym.type;
+		return sym.type();
 	}
 };
 record TypedLiteral(Literal lit, Type t) implements TypedExpression {
@@ -41,7 +41,7 @@ record TypedAssign(TypedId id, TypedExpression expr) implements TypedStatement {
 record TypedBlock(List<TypedStatement> statements) implements TypedStatement {};
 record TypedParam(TypedId id, Type type) implements TypedAstNode{};
 record TypedParams(List<TypedParam> params) implements TypedAstNode {};
-record TypedFndecl(TypedId id, Optional<TypedParams> params, Type returnType, TypedBlock block) implements TypedStatement {};
+record TypedFndecl(String id, Optional<Params> params, Type returnType, TypedBlock block) implements TypedStatement {};
 record TypedReturn(TypedExpression expr) implements TypedStatement {};
 record TypedWhile(TypedExpression expr, TypedBlock block) implements TypedStatement {};
 record TypedCond(TypedExpression cond, TypedBlock ifBlock, Optional<TypedBlock> elseBlock) implements TypedStatement {}

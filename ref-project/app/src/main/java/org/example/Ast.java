@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.example.TypedAstBuilder.Function;
+import org.example.TypedAstBuilder.Symbol;
 
 //TODO:(joh): Bessere Fehler!
 
@@ -114,6 +115,7 @@ record StringLiteral(String literal) implements Literal {
   public String toDebugText() {
     return String.format("%s", this.literal);
   }
+
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		return new Ok<>(new TypedLiteral(this, Type.String));
 	}
@@ -204,37 +206,47 @@ record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
 		if(!funcType.isPresent()) {
 			return new Err<>(String.format("Function %s not resolved", this.id));
 		}
-		return new Ok<>(new TypedFncall((TypedId)tId.unwrap(), tArgs, funcType.get().returnType));
+		return new Ok<>(new TypedFncall((TypedId)tId.unwrap(), tArgs, funcType.get().returnType()));
 	}	
 };
 
-record VarDecl(Id id, Type type, Optional<Expression> expr) implements Statement {
+record VarDecl(Id id, Optional<Type> type, Optional<Expression> expr) implements Statement {
   public String toDebugText() {
     return expr.map(
-            e -> String.format("%s: %s = %s", id.toDebugText(), type.toString(), e.toDebugText()))
+            e -> String.format("%s :%s= %s", id.toDebugText(), type.isPresent() ? " " + type.get().toString() : "", e.toDebugText()))
         .orElse(String.format("%s: %s", id.toDebugText(), type.toString()));
   }
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);
-		if(!tId.isOk()) {
-			return new Err<>(tId.getErr());
-		}
 		Optional<TypedExpression> typedExpression = Optional.empty();
 
 		if(expr.isPresent()) {
 			Result<TypedAstNode, String> node = this.expr.get().getTypedAstNode(builder);
 			if(!node.isOk()) {
-				return new Err<>(tId.getErr());
+				return new Err<>(node.getErr());
 			}
 			var expr = (TypedExpression)node.unwrap();
 
-			if(!expr.getType().equals(this.type)) {
-				return new Err<>(String.format("Cannot initialize Variable %s of type %s with expression of type %s", id.name(), type.toString(), expr.getType()));
-			}
 			typedExpression = Optional.of(expr);
 		}
-		return new Ok<>(new TypedVarDecl((TypedId)tId.unwrap(), this.type, typedExpression));	
+		Type t;
+		if(type.isPresent()) {
+			if(typedExpression.isPresent()) {
+				if(!typedExpression.get().getType().equals(this.type.get())) {
+					return new Err<>(String.format("Cannot initialize Variable %s of type %s with expression of type %s", id.name(), type.toString(), typedExpression.get().getType()));
+				}
+			}
+			t = type.get();
+		} else {
+			t = typedExpression.get().getType();
+		}
+
+		Result<Symbol, Symbol> symResult = builder.addVariable(this.id.name(), t);
+		if(!symResult.isOk()) {
+			return new Err<>(String.format("Variable %s already exists in scope", id.name()));
+		}
+
+		return new Ok<>(new TypedVarDecl(new TypedId(id.name(), symResult.unwrap()), t, typedExpression));	
 	}
 }
 
@@ -249,7 +261,7 @@ record Assign(Id id, Expression expr) implements Statement {
 		if(!tId.isOk()) {
 			return new Err<>(tId.getErr());
 		}
-		Result<TypedAstNode, String> typedExpressionRes = this.id.getTypedAstNode(builder);
+		Result<TypedAstNode, String> typedExpressionRes = this.expr.getTypedAstNode(builder);
 		if(!typedExpressionRes.isOk()) {
 			return new Err<>(tId.getErr());
 		}
@@ -257,6 +269,8 @@ record Assign(Id id, Expression expr) implements Statement {
 		TypedExpression typedExpression = (TypedExpression) typedExpressionRes.unwrap(); 
 		TypedId typedId = (TypedId) tId.unwrap();
 
+		System.out.printf("TypedExpression: %s\n", typedExpression.getType().toString()); 
+		System.out.printf("TypedID: %s\n", typedId.getType().toString()); 
 		if(!typedExpression.getType().equals(typedId.getType())) {
 			return new Err<>(String.format("Cannot assign an expression of type %s to variable %s", typedExpression.getType(), typedId.getType()));
 		}
@@ -285,10 +299,11 @@ record Block(List<Statement> statements) implements Statement {
 			if(!typedResult.isOk()) {
 				hasErrors = true;
 				errorMessageBuilder.append(typedResult.getErr() + "\n");
-			}
+			} else {
 				TypedAstNode typedNode = typedResult.unwrap(); 
 				typedStatements.add((TypedStatement)typedNode);
-			} 
+			}
+		} 
 		builder.leaveScope();
 		if(hasErrors) {
 			return new Err<>(errorMessageBuilder.toString());
@@ -302,6 +317,7 @@ record Param(Id id, Type type) implements AstNode {
   public String toDebugText() {
     return String.format("%s : %s", id.toDebugText(), type.toString());
   }
+
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);
@@ -328,14 +344,19 @@ record Params(List<Param> params) implements AstNode {
 			if(!typedResult.isOk()) {
 				hasErrors = true;
 				errorMessageBuilder.append(typedResult.getErr() + "\n");
-			}
+			} else {
 				TypedAstNode typedNode = typedResult.unwrap(); 
 				typedParams.add((TypedParam)typedNode);
 			}
+		}
 		if(hasErrors) {
 			return new Err<>(errorMessageBuilder.toString());
 		}
 		return new Ok<>(new TypedParams(typedParams));
+	}
+
+	public List<Type> toTypes() {
+		return this.params.stream().map(p -> p.type()).toList();
 	}
 }
 ;
@@ -353,12 +374,8 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		// TODO Auto-generated method stub
-		var tId = this.id.getTypedAstNode(builder);
-		if(!tId.isOk()) {
-			return new Err<>(tId.getErr());
-		}
-		Optional<TypedParams> typedParams = Optional.empty();  		
+		//Optional<TypedParams> typedParams = Optional.empty();  		
+		/*
 		if(params.isPresent()) {
 			var typedParamsNode = this.params.get().getTypedAstNode(builder);
 			if(!typedParamsNode.isOk()) {
@@ -366,11 +383,17 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 			}
 			typedParams = Optional.of((TypedParams)typedParamsNode.unwrap());
 		}
+		*/
+
+		builder.enterNewFunction(id.name(), returnType, params);
 		var typedBlockResult = this.block.getTypedAstNode(builder);
+
 		if(!typedBlockResult.isOk()) {
 			return new Err<>(typedBlockResult.getErr());
 		}
-		return new Ok<>(new TypedFndecl((TypedId)tId.unwrap(), typedParams, returnType, (TypedBlock)typedBlockResult.unwrap()));
+		builder.leaveFunction();	
+	
+		return new Ok<>(new TypedFndecl(id.name(), params, returnType, (TypedBlock)typedBlockResult.unwrap()));
 	}
 }
 ;
@@ -379,14 +402,23 @@ record Return(Expression expr) implements Statement {
   public String toDebugText() {
     return String.format("return %s", expr.toDebugText());
   }
+
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		var typedExpression = this.expr.getTypedAstNode(builder);
-		if(!typedExpression.isOk()) {
-			return typedExpression;
+		var typedExpressionResult = this.expr.getTypedAstNode(builder);
+		if(!typedExpressionResult.isOk()) {
+			return typedExpressionResult;
 		}
+		var typedExpression = (TypedExpression)typedExpressionResult.unwrap();
+		Optional<Function> currentFunction = builder.getCurrentFunction();
 
-		return new Ok<>((TypedExpression)typedExpression.unwrap());
+		if(currentFunction.isEmpty()) {
+			return new Err<>("Return used outside of function");
+		}
+		if(!currentFunction.get().returnType().equals(typedExpression.getType())) {
+			return new Err<>(String.format("Function expects return type of %s", currentFunction.get().returnType())); 
+		}
+		return new Ok<>(typedExpression);
 	}
 }
 ;

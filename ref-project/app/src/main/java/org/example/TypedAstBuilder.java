@@ -6,14 +6,21 @@ import java.util.HashMap;
 import java.util.List;
 
 public class TypedAstBuilder {
-	public class Symbol {
-		Type type;
-	}
+	public record Symbol (
+		int id,
+		Type type
+	) {};
 
-	public class Function {
-		Type returnType;
-		List<Type> argTypes;
-	}
+	public record Function (
+		int id,
+		Type returnType,
+		Optional<Params> argTypes,
+		List<Symbol> locals
+	) {
+		void addLocal(Symbol sym) {
+			this.locals.add(sym);
+		}
+	};
 
 	public class Enviroment {
 		public Optional<Enviroment> parent;
@@ -29,13 +36,13 @@ public class TypedAstBuilder {
 			if(found.isPresent()) {
 				return found;
 			} 
+			this.variables.put(name, sym);
 			return Optional.empty();
 		}
 
 		Optional<Symbol> getSymbol(String name) {
 			return Optional.ofNullable(this.variables.get(name));
 		}
-
 
 		Optional<Symbol> searchVariable(String name) {
 				Optional<Enviroment> current = Optional.of(this);	
@@ -52,16 +59,73 @@ public class TypedAstBuilder {
 	}
 
 	public Enviroment currentEnv = new Enviroment(Optional.empty());
-		private Map<String, Function> functions;	
+	private Map<String, Function> functions = new HashMap<>();
+	private Optional<String> currentFunction = Optional.empty();		
+
+	private int functionVariableId = 0;
+	private int functionId = 0;
+
+	Result<Function, Function> enterNewFunction(String name, Type returnType, Optional<Params> args) {
+
+		if(this.currentFunction.isPresent()) {
+			this.leaveFunction();
+		}
+
+		Function f = new Function(functionId, returnType, args, new ArrayList<>());	
+		functionId += 1;	
+
+		Optional<Function> found = Optional.ofNullable(this.functions.get(name));
+		if(found.isPresent()) {
+			return new Err<>(found.get());
+		}
+		this.functions.put(name, f);
+		this.enterNewScope();
+		this.currentFunction = Optional.of(name);
+
+		if(args.isPresent()) {
+			args
+				.get()
+				.params()
+				.stream()
+				.forEach(a -> this.addVariable(a.id().name(), a.type()));
+		}
+
+		return new Ok<>(f); 
+	}
 	
+	Optional<Function> getCurrentFunction() {
+		if(this.currentFunction.isEmpty()) {
+			return Optional.empty();
+		}
+		return Optional.of(this.functions.get(this.currentFunction.get()));
+	}
+
+	void leaveFunction() {
+		this.leaveScope();
+		this.currentFunction = Optional.empty();
+		this.functionVariableId = 0;
+	}
+
+	Result<Symbol, Symbol> addVariable(String name, Type t) {
+		Symbol new_sym = new Symbol(functionVariableId, t);
+			
+		var res = this.currentEnv.addSymbol(name, new_sym);
+		
+		if(res.isPresent()) {
+			return new Err<>(res.get());
+		}
+		this.functions.get(this.currentFunction.get()).addLocal(new_sym);
+
+		return new Ok<>(new_sym);
+	}
 	void enterNewScope() {
 		Enviroment nextEnv = new Enviroment(Optional.of(this.currentEnv));
 		currentEnv = nextEnv;
 	}
 
-		Optional<Function> getFunction(String name) {
-			return Optional.ofNullable(this.functions.get(name));
-		}
+	Optional<Function> getFunction(String name) {
+		return Optional.ofNullable(this.functions.get(name));
+	}
 
 	Result<Enviroment, String> leaveScope() {
 		if(!this.currentEnv.parent.isPresent()) {
