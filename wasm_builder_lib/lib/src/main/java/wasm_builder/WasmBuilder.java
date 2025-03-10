@@ -11,6 +11,7 @@ public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private ArrayList<FuncType> funcTypes = new ArrayList<>();
+	private ArrayList<WasmValueType> globals = new ArrayList<>();
 
 	public void build(List<Func> funcs) throws IOException {
 		writeBinaryMagic(out);
@@ -20,6 +21,9 @@ public class WasmBuilder {
 			writeFuncSection(funcTypes, out);
 		}
 		writeMemSection(out);
+		if(!globals.isEmpty()){
+			writeGlobalSection(globals, out);
+		}
 		if (!funcTypes.isEmpty()) {
 			writeCodeSection(funcs, out);
 		}
@@ -28,7 +32,10 @@ public class WasmBuilder {
 	public Func addFunc(FuncType funcType, Optional<List<WasmValueType>> locals) {
 		this.funcTypes.add(funcType);
 		return new Func(funcType, locals);
+	}
 
+	public void setGlobals(List<WasmValueType> globals) {
+		this.globals = (ArrayList<WasmValueType>) globals;
 	}
 
 	public byte[] getByteArray() {
@@ -93,7 +100,19 @@ public class WasmBuilder {
 		write(encodeI32ToLeb128(0), os); // limits min / initial
 
 	}
-
+	public void writeGlobalSection(List<WasmValueType> globals, ByteArrayOutputStream os) throws IOException {
+		ByteArrayOutputStream globalsBytes = new ByteArrayOutputStream();
+		write(encodeI32ToLeb128(globals.size()), globalsBytes); // Anz Globals
+		for (WasmValueType wasmValueType : globals) {
+			write((byte)wasmValueType.code, globalsBytes);
+			write((byte)1, globalsBytes); // mutable
+			Instructions.addI32Const(0, globalsBytes);
+			Instructions.addElse(globalsBytes);
+		}
+		write((byte)SectionId.Global.ordinal(), os);
+		write(encodeI32ToLeb128(globalsBytes.size()), os);
+		os.write(globalsBytes.toByteArray());
+	}
 	public void writeCodeSection(List<Func> funcs, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodiesBytes = new ByteArrayOutputStream();
 		// Anzahl der Funktionen

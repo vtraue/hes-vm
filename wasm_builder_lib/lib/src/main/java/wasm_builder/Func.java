@@ -7,8 +7,8 @@ import java.util.List;
 import java.util.Optional;
 
 public class Func {
-	private FuncType funcType;
-	private ByteArrayOutputStream body;
+	private final FuncType funcType;
+	final private ByteArrayOutputStream body;
 	private ArrayList<WasmValueType> locals;
 
 	public Func(FuncType funcType, Optional<List<WasmValueType>> locals) {
@@ -152,7 +152,7 @@ public class Func {
 	}
 
 	public void emitBlockType() throws IOException {
-		Instructions.addBlock(body);
+		Instructions.addBlockType(body);
 	}
 
 	public void emitBlockType(WasmValueType valtype) throws IOException {
