@@ -18,6 +18,9 @@ public class WasmBuilder {
 		if (!funcTypes.isEmpty()) {
 			writeTypeSection(funcTypes, out);
 			writeFuncSection(funcTypes, out);
+		}
+		writeMemSection(out);
+		if (!funcTypes.isEmpty()) {
 			writeCodeSection(funcs, out);
 		}
 	}
@@ -80,6 +83,15 @@ public class WasmBuilder {
 		write((byte) SectionId.Function.ordinal(), os);
 		write(encodeI32ToLeb128(funcIdsBytes.size()), os);
 		os.write(funcIdsBytes.toByteArray());
+	}
+
+	public void writeMemSection(ByteArrayOutputStream os) throws IOException {
+		write((byte) SectionId.Memory.ordinal(), os);
+		write(encodeI32ToLeb128(3), os); // Section Size
+		write(encodeI32ToLeb128(1), os); // Num Memories
+		write(encodeI32ToLeb128(0), os); // limits flags
+		write(encodeI32ToLeb128(0), os); // limits min / initial
+
 	}
 
 	public void writeCodeSection(List<Func> funcs, ByteArrayOutputStream os) throws IOException {
