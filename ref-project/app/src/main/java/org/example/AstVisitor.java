@@ -35,8 +35,9 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 		Expression initExpr = (Expression)(this.visit(ctx.init_expr));		
 		return new Assign(varname, initExpr);
 	}
+
 	@Override
-	public AstNode visitVardecl(ReflangParser.VardeclContext ctx) {
+	public AstNode visitVardeclt(ReflangParser.VardecltContext ctx) {
 		System.out.println("vardecl");
 		Id varname = new Id(ctx.name.getText());
 		Type t = (Type)this.visit(ctx.t);
@@ -46,7 +47,13 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 			initExpr = Optional.of((Expression)this.visit(ctx.init_expr));	
 		}
 		
-		return new VarDecl(varname, t, initExpr);
+		return new VarDecl(varname, Optional.of(t), initExpr);
+	}
+	@Override
+	public AstNode visitVardecl(ReflangParser.VardeclContext ctx) {
+		Id varname = new Id(ctx.name.getText());
+		return new VarDecl(varname, Optional.empty(), Optional.of((Expression)this.visit(ctx.init_expr)));
+		
 	}
 	/*
 	@Override

@@ -4,9 +4,10 @@ fn main() -> int {
 } 
 
 fn test_fn(a: int, b: bool) -> int {
-	a_var: int = 1 + 2;
-	a_var = a + 5;
-	a_var = "hallo";
+	a_var := 1;
+	b_var := false;
+	a_var = a_var + 1;
+	b_var = 1;
 
 	return 1; 
 }

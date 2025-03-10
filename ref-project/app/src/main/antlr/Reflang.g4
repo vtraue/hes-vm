@@ -15,7 +15,8 @@ statement:
         ;
 
 stmtExpr : e = expr ';' ;
-vardecl :  name=varname ':' t=type ('=' init_expr=expr)? ';' ;
+vardeclt :  name=varname ':' t=type ('=' init_expr=expr)? ';' ;
+vardecl	  : name=varname ':=' init_expr=expr ';' ;
 assign  :  name=varname '=' init_expr=expr ';' ;
 varname : name=ID;
 fndecl 	: FN name=varname '(' decl_params=params? ')' '->' ret_type=type decl_block=block;

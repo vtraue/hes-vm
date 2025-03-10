@@ -210,7 +210,7 @@ record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
 	}	
 };
 
-record VarDecl(Id id, Type type, Optional<Expression> expr) implements Statement {
+record VarDecl(Id id, Optional<Type> type, Optional<Expression> expr) implements Statement {
   public String toDebugText() {
     return expr.map(
             e -> String.format("%s: %s = %s", id.toDebugText(), type.toString(), e.toDebugText()))
@@ -219,6 +219,7 @@ record VarDecl(Id id, Type type, Optional<Expression> expr) implements Statement
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		Optional<TypedExpression> typedExpression = Optional.empty();
+
 		if(expr.isPresent()) {
 			Result<TypedAstNode, String> node = this.expr.get().getTypedAstNode(builder);
 			if(!node.isOk()) {
@@ -226,18 +227,26 @@ record VarDecl(Id id, Type type, Optional<Expression> expr) implements Statement
 			}
 			var expr = (TypedExpression)node.unwrap();
 
-			if(!expr.getType().equals(this.type)) {
-				return new Err<>(String.format("Cannot initialize Variable %s of type %s with expression of type %s", id.name(), type.toString(), expr.getType()));
-			}
 			typedExpression = Optional.of(expr);
 		}
+		Type t;
+		if(type.isPresent()) {
+			if(typedExpression.isPresent()) {
+				if(!typedExpression.get().getType().equals(this.type.get())) {
+					return new Err<>(String.format("Cannot initialize Variable %s of type %s with expression of type %s", id.name(), type.toString(), typedExpression.get().getType()));
+				}
+			}
+			t = type.get();
+		} else {
+			t = typedExpression.get().getType();
+		}
 
-		Result<Symbol, Symbol> symResult = builder.addVariable(this.id.name(), this.type);
+		Result<Symbol, Symbol> symResult = builder.addVariable(this.id.name(), t);
 		if(!symResult.isOk()) {
 			return new Err<>(String.format("Variable %s already exists in scope", id.name()));
 		}
 
-		return new Ok<>(new TypedVarDecl(new TypedId(id.name(), symResult.unwrap()), this.type, typedExpression));	
+		return new Ok<>(new TypedVarDecl(new TypedId(id.name(), symResult.unwrap()), t, typedExpression));	
 	}
 }
 
