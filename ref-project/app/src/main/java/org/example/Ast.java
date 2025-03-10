@@ -213,7 +213,7 @@ record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
 record VarDecl(Id id, Optional<Type> type, Optional<Expression> expr) implements Statement {
   public String toDebugText() {
     return expr.map(
-            e -> String.format("%s: %s = %s", id.toDebugText(), type.toString(), e.toDebugText()))
+            e -> String.format("%s :%s= %s", id.toDebugText(), type.isPresent() ? " " + type.get().toString() : "", e.toDebugText()))
         .orElse(String.format("%s: %s", id.toDebugText(), type.toString()));
   }
 	@Override

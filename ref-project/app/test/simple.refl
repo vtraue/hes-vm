@@ -1,14 +1,13 @@
-fn main() -> int {
-	a_var: bool;
-	b_var: int = a_var + 1;
-} 
-
 fn test_fn(a: int, b: bool) -> int {
+
 	a_var := 1;
 	b_var := false;
 	a_var = a_var + 1;
-	b_var = 1;
+	c_var := 0;
 
+	{
+		a_var: bool = true;
+	}
 	return 1; 
 }
 

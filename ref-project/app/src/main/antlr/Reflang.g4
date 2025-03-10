@@ -5,6 +5,7 @@ program : statement* EOF;
 
 statement:
 				   vardecl
+				|  vardeclt
         |  assign
         |  stmtExpr 
     		|  fndecl
@@ -14,10 +15,12 @@ statement:
         |  return
         ;
 
+vardecl	: name=varname COLON_EQ init_expr=expr ';' ;
+vardeclt: name=varname COLON t=type ('=' init_expr=expr)? ';' ;
+
 stmtExpr : e = expr ';' ;
-vardeclt :  name=varname ':' t=type ('=' init_expr=expr)? ';' ;
-vardecl	  : name=varname ':=' init_expr=expr ';' ;
-assign  :  name=varname '=' init_expr=expr ';' ;
+
+assign  : name=varname '=' init_expr=expr ';' ;
 varname : name=ID;
 fndecl 	: FN name=varname '(' decl_params=params? ')' '->' ret_type=type decl_block=block;
 
@@ -54,7 +57,6 @@ expr 		: fncall #fnc
 				;
 bool_literal : TRUE #LiteralTrue | FALSE #LiteralFalse;
 
-FN		  : 'fn';
 // Lexer
 TYPE_INT		  : 'int'; 
 TYPE_STRING		: 'string'; 
@@ -62,6 +64,11 @@ TYPE_BOOL		  : 'bool';
 
 TRUE : 'true'  ;
 FALSE : 'false' ;
+
+COLON : ':';
+COLON_EQ : ':=';
+FN		  : 'fn';
+
 
 ID      :  [a-z][a-zA-Z0-9_]* ;
 NUMBER  :  [0-9]+ ;

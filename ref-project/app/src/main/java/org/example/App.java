@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -29,7 +30,8 @@ public class App {
 			visitor.visit(tree);
 			List<TypedStatement> typedNodes = new ArrayList<>();
 			TypedAstBuilder builder = new TypedAstBuilder();			
-			
+			builder.enterNewFunction("main", Type.Int, Optional.empty());			
+
 			for(Statement s : visitor.statements) {
 				var typedResult = s.getTypedAstNode(builder);
 				if(!typedResult.isOk()) {

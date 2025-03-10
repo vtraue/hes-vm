@@ -7,13 +7,20 @@ import java.util.List;
 
 public class TypedAstBuilder {
 	public record Symbol (
+		int id,
 		Type type
 	) {};
 
 	public record Function (
+		int id,
 		Type returnType,
-		Optional<Params> argTypes
-	) {};
+		Optional<Params> argTypes,
+		List<Symbol> locals
+	) {
+		void addLocal(Symbol sym) {
+			this.locals.add(sym);
+		}
+	};
 
 	public class Enviroment {
 		public Optional<Enviroment> parent;
@@ -55,25 +62,33 @@ public class TypedAstBuilder {
 	private Map<String, Function> functions = new HashMap<>();
 	private Optional<String> currentFunction = Optional.empty();		
 
+	private int functionVariableId = 0;
+	private int functionId = 0;
+
 	Result<Function, Function> enterNewFunction(String name, Type returnType, Optional<Params> args) {
-		Function f = new Function(returnType, args);	
+
+		if(this.currentFunction.isPresent()) {
+			this.leaveFunction();
+		}
+
+		Function f = new Function(functionId, returnType, args, new ArrayList<>());	
+		functionId += 1;	
 
 		Optional<Function> found = Optional.ofNullable(this.functions.get(name));
 		if(found.isPresent()) {
 			return new Err<>(found.get());
 		}
 		this.functions.put(name, f);
-
 		this.enterNewScope();
+		this.currentFunction = Optional.of(name);
+
 		if(args.isPresent()) {
-			System.out.println("Blubbi");
 			args
 				.get()
 				.params()
 				.stream()
 				.forEach(a -> this.addVariable(a.id().name(), a.type()));
 		}
-		this.currentFunction = Optional.of(name);
 
 		return new Ok<>(f); 
 	}
@@ -88,15 +103,19 @@ public class TypedAstBuilder {
 	void leaveFunction() {
 		this.leaveScope();
 		this.currentFunction = Optional.empty();
-
+		this.functionVariableId = 0;
 	}
-	Result<Symbol, Symbol> addVariable(String name, Type t) {
-		Symbol new_sym = new Symbol(t);
-		var res = this.currentEnv.addSymbol(name, new Symbol(t));
 
+	Result<Symbol, Symbol> addVariable(String name, Type t) {
+		Symbol new_sym = new Symbol(functionVariableId, t);
+			
+		var res = this.currentEnv.addSymbol(name, new_sym);
+		
 		if(res.isPresent()) {
 			return new Err<>(res.get());
 		}
+		this.functions.get(this.currentFunction.get()).addLocal(new_sym);
+
 		return new Ok<>(new_sym);
 	}
 	void enterNewScope() {
