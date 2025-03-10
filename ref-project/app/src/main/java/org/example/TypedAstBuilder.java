@@ -1,7 +1,11 @@
 package org.example;
 import java.util.Map;
 import java.util.Optional;
+
+import wasm_builder.WasmValueType;
+
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
@@ -9,7 +13,11 @@ public class TypedAstBuilder {
 	public record Symbol (
 		int id,
 		Type type
-	) {};
+	) {
+		WasmValueType toValueType() {
+			return this.type.toWasmValueType();
+		}
+	};
 
 	public record Function (
 		int id,
@@ -19,6 +27,20 @@ public class TypedAstBuilder {
 	) {
 		void addLocal(Symbol sym) {
 			this.locals.add(sym);
+		}
+
+		List<WasmValueType> getLocalValueTypes() {
+			return this.locals.stream().map(Symbol::toValueType).toList();
+		}
+		Optional<List<WasmValueType>> getArgValueTypes() {
+			return this.argTypes.map(Params::toWasmValueTypes);
+		}
+		
+		wasm_builder.FuncType toWasmFuncType() {
+			var params = this.getArgValueTypes().orElse(new ArrayList<>());
+			var result = this.returnType.toWasmValueType();
+
+			return new wasm_builder.FuncType(params, Arrays.asList(result));	
 		}
 	};
 
@@ -114,6 +136,11 @@ public class TypedAstBuilder {
 		if(res.isPresent()) {
 			return new Err<>(res.get());
 		}
+
+		if(!this.currentFunction.isPresent()) {
+			System.out.println("Huh???");
+		}
+
 		this.functions.get(this.currentFunction.get()).addLocal(new_sym);
 
 		return new Ok<>(new_sym);

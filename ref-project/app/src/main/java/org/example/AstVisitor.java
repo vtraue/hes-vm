@@ -24,7 +24,7 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 	@Override
 	public AstNode visitStmtExpr(ReflangParser.StmtExprContext ctx) {
 		System.out.println("stmt");
-		var result = this.visit(ctx.e);
+		var result = (Expression)this.visit(ctx.e);
 		System.out.println(result.toDebugText());
 		return result;
 	}

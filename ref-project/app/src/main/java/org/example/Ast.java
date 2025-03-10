@@ -1,4 +1,5 @@
 package org.example;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -6,6 +7,8 @@ import java.util.stream.Collectors;
 
 import org.example.TypedAstBuilder.Function;
 import org.example.TypedAstBuilder.Symbol;
+
+import wasm_builder.WasmValueType;
 
 //TODO:(joh): Bessere Fehler!
 
@@ -39,7 +42,10 @@ enum Type implements AstNode {
       default:
         return "";
     }
-  }
+	}
+	public WasmValueType toWasmValueType() {
+		return WasmValueType.i32;
+}
 
 @Override
 public Result<TypedAstNode, java.lang.String> getTypedAstNode(TypedAstBuilder builder) {
@@ -83,6 +89,20 @@ enum BinopType {
     }
     return res;
   }
+	public void toWasmCode(wasm_builder.Func func) throws IOException {
+		switch (this){
+			case Mul -> func.emitMul();
+			case Add -> func.emitAdd(); 
+			case Div -> func.emitDiv();
+			case Eq -> func.emitEq();
+			case Ge -> func.emitGe();
+			case Gt -> func.emitGt();
+			case Le -> func.emitLe();
+			case Lt -> func.emitLt();
+			case Neq -> func.emitNe();
+			case Sub -> func.emitSub();
+		}
+	}
 }
 
 record Id(String name) implements Expression {
@@ -120,7 +140,6 @@ record StringLiteral(String literal) implements Literal {
 		return new Ok<>(new TypedLiteral(this, Type.String));
 	}
 }
-;
 
 record IntLiteral(int literal) implements Literal {
   public String toDebugText() {
@@ -130,7 +149,7 @@ record IntLiteral(int literal) implements Literal {
 		return new Ok<>(new TypedLiteral(this, Type.Int));
 	}
 }
-;
+
 
 record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression {
   public String toDebugText() {
@@ -160,7 +179,7 @@ record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression
 		return new Ok<>(new TypedBinOP(typedLhsData, op, typedRhsData));
 	}
 }
-;
+
 
 record FncallArgs(List<Expression> args) implements AstNode {
   public String toDebugText() {
@@ -179,7 +198,7 @@ record FncallArgs(List<Expression> args) implements AstNode {
 		return new Ok<>(new TypedFncallArgs(result.unwrap()));
 	}
 }
-;
+
 
 record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
 	public String toDebugText() {
@@ -208,7 +227,7 @@ record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
 		}
 		return new Ok<>(new TypedFncall((TypedId)tId.unwrap(), tArgs, funcType.get().returnType()));
 	}	
-};
+}
 
 record VarDecl(Id id, Optional<Type> type, Optional<Expression> expr) implements Statement {
   public String toDebugText() {
@@ -278,7 +297,7 @@ record Assign(Id id, Expression expr) implements Statement {
 		return new Ok<>(new TypedAssign(typedId, typedExpression));
 	}
 }
-;
+
 
 record Block(List<Statement> statements) implements Statement {
 	public String toDebugText() {
@@ -311,13 +330,12 @@ record Block(List<Statement> statements) implements Statement {
 
 		return new Ok<>(new TypedBlock(typedStatements));
 	}
-};
+}
 
 record Param(Id id, Type type) implements AstNode {
   public String toDebugText() {
     return String.format("%s : %s", id.toDebugText(), type.toString());
   }
-
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);
@@ -327,6 +345,9 @@ record Param(Id id, Type type) implements AstNode {
 		return new Ok<>(new TypedParam((TypedId)tId.unwrap(), this.type));
 	}
 
+	public WasmValueType toWasmValueType() {
+		return this.type.toWasmValueType();
+	}
 }
 
 record Params(List<Param> params) implements AstNode {
@@ -334,6 +355,13 @@ record Params(List<Param> params) implements AstNode {
     return String.format(
         "(%s)", params.stream().map(Param::toDebugText).collect(Collectors.joining(",")));
   }
+
+	public List<WasmValueType> toWasmValueTypes() {
+		return this.params
+			.stream()
+			.map(Param::toWasmValueType)
+			.toList();
+	}
 
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		StringBuilder errorMessageBuilder = new StringBuilder();
@@ -359,7 +387,7 @@ record Params(List<Param> params) implements AstNode {
 		return this.params.stream().map(p -> p.type()).toList();
 	}
 }
-;
+
 
 
 record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) implements Statement {
@@ -386,14 +414,25 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 		*/
 
 		builder.enterNewFunction(id.name(), returnType, params);
-		var typedBlockResult = this.block.getTypedAstNode(builder);
+		StringBuilder errorMessageBuilder = new StringBuilder();
+		List<TypedStatement> typedStatements = new ArrayList<>();
+		boolean hasErrors = false;
 
-		if(!typedBlockResult.isOk()) {
-			return new Err<>(typedBlockResult.getErr());
+		for(Statement s : block.statements()) {
+			Result<TypedAstNode, String> typedResult = s.getTypedAstNode(builder);
+			if(!typedResult.isOk()) {
+				hasErrors = true;
+				errorMessageBuilder.append(typedResult.getErr() + "\n");
+			} else {
+				TypedAstNode typedNode = typedResult.unwrap(); 
+				typedStatements.add((TypedStatement)typedNode);
+			}
+		}
+		if(hasErrors) {
+			return new Err<>(errorMessageBuilder.toString());
 		}
 		builder.leaveFunction();	
-	
-		return new Ok<>(new TypedFndecl(id.name(), params, returnType, (TypedBlock)typedBlockResult.unwrap()));
+		return new Ok<>(new TypedFndecl(id.name(), params, returnType, typedStatements));
 	}
 }
 ;
@@ -421,7 +460,7 @@ record Return(Expression expr) implements Statement {
 		return new Ok<>(typedExpression);
 	}
 }
-;
+
 
 record While(Expression expr, Block block) implements Statement {
   public String toDebugText() {
@@ -480,7 +519,8 @@ public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		}
 		var ifBlock = (TypedBlock)typedBlock.unwrap();
 		return new Ok<>(new TypedCond(condExpr, ifBlock, typedElseBlock));
+	}
 }
-}
-;
+
+
 
