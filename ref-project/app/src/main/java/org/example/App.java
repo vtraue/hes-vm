@@ -2,6 +2,8 @@ package org.example;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -25,8 +27,17 @@ public class App {
 			ParseTree tree = parser.program();
 			AstVisitor visitor = new AstVisitor();
 			visitor.visit(tree);
+			List<TypedStatement> typedNodes = new ArrayList<>();
+			TypedAstBuilder builder = new TypedAstBuilder();			
+			
 			for(Statement s : visitor.statements) {
-				System.out.println(s.toDebugText());
+				var typedResult = s.getTypedAstNode(builder);
+				if(!typedResult.isOk()) {
+					System.out.println(typedResult.getErr());
+				} else {
+					typedNodes.add((TypedStatement)typedResult.unwrap());		
+					System.out.println(s.toDebugText());
+				}
 			}
 		}
   }

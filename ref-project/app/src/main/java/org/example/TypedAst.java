@@ -12,7 +12,7 @@ sealed interface TypedExpression extends TypedStatement{
 record TypedId(String name, TypedAstBuilder.Symbol sym) implements TypedExpression {
 	@Override
 	public Type getType() {
-		return sym.type;
+		return sym.type();
 	}
 };
 record TypedLiteral(Literal lit, Type t) implements TypedExpression {

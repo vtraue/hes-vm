@@ -1,17 +1,4 @@
-a_var: bool;
-b_var: int = a;
-print("blub");
-1 + 2;
-if(bvar) {
-	print("Hallo!");
-	if(avar) {
-		b_var = b_var + 1;
-	}
-}
-
-a_var = 1;
-i: int = 0;
-
-while(a_var) {
-	i = i + 1;
-}
+fn main() -> int {
+	a_var: bool;
+	b_var: int = a_var + 1;
+} 

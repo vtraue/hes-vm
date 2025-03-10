@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.example.TypedAstBuilder.Function;
+import org.example.TypedAstBuilder.Symbol;
 
 //TODO:(joh): Bessere Fehler!
 
@@ -216,16 +217,11 @@ record VarDecl(Id id, Type type, Optional<Expression> expr) implements Statement
   }
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);
-		if(!tId.isOk()) {
-			return new Err<>(tId.getErr());
-		}
 		Optional<TypedExpression> typedExpression = Optional.empty();
-
 		if(expr.isPresent()) {
 			Result<TypedAstNode, String> node = this.expr.get().getTypedAstNode(builder);
 			if(!node.isOk()) {
-				return new Err<>(tId.getErr());
+				return new Err<>(node.getErr());
 			}
 			var expr = (TypedExpression)node.unwrap();
 
@@ -234,7 +230,13 @@ record VarDecl(Id id, Type type, Optional<Expression> expr) implements Statement
 			}
 			typedExpression = Optional.of(expr);
 		}
-		return new Ok<>(new TypedVarDecl((TypedId)tId.unwrap(), this.type, typedExpression));	
+
+		Result<Symbol, Symbol> symResult = builder.addVariable(this.id.name(), this.type);
+		if(!symResult.isOk()) {
+			return new Err<>(String.format("Variable %s already exists in scope", id.name()));
+		}
+
+		return new Ok<>(new TypedVarDecl(new TypedId(id.name(), symResult.unwrap()), this.type, typedExpression));	
 	}
 }
 
@@ -285,10 +287,11 @@ record Block(List<Statement> statements) implements Statement {
 			if(!typedResult.isOk()) {
 				hasErrors = true;
 				errorMessageBuilder.append(typedResult.getErr() + "\n");
-			}
+			} else {
 				TypedAstNode typedNode = typedResult.unwrap(); 
 				typedStatements.add((TypedStatement)typedNode);
-			} 
+			}
+		} 
 		builder.leaveScope();
 		if(hasErrors) {
 			return new Err<>(errorMessageBuilder.toString());

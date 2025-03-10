@@ -6,9 +6,9 @@ import java.util.HashMap;
 import java.util.List;
 
 public class TypedAstBuilder {
-	public class Symbol {
-		Type type;
-	}
+	public record Symbol (
+		Type type
+	) {};
 
 	public class Function {
 		Type returnType;
@@ -29,6 +29,7 @@ public class TypedAstBuilder {
 			if(found.isPresent()) {
 				return found;
 			} 
+			this.variables.put(name, sym);
 			return Optional.empty();
 		}
 
@@ -54,14 +55,23 @@ public class TypedAstBuilder {
 	public Enviroment currentEnv = new Enviroment(Optional.empty());
 		private Map<String, Function> functions;	
 	
+	Result<Symbol, Symbol> addVariable(String name, Type t) {
+		Symbol new_sym = new Symbol(t);
+		var res = this.currentEnv.addSymbol(name, new Symbol(t));
+
+		if(res.isPresent()) {
+			return new Err<>(res.get());
+		}
+		return new Ok<>(new_sym);
+	}
 	void enterNewScope() {
 		Enviroment nextEnv = new Enviroment(Optional.of(this.currentEnv));
 		currentEnv = nextEnv;
 	}
 
-		Optional<Function> getFunction(String name) {
-			return Optional.ofNullable(this.functions.get(name));
-		}
+	Optional<Function> getFunction(String name) {
+		return Optional.ofNullable(this.functions.get(name));
+	}
 
 	Result<Enviroment, String> leaveScope() {
 		if(!this.currentEnv.parent.isPresent()) {
