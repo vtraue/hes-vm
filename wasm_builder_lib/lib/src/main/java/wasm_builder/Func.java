@@ -42,11 +42,11 @@ public class Func {
 	}
 
 	public void emitLoad() throws IOException {
-		Instructions.addI32Load(body);
+		Instructions.addI32Load(1, 0, body);
 	}
 
 	public void emitStore() throws IOException {
-		Instructions.addI32Store(body);
+		Instructions.addI32Store(1, 0, body);
 	}
 
 	public void emitConst(int value) throws IOException {

@@ -62,47 +62,47 @@ public class WasmBuilder {
 	private void writeFunctionTypes(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		for (FuncType f : functypes) {
 			write((byte) 0x60, os);
-			write(encodeI32ToLeb128(f.getParams().size()), os);
+			write(encodeU32ToLeb128(f.getParams().size()), os);
 			write(f.getParams(), os);
-			write(encodeI32ToLeb128(f.getResults().size()), os);
+			write(encodeU32ToLeb128(f.getResults().size()), os);
 			write(f.getResults(), os);
 		}
 	}
 
 	public void writeTypeSection(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream functypesBytes = new ByteArrayOutputStream();
-		write(encodeI32ToLeb128(functypes.size()), functypesBytes);
+		write(encodeU32ToLeb128(functypes.size()), functypesBytes);
 		writeFunctionTypes(functypes, functypesBytes);
 
 		write((byte) SectionId.Type.ordinal(), os);
-		write(encodeI32ToLeb128(functypesBytes.size()), os);
+		write(encodeU32ToLeb128(functypesBytes.size()), os);
 		os.write(functypesBytes.toByteArray());
 	}
 
 	public void writeFuncSection(List<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcIdsBytes = new ByteArrayOutputStream();
 
-		write(encodeI32ToLeb128(funcTypes.size()), funcIdsBytes);
+		write(encodeU32ToLeb128(funcTypes.size()), funcIdsBytes);
 		for (FuncType funcType : funcTypes) {
 			write((byte) funcTypes.indexOf(funcType), funcIdsBytes);
 		}
 
 		write((byte) SectionId.Function.ordinal(), os);
-		write(encodeI32ToLeb128(funcIdsBytes.size()), os);
+		write(encodeU32ToLeb128(funcIdsBytes.size()), os);
 		os.write(funcIdsBytes.toByteArray());
 	}
 
 	public void writeMemSection(ByteArrayOutputStream os) throws IOException {
 		write((byte) SectionId.Memory.ordinal(), os);
-		write(encodeI32ToLeb128(3), os); // Section Size
-		write(encodeI32ToLeb128(1), os); // Num Memories
-		write(encodeI32ToLeb128(0), os); // limits flags
-		write(encodeI32ToLeb128(0), os); // limits min / initial
+		write(encodeU32ToLeb128(3), os); // Section Size
+		write(encodeU32ToLeb128(1), os); // Num Memories
+		write(encodeU32ToLeb128(0), os); // limits flags
+		write(encodeU32ToLeb128(0), os); // limits min / initial
 
 	}
 	public void writeGlobalSection(List<WasmValueType> globals, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream globalsBytes = new ByteArrayOutputStream();
-		write(encodeI32ToLeb128(globals.size()), globalsBytes); // Anz Globals
+		write(encodeU32ToLeb128(globals.size()), globalsBytes); // Anz Globals
 		for (WasmValueType wasmValueType : globals) {
 			write((byte)wasmValueType.code, globalsBytes);
 			write((byte)1, globalsBytes); // mutable
@@ -110,20 +110,20 @@ public class WasmBuilder {
 			Instructions.addEnd(globalsBytes);
 		}
 		write((byte)SectionId.Global.ordinal(), os);
-		write(encodeI32ToLeb128(globalsBytes.size()), os);
+		write(encodeU32ToLeb128(globalsBytes.size()), os);
 		os.write(globalsBytes.toByteArray());
 	}
 	public void writeCodeSection(List<Func> funcs, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodiesBytes = new ByteArrayOutputStream();
 		// Anzahl der Funktionen
-		write(encodeI32ToLeb128(funcs.size()), funcBodiesBytes);
+		write(encodeU32ToLeb128(funcs.size()), funcBodiesBytes);
 		for (Func func : funcs) {
 			writeFuncBody(func, funcBodiesBytes);
 		}
 
 		write((byte) SectionId.Code.ordinal(), os);
 		// Größe der Code-Section in Byte
-		write(encodeI32ToLeb128(funcBodiesBytes.size()), os);
+		write(encodeU32ToLeb128(funcBodiesBytes.size()), os);
 		os.write(funcBodiesBytes.toByteArray());
 
 	}
@@ -139,16 +139,16 @@ public class WasmBuilder {
 		}
 
 		// Größe des Bodies in Byte mit local decl und instructions
-		write(encodeI32ToLeb128(funcBodyBytes.size()), os);
+		write(encodeU32ToLeb128(funcBodyBytes.size()), os);
 		os.write(funcBodyBytes.toByteArray());
 	}
 
 	public void writeFuncLocals(List<WasmValueType> locals, ByteArrayOutputStream os) throws IOException {
 		if (locals.isEmpty()) {
-			write(encodeI32ToLeb128(0), os);
+			write(encodeU32ToLeb128(0), os);
 		} else if (locals.size() == 1) {
-			write(encodeI32ToLeb128(1), os); // Anzahl Deklarationen
-			write(encodeI32ToLeb128(1), os); // Anzahl Typ
+			write(encodeU32ToLeb128(1), os); // Anzahl Deklarationen
+			write(encodeU32ToLeb128(1), os); // Anzahl Typ
 			write((byte) locals.get(0).code, os);
 		} else {
 			int declCount = 0, typeCount = 0;
@@ -160,7 +160,7 @@ public class WasmBuilder {
 				if (wasmValueType == lastType) {
 					typeCount++;
 				} else {
-					write(encodeI32ToLeb128(typeCount), declsBytes);
+					write(encodeU32ToLeb128(typeCount), declsBytes);
 					write((byte) lastType.code, declsBytes);
 					typeCount = 1;
 					declCount++;
@@ -168,11 +168,11 @@ public class WasmBuilder {
 				}
 			}
 			if (typeCount > 1) {
-				write(encodeI32ToLeb128(typeCount), declsBytes);
+				write(encodeU32ToLeb128(typeCount), declsBytes);
 				write((byte) lastType.code, declsBytes);
 				declCount++;
 			}
-			write(encodeI32ToLeb128(declCount), os);
+			write(encodeU32ToLeb128(declCount), os);
 			os.write(declsBytes.toByteArray());
 		}
 	}
@@ -194,6 +194,7 @@ public class WasmBuilder {
 			int byte_ = value & 0x7f;
 			value >>= 7;
 			if (value == 0) {
+				result.add(byte_);
 				return result;
 			}
 			result.add(byte_ | 0x80);

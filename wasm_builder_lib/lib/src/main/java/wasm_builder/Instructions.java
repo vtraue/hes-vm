@@ -7,7 +7,7 @@ public record Instructions() {
 
 	public static void addCall(int id, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.CALL.code, os);
-		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(id), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(id), os);
 	}
 
 	public static void addEnd(ByteArrayOutputStream os) throws IOException {
@@ -16,44 +16,48 @@ public record Instructions() {
 
 	public static void addLocalSet(int id, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.LOCAL_SET.code, os);
-		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(id), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(id), os);
 	}
 
 	public static void addLocalGet(int id, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.LOCAL_GET.code, os);
-		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(id), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(id), os);
 	}
 
 	public static void addLocalTee(int id, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.LOCAL_TEE.code, os);
-		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(id), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(id), os);
 	}
 
 	public static void addGlobalSet(int id, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.GLOBAL_SET.code, os);
-		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(id), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(id), os);
 	}
 
 	public static void addGlobalGet(int id, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.GLOBAL_GET.code, os);
-		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(id), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(id), os);
 	}
 
 	public static void addBinOp(WasmInstructionOpCode binop, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) binop.code, os);
 	}
 
-	public static void addI32Load(ByteArrayOutputStream os) throws IOException {
+	public static void addI32Load(int align, int offset,  ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.I32_LOAD.code, os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(align), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(offset), os);
 	}
 
-	public static void addI32Store(ByteArrayOutputStream os) throws IOException {
+	public static void addI32Store(int align, int offset, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.I32_STORE.code, os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(align), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(offset), os);
 	}
 
 	public static void addI32Const(int n, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.I32_CONST.code, os);
-		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(n), os);
+		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(n), os);
 	}
 
 	public static void addNop(ByteArrayOutputStream os) throws IOException {
@@ -95,6 +99,6 @@ public record Instructions() {
 	}
 
 	public static void addBlockType(int typeidx, ByteArrayOutputStream os) throws IOException {
-		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(typeidx), os);
+		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(typeidx), os);
 	}
 }
