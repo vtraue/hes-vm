@@ -1,7 +1,11 @@
 #ifndef BYTECODE_HPP
 #define BYTECODE_HPP
 
-#include "../core.hpp"
+#include <optional>
+#include <span>
+#include <string_view>
+
+#include "core.hpp"
 #include "opcode.hpp"
 constexpr uint8_t FUNCTYPE_HEADER = 0x60;
 

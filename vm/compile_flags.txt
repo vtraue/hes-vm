@@ -7,4 +7,5 @@
 -pedantic-errors 
 -Wconversion 
 -Wsign-conversion
--Ibytecode
+-Isrc/bytecode
+-Isrc/core

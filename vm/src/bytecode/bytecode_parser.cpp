@@ -1,5 +1,7 @@
 #include "bytecode_parser.hpp"
 
+#include "bytecode.hpp"
+
 namespace Bytecode {
 
 std::optional<Type_Id> type_id_from_byte(uint8_t id) {
@@ -67,24 +69,13 @@ std::optional<Type_Index> Parser::parse(Reader& reader) {
 }
 template <>
 std::optional<Function_Section> Parser::parse(Reader& reader) {
-  auto function_count = reader.get<uint64_t>();
-  if (function_count > 0) {
-    if (!this->type_section || this->type_section.value().empty()) {
-      SDL_LogError(1, "Missing type section");
-      return {};
-    }
-    auto type_ids = this->arena->push<uint32_t>(function_count);
-    for (uint64_t i = 0; i < function_count; i++) {
-      auto type_id = this->parse<Type_Index>(reader);
-      if (!type_id) {
-        return {};
-      }
-      type_ids[i] = type_id.value();
-    }
-    return type_ids;
+  if (!this->type_section || this->type_section.value().empty()) {
+    SDL_LogError(1, "Missing type section");
+    return {};
   }
-  return {};
+  return this->parse_vec<Type_Index>(reader);
 }
+
 template <>
 std::optional<std::string_view> Parser::parse(Reader& reader) {
   auto str_len = reader.get<uint64_t>();
@@ -140,21 +131,8 @@ std::optional<Function_Type> Parser::parse(Reader& reader) {
     SDL_LogError(1, "Invalid Type id");
   }
 
-  std::optional<std::span<Type_Id>> out_return_types = {};
-  auto return_count = reader.get<uint64_t>();
-  if (return_count != 0) {
-    auto return_types = this->arena->push<Type_Id>(return_count);
-    for (size_t i = 0; i < return_count; i++) {
-      auto type_id = this->parse<Type_Id>(reader);
-      if (!type_id) {
-        SDL_LogError(1, "Invalid type id, index: %ld", i);
-        return {};
-      }
-      return_types[i] = type_id.value();
-    }
-    out_return_types = return_types;
-  }
-
+  std::optional<std::span<Type_Id>> out_return_types =
+      this->parse_vec<Type_Id>(reader);
   return Function_Type{.param_types = out_param_types,
                        .return_types = out_return_types};
 }

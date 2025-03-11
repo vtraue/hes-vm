@@ -43,6 +43,7 @@ struct Parser {
     }
     return {};
   }
+
   bool parse_next_section(Reader& reader);
   bool parse(Reader& reader);
 };
