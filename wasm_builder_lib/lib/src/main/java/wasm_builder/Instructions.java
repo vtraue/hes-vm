@@ -57,7 +57,7 @@ public record Instructions() {
 
 	public static void addI32Const(int n, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write((byte) WasmInstructionOpCode.I32_CONST.code, os);
-		WasmBuilder.write(WasmBuilder.encodeU32ToLeb128(n), os);
+		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(n), os);
 	}
 
 	public static void addNop(ByteArrayOutputStream os) throws IOException {

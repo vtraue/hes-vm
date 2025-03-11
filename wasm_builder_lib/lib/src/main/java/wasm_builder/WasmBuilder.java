@@ -2,6 +2,8 @@ package wasm_builder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -12,12 +14,16 @@ public class WasmBuilder {
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private ArrayList<FuncType> funcTypes = new ArrayList<>();
 	private ArrayList<WasmValueType> globals = new ArrayList<>();
+	private ArrayList<Import> imports = new ArrayList<>();
 
 	public void build(List<Func> funcs) throws IOException {
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
 		if (!funcTypes.isEmpty()) {
 			writeTypeSection(funcTypes, out);
+		}
+		writeImportSection(imports, out);
+		if (!funcTypes.isEmpty()) {
 			writeFuncSection(funcTypes, out);
 		}
 		writeMemSection(out);
@@ -36,6 +42,14 @@ public class WasmBuilder {
 
 	public void setGlobals(List<WasmValueType> globals) {
 		this.globals.addAll(globals);
+	}
+
+	public void setImports(List<Import> imports) {
+		this.imports.addAll(imports);
+	}
+
+	public void addImport(Import im) {
+		this.imports.add(im);
 	}
 
 	public byte[] getByteArray() {
@@ -69,7 +83,7 @@ public class WasmBuilder {
 		}
 	}
 
-	public void writeTypeSection(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
+	private void writeTypeSection(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream functypesBytes = new ByteArrayOutputStream();
 		write(encodeU32ToLeb128(functypes.size()), functypesBytes);
 		writeFunctionTypes(functypes, functypesBytes);
@@ -79,7 +93,56 @@ public class WasmBuilder {
 		os.write(functypesBytes.toByteArray());
 	}
 
-	public void writeFuncSection(List<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {
+	private void writeImportSection(List<Import> imports, ByteArrayOutputStream os) throws IOException {
+		ByteArrayOutputStream importBytes = new ByteArrayOutputStream();
+		write(encodeU32ToLeb128(imports.size()), importBytes);
+		for (Import im : imports) {
+			writeImport(im, importBytes);
+		}
+
+		write((byte) SectionId.Import.ordinal(), os);
+		write(encodeU32ToLeb128(importBytes.size()), os);
+		os.write(importBytes.toByteArray());
+	}
+
+	private void writeImport(Import im, ByteArrayOutputStream os) throws IOException{
+		os.write(im.getModule().getBytes(StandardCharsets.UTF_8));
+		os.write(im.getName().getBytes(StandardCharsets.UTF_8));
+		switch(im.getDesc()){
+			case FuncId f -> {
+				write((byte)0x00, os);
+				write(encodeU32ToLeb128(f.id()), os);
+			}
+			case TableType t -> {
+				write((byte)0x01, os);
+				if (t.refExt()){
+					write((byte)0x67, os); // externref
+				} else {
+
+					write((byte)0x70, os); // funcref
+				}
+				write((byte)0x01, os);
+				write(encodeU32ToLeb128(t.min()), os);
+				write(encodeU32ToLeb128(t.max()), os);
+			}
+			case MemType m -> {
+				write((byte)0x02, os);
+				write(encodeU32ToLeb128(m.min()), os);
+				write(encodeU32ToLeb128(m.max()), os);
+			}
+			case GlobalType g -> {
+				write((byte)0x03, os);
+				write((byte)g.valtype().code, os);
+				if (g.mutable()) {
+					write((byte)0x01, os);
+				}else {
+					write((byte)0x00, os);
+				}
+			}
+		}
+	}
+
+	private void writeFuncSection(List<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcIdsBytes = new ByteArrayOutputStream();
 
 		write(encodeU32ToLeb128(funcTypes.size()), funcIdsBytes);
@@ -92,7 +155,7 @@ public class WasmBuilder {
 		os.write(funcIdsBytes.toByteArray());
 	}
 
-	public void writeMemSection(ByteArrayOutputStream os) throws IOException {
+	private void writeMemSection(ByteArrayOutputStream os) throws IOException {
 		write((byte) SectionId.Memory.ordinal(), os);
 		write(encodeU32ToLeb128(3), os); // Section Size
 		write(encodeU32ToLeb128(1), os); // Num Memories
@@ -100,7 +163,7 @@ public class WasmBuilder {
 		write(encodeU32ToLeb128(0), os); // limits min / initial
 
 	}
-	public void writeGlobalSection(List<WasmValueType> globals, ByteArrayOutputStream os) throws IOException {
+	private void writeGlobalSection(List<WasmValueType> globals, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream globalsBytes = new ByteArrayOutputStream();
 		write(encodeU32ToLeb128(globals.size()), globalsBytes); // Anz Globals
 		for (WasmValueType wasmValueType : globals) {
@@ -113,7 +176,7 @@ public class WasmBuilder {
 		write(encodeU32ToLeb128(globalsBytes.size()), os);
 		os.write(globalsBytes.toByteArray());
 	}
-	public void writeCodeSection(List<Func> funcs, ByteArrayOutputStream os) throws IOException {
+	private void writeCodeSection(List<Func> funcs, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodiesBytes = new ByteArrayOutputStream();
 		// Anzahl der Funktionen
 		write(encodeU32ToLeb128(funcs.size()), funcBodiesBytes);
@@ -128,7 +191,7 @@ public class WasmBuilder {
 
 	}
 
-	public void writeFuncBody(Func f, ByteArrayOutputStream os) throws IOException {
+	private void writeFuncBody(Func f, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodyBytes = new ByteArrayOutputStream();
 		writeFuncLocals(f.getLocals(), funcBodyBytes);
 		if(f.getBody().size() >0){
@@ -143,7 +206,7 @@ public class WasmBuilder {
 		os.write(funcBodyBytes.toByteArray());
 	}
 
-	public void writeFuncLocals(List<WasmValueType> locals, ByteArrayOutputStream os) throws IOException {
+	private void writeFuncLocals(List<WasmValueType> locals, ByteArrayOutputStream os) throws IOException {
 		if (locals.isEmpty()) {
 			write(encodeU32ToLeb128(0), os);
 		} else if (locals.size() == 1) {
@@ -177,12 +240,12 @@ public class WasmBuilder {
 		}
 	}
 
-	public void writeBinaryMagic(ByteArrayOutputStream os) throws IOException {
+	private void writeBinaryMagic(ByteArrayOutputStream os) throws IOException {
 		byte[] wasmBinaryMagic = { 0x0, 'a', 's', 'm' };
 		os.write(wasmBinaryMagic);
 	}
 
-	public void writeBinaryVersion(ByteArrayOutputStream os) throws IOException {
+	private void writeBinaryVersion(ByteArrayOutputStream os) throws IOException {
 		byte[] wasmBinaryVersion = { 0x01, 0x00, 0x00, 0x00 };
 		os.write(wasmBinaryVersion);
 	}
