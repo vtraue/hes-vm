@@ -142,7 +142,7 @@ public class TypedAstBuilder {
 		}
 
 		this.functions.get(this.currentFunction.get()).addLocal(new_sym);
-
+		this.functionVariableId += 1;
 		return new Ok<>(new_sym);
 	}
 	void enterNewScope() {

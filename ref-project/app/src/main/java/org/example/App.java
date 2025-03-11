@@ -4,6 +4,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -45,18 +46,21 @@ public class App {
 				}
 			}
 			builder.leaveFunction();
-
+			bytecodeBuilder.setGlobals(Arrays.asList(WasmValueType.i32));
 			ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
-
+				
 			for(TypedStatement s : typedNodes) {
 				if(s instanceof TypedFndecl decl) {
 					Function funcType = builder.getFunction(decl.id()).get();
 					wasm_builder.Func wasmFunc = bytecodeBuilder.createFunction(funcType.toWasmFuncType());
+					funcType.getLocalValueTypes().stream().forEach(l -> wasmFunc.addLocal(l));
 					for(TypedStatement is : decl.block()) {
 						is.toWasmCode(wasmFunc);
 					}
+
 					wasmFunc.emitEnd();	
 					wasmFuncs.add(wasmFunc);
+
 				}
 			}
 			bytecodeBuilder.build(wasmFuncs);
