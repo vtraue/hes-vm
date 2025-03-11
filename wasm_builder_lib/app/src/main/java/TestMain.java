@@ -12,17 +12,18 @@ class TestMain {
 	public static void main(String[] args) {
 		try {
 //			createTestfile1Simple();
-//			createTestfile1();
-			int i = 424242;
-			ArrayList<Integer> result = WasmBuilder.encodeU32ToLeb128(i);
-			HexFormat hex = HexFormat.ofDelimiter(", ").withPrefix("#");
-			ByteArrayOutputStream leb = new ByteArrayOutputStream();
-			for (Integer e : result) {
-				byte[] byteId = { (byte) e.intValue() };
-				leb.write(byteId);
-			}
-			System.out.println(leb);
-			System.out.println( hex.formatHex(leb.toByteArray()));
+			createTestfile1();
+
+//			int i = 424242;
+//			ArrayList<Integer> result = WasmBuilder.encodeU32ToLeb128(i);
+//			HexFormat hex = HexFormat.ofDelimiter(", ").withPrefix("#");
+//			ByteArrayOutputStream leb = new ByteArrayOutputStream();
+//			for (Integer e : result) {
+//				byte[] byteId = { (byte) e.intValue() };
+//				leb.write(byteId);
+//			}
+//			System.out.println(leb);
+//			System.out.println( hex.formatHex(leb.toByteArray()));
 
 
 
