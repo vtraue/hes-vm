@@ -7,3 +7,4 @@
 -pedantic-errors 
 -Wconversion 
 -Wsign-conversion
+-Ibytecode

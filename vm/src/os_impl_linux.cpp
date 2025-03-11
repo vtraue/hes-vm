@@ -23,9 +23,9 @@ void unreserve(std::span<uint8_t> data) {
 }
 }  // namespace Os::Mem
 
-namespace Os::Log {
+namespace Os {
 void log(std::string_view string) {
   assert(write(STDOUT_FILENO, reinterpret_cast<const void*>((string.data())),
                string.size()) != -1);
 }
-}  // namespace Os::Log
+}  // namespace Os
