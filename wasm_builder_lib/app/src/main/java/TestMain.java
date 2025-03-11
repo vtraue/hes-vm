@@ -9,7 +9,9 @@ class TestMain {
 
 	public static void main(String[] args) {
 		try {
-			createTestfile1Simple();
+//			createTestfile1Simple();
+			createTestfile1();
+
 
 			// Unterschiedliche Arten FuncTypes zu initialisieren
 			// Liste mit Parametertypen und Reulttypen erstellen
@@ -47,7 +49,19 @@ class TestMain {
 	}
 
 	static void createTestfile1() throws IOException {
+		BytecodeBuilder bb = new BytecodeBuilder();
+		List<WasmValueType> globals = List.of(WasmValueType.i32, WasmValueType.i32);
+		FuncType emptyFuncType = new FuncType();
+		Func main = bb.createFunction(emptyFuncType);
+		List<Func> funcs = new ArrayList<>();
+		funcs.add(main);
+		bb.setGlobals(globals);
+		bb.build(funcs);
 
+		// zusammengebautes Byte-Array in Datei schreiben
+		FileOutputStream out = new FileOutputStream("./out/testfile1.wasm");
+		out.write(bb.getWasmBuilder().getByteArray());
+		out.close();
 	}
 
 	static void createTestfile1Simple() throws IOException {

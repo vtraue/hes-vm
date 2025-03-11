@@ -35,7 +35,7 @@ public class WasmBuilder {
 	}
 
 	public void setGlobals(List<WasmValueType> globals) {
-		this.globals = (ArrayList<WasmValueType>) globals;
+		this.globals.addAll(globals);
 	}
 
 	public byte[] getByteArray() {
@@ -107,7 +107,7 @@ public class WasmBuilder {
 			write((byte)wasmValueType.code, globalsBytes);
 			write((byte)1, globalsBytes); // mutable
 			Instructions.addI32Const(0, globalsBytes);
-			Instructions.addElse(globalsBytes);
+			Instructions.addEnd(globalsBytes);
 		}
 		write((byte)SectionId.Global.ordinal(), os);
 		write(encodeI32ToLeb128(globalsBytes.size()), os);
@@ -131,7 +131,12 @@ public class WasmBuilder {
 	public void writeFuncBody(Func f, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodyBytes = new ByteArrayOutputStream();
 		writeFuncLocals(f.getLocals(), funcBodyBytes);
-		funcBodyBytes.write(f.getBody().toByteArray());
+		if(f.getBody().size() >0){
+
+			funcBodyBytes.write(f.getBody().toByteArray());
+		} else {
+			Instructions.addEnd(funcBodyBytes);
+		}
 
 		// Größe des Bodies in Byte mit local decl und instructions
 		write(encodeI32ToLeb128(funcBodyBytes.size()), os);
