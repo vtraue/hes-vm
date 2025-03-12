@@ -3,7 +3,7 @@ package wasm_builder;
 import java.util.ArrayList;
 import java.util.List;
 
-public class FuncType {
+public final class FuncType implements Importable {
 
 	private ArrayList<Integer> params;
 	private ArrayList<Integer> results;

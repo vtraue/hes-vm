@@ -28,7 +28,24 @@ public class BytecodeBuilder {
 		return builder.addFunc(funcType, Optional.of(locals));
 	}
 
-	public void setGlobals(List<WasmValueType> globals) {
+	public void setGlobals(List<GlobalType> globals) {
 		this.builder.setGlobals(globals);
+	}
+
+	public void setGlobals(GlobalType global) {
+		this.builder.addGlobal(global);
+	}
+
+	public void setImports(List<Import> imports){
+		builder.setImports(imports);
+	}
+
+	public void addImport(Import im) {
+		builder.addImport(im);
+	}
+
+	public void importFunc(String module, String name, FuncType funcType) {
+		Import im = new Import(module, name, funcType);
+		builder.addImport(im);
 	}
 }
