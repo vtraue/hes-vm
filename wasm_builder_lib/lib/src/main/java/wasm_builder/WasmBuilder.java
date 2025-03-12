@@ -2,7 +2,6 @@ package wasm_builder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -13,14 +12,20 @@ public class WasmBuilder {
 
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private ArrayList<FuncType> funcTypes = new ArrayList<>();
-	private ArrayList<WasmValueType> globals = new ArrayList<>();
+	private ArrayList<GlobalType> globals = new ArrayList<>();
 	private ArrayList<Import> imports = new ArrayList<>();
+	private ArrayList<FuncType> importedFuncTypes = new ArrayList<>();
+	private ArrayList<GlobalType> importedGlobals = new ArrayList<>();
 
 	public void build(List<Func> funcs) throws IOException {
+		ArrayList<FuncType> allFuncTypes = importedFuncTypes;
+		allFuncTypes.addAll(funcTypes);
+		ArrayList<GlobalType> allGlobals = importedGlobals;
+		allGlobals.addAll(globals);
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
 		if (!funcTypes.isEmpty()) {
-			writeTypeSection(funcTypes, out);
+			writeTypeSection(allFuncTypes, out);
 		}
 		writeImportSection(imports, out);
 		if (!funcTypes.isEmpty()) {
@@ -40,16 +45,36 @@ public class WasmBuilder {
 		return new Func(funcType, locals);
 	}
 
-	public void setGlobals(List<WasmValueType> globals) {
+	public void setGlobals(List<GlobalType> globals) {
 		this.globals.addAll(globals);
 	}
 
+	public void addGlobal(GlobalType global) {
+		this.globals.add(global);
+	}
+
 	public void setImports(List<Import> imports) {
-		this.imports.addAll(imports);
+		for (Import im : imports) {
+			addImport(im);
+		}
 	}
 
 	public void addImport(Import im) {
 		this.imports.add(im);
+		switch (im.getDesc()){
+			case FuncType funcType -> {
+				this.importedFuncTypes.add(funcType);
+			}
+            case GlobalType globalType -> {
+				this.importedGlobals.add(globalType);
+            }
+            case MemType ignored -> {
+				//TODO
+            }
+            case TableType ignored -> {
+				//TODO
+            }
+        }
 	}
 
 	public byte[] getByteArray() {
@@ -109,9 +134,9 @@ public class WasmBuilder {
 		os.write(im.getModule().getBytes(StandardCharsets.UTF_8));
 		os.write(im.getName().getBytes(StandardCharsets.UTF_8));
 		switch(im.getDesc()){
-			case FuncId f -> {
+			case FuncType f -> {
 				write((byte)0x00, os);
-				write(encodeU32ToLeb128(f.id()), os);
+				write(encodeU32ToLeb128(importedFuncTypes.indexOf(f)), os);
 			}
 			case TableType t -> {
 				write((byte)0x01, os);
@@ -163,12 +188,18 @@ public class WasmBuilder {
 		write(encodeU32ToLeb128(0), os); // limits min / initial
 
 	}
-	private void writeGlobalSection(List<WasmValueType> globals, ByteArrayOutputStream os) throws IOException {
+	private void writeGlobalSection(List<GlobalType> globals, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream globalsBytes = new ByteArrayOutputStream();
 		write(encodeU32ToLeb128(globals.size()), globalsBytes); // Anz Globals
-		for (WasmValueType wasmValueType : globals) {
-			write((byte)wasmValueType.code, globalsBytes);
-			write((byte)1, globalsBytes); // mutable
+		for (GlobalType globalType : globals) {
+			write((byte)globalType.valtype().code, globalsBytes);
+			if (globalType.mutable()) {
+
+				write((byte)1, globalsBytes); // mutable
+			} else {
+
+				write((byte)0, globalsBytes); // immutable
+			}
 			Instructions.addI32Const(0, globalsBytes);
 			Instructions.addEnd(globalsBytes);
 		}

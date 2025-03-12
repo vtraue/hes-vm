@@ -64,11 +64,14 @@ class TestMain {
 
 	static void createTestfile1() throws IOException {
 		BytecodeBuilder bb = new BytecodeBuilder();
-		List<WasmValueType> globals = List.of(WasmValueType.i32, WasmValueType.i32);
 		FuncType emptyFuncType = new FuncType();
 		Func main = bb.createFunction(emptyFuncType);
 		List<Func> funcs = new ArrayList<>();
 		funcs.add(main);
+		// imports testen
+
+		// globals testen
+		List<GlobalType> globals = List.of(new GlobalType(WasmValueType.i32, true), new GlobalType(WasmValueType.i32, true));
 		bb.setGlobals(globals);
 		bb.build(funcs);
 
