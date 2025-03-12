@@ -38,15 +38,13 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
 	@Override
 	public AstNode visitImport_fndecl(ReflangParser.Import_fndeclContext ctx) {
-		Id fnName = (Id)this.visit(ctx.name);
 		Optional<Params> params = Optional.empty(); 
 		if(ctx.params() != null) {
 			params = Optional.of((Params)this.visit(ctx.params()));	
 		}
 		Type ret_type = (Type)this.visit(ctx.ret_type);
-
-		return new ExternFndecl(fnName, params, ret_type);		
-
+		String env = ctx.env_name.getText();
+		return new ExternFndecl(ctx.name.getText(), env, params, ret_type);		
 	}
 	@Override
 	public AstNode visitVardeclt(ReflangParser.VardecltContext ctx) {
@@ -141,14 +139,12 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 	@Override
 	public AstNode visitFncall(ReflangParser.FncallContext ctx) {
 		System.out.println("Fncall");
-		Id name = (Id)this.visit(ctx.name); 
-		System.out.println(name.toDebugText());
 		Optional<FncallArgs> args = Optional.empty(); 
 
 		if(ctx.args() != null) {
 			args = Optional.of((FncallArgs)this.visit(ctx.args()));	
 		}
-		var result = new Fncall(name, args);
+		var result = new Fncall(ctx.name.getText(), args);
 		System.out.println(result.toDebugText());
 
 		return result; 

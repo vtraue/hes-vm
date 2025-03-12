@@ -1,7 +1,8 @@
 package org.example;
 import java.util.Map;
 import java.util.Optional;
-
+import java.lang.Math;
+import wasm_builder.FuncType;
 import wasm_builder.WasmValueType;
 
 import java.util.ArrayList;
@@ -19,12 +20,20 @@ public class TypedAstBuilder {
 		}
 	};
 
-	public record Function (
+	interface Function {
+		int getId();
+		Optional<Params> getArgs();
+		Type getReturnType();
+		Optional<List<WasmValueType>> getArgValueTypes();
+		FuncType toWasmFuncType();	
+	}
+
+	public record InternalFunction (
 		int id,
 		Type returnType,
 		Optional<Params> argTypes,
 		List<Symbol> locals
-	) {
+	) implements Function {
 		void addLocal(Symbol sym) {
 			this.locals.add(sym);
 		}
@@ -32,15 +41,31 @@ public class TypedAstBuilder {
 		List<WasmValueType> getLocalValueTypes() {
 			return this.locals.stream().map(Symbol::toValueType).toList();
 		}
-		Optional<List<WasmValueType>> getArgValueTypes() {
+
+		public Optional<List<WasmValueType>> getArgValueTypes() {
 			return this.argTypes.map(Params::toWasmValueTypes);
 		}
 		
-		wasm_builder.FuncType toWasmFuncType() {
+		public FuncType toWasmFuncType() {
 			var params = this.getArgValueTypes().orElse(new ArrayList<>());
 			var result = this.returnType.toWasmValueType();
 
 			return new wasm_builder.FuncType(params, Arrays.asList(result));	
+		}
+
+		@Override
+		public int getId() {
+			return this.id;	
+		}
+
+		@Override
+		public Optional<Params> getArgs() {
+			return this.argTypes;
+		}
+
+		@Override
+		public Type getReturnType() {
+			return this.returnType;
 		}
 	};
 
@@ -48,18 +73,36 @@ public class TypedAstBuilder {
 		int id,
 		Type returnType,
 		Optional<Params> argTypes
-	 ) {
-		Optional<List<WasmValueType>> getArgValueTypes() {
+	 ) implements Function {
+
+		public Optional<List<WasmValueType>> getArgValueTypes() {
 			return this.argTypes.map(Params::toWasmValueTypes);
 		}
 
-		wasm_builder.FuncType toWasmFuncType() {
+		public FuncType toWasmFuncType() {
 			var params = this.getArgValueTypes().orElse(new ArrayList<>());
 			var result = this.returnType.toWasmValueType();
 
 			return new wasm_builder.FuncType(params, Arrays.asList(result));	
 		}
+
+		@Override
+		public int getId() {
+			return this.id;
+		}
+
+		@Override
+		public Optional<Params> getArgs() {
+			return this.argTypes;
+		}
+
+		@Override
+		public Type getReturnType() {
+			return this.returnType;
+		}
 	}
+
+
 	public class Enviroment {
 		public Optional<Enviroment> parent;
 		private Map<String, Symbol> variables; 
@@ -110,7 +153,7 @@ public class TypedAstBuilder {
 			this.leaveFunction();
 		}
 
-		Function f = new Function(functionId, returnType, args, new ArrayList<>());	
+		Function f = new InternalFunction(functionId, returnType, args, new ArrayList<>());	
 		functionId += 1;	
 
 		Optional<Function> found = Optional.ofNullable(this.functions.get(name));
@@ -158,7 +201,8 @@ public class TypedAstBuilder {
 			System.out.println("Huh???");
 		}
 
-		this.functions.get(this.currentFunction.get()).addLocal(new_sym);
+		var currentFunction = (InternalFunction)this.getCurrentFunction().get();
+		currentFunction.addLocal(new_sym);
 		this.functionVariableId += 1;
 		return new Ok<>(new_sym);
 	}
@@ -168,7 +212,11 @@ public class TypedAstBuilder {
 	}
 
 	Optional<Function> getFunction(String name) {
-		return Optional.ofNullable(this.functions.get(name));
+		var inner = this.functions.get(name);
+		if(inner == null) {
+			return Optional.ofNullable(this.externalFunctions.get(name));
+		}
+		return Optional.of(inner); 
 	}
 
 	Result<Enviroment, String> leaveScope() {
@@ -214,4 +262,12 @@ public class TypedAstBuilder {
 
 		return new Ok<>(func);
 	}
+
+	int getGlobalFunctionId(Function fn) {
+		if(fn instanceof InternalFunction) {
+			return fn.getId() + Math.clamp(this.externalFunctions.size() - 1, 0, 999);
+		}
+		return fn.getId();
+	}
+
 } 

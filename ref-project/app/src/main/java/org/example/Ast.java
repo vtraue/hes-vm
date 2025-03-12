@@ -200,32 +200,48 @@ record FncallArgs(List<Expression> args) implements AstNode {
 }
 
 
-record Fncall(Id id, Optional<FncallArgs> params) implements Expression {
+record Fncall(String name, Optional<FncallArgs> params) implements Expression {
 	public String toDebugText() {
-		return String.format("%s%s", id.toDebugText(), params.map(FncallArgs::toDebugText).orElse(""));
+		return String.format("%s%s", name, params.map(FncallArgs::toDebugText).orElse(""));
 	}
+
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);	
-		if(!tId.isOk()) {
-			return new Err<>(tId.getErr());
-		}
 
-		
+	String fnName = this.name;		
+	Optional<Function> functionType = builder.getFunction(fnName);	
+
+	if(!functionType.isPresent()) {
+			return new Err<>(String.format("Function %s doesnt exists", fnName));
+	}
 	Optional<TypedFncallArgs> tArgs = Optional.empty(); 
+	
 	if(this.params.isPresent()) {
+		if(functionType.get().getArgs().isEmpty()) {
+			return new Err<>(String.format("Expected no arguments, got %d", this.params.get().args().size()));
+		}
+		var expectedArgs = functionType
+			.get()
+			.getArgs()
+			.get()
+			.toTypes();	
+
+		var paramTypes = this.params.get().args();
+		if(expectedArgs.size() != paramTypes.size()) {
+			return new Err<>(String.format("Expected %d arguments, got %d", expectedArgs.size(), paramTypes.size()));
+		}
 		Result<TypedAstNode, String> tempArgs = this.params.get().getTypedAstNode(builder);
 		if(!tempArgs.isOk()) {
 				return new Err<>(tempArgs.getErr());
 		}
 		tArgs = Optional.of((TypedFncallArgs)tempArgs.unwrap());
 	}
-
-		Optional<Function> funcType = builder.getFunction(id.name()); 
-		if(!funcType.isPresent()) {
-			return new Err<>(String.format("Function %s not resolved", this.id));
+	else {
+		if(functionType.get().getArgs().isPresent()) {
+			return new Err<>(String.format("Expected %d arguments, got none", functionType.get().getArgs().get().params().size())); 
 		}
-		return new Ok<>(new TypedFncall((TypedId)tId.unwrap(), tArgs, funcType.get().returnType()));
+	}
+		return new Ok<>(new TypedFncall(fnName, functionType.get(), tArgs));
 	}	
 }
 
@@ -437,20 +453,21 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 }
 ;
 
-record ExternFndecl(Id id, Optional<Params> params, Type returnType) implements Statement {
+record ExternFndecl(String id, String env, Optional<Params> params, Type returnType) implements Statement {
   public String toDebugText() {
     return String.format(
         "import fn %s(%s) -> %s",
-        id.toDebugText(),
+        id,
         params.map(Params::toDebugText).orElse(""),
         returnType.toString());
   }
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		var func = builder.getFunction(id.name());
+		var func = builder.getFunction(id);
 		if(func.isPresent()) {
-			return new Err<>(String.format("Cannot import function %s, name is already taken", id.toDebugText()));
+			return new Err<>(String.format("Cannot import function %s, name is already taken", id));
 		}
+		builder.addExternalFunction(id, params, returnType);
 		return new Ok<>(new TypedExternFndecl(this)); 
 	}
 }
@@ -471,8 +488,8 @@ record Return(Expression expr) implements Statement {
 		if(currentFunction.isEmpty()) {
 			return new Err<>("Return used outside of function");
 		}
-		if(!currentFunction.get().returnType().equals(typedExpression.getType())) {
-			return new Err<>(String.format("Function expects return type of %s", currentFunction.get().returnType())); 
+		if(!currentFunction.get().getReturnType().equals(typedExpression.getType())) {
+			return new Err<>(String.format("Function expects return type of %s", currentFunction.get().getReturnType())); 
 		}
 		return new Ok<>(typedExpression);
 	}

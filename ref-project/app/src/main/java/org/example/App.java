@@ -12,6 +12,7 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.example.TypedAstBuilder.Function;
+import org.example.TypedAstBuilder.InternalFunction;
 
 import wasm_builder.*;
 
@@ -54,11 +55,12 @@ public class App {
 					System.out.println("Heya");	
 				}
 				if(s instanceof TypedFndecl decl) {
-					Function funcType = builder.getFunction(decl.id()).get();
+					InternalFunction funcType = (InternalFunction)builder.getFunction(decl.id()).get();
 					wasm_builder.Func wasmFunc = bytecodeBuilder.createFunction(funcType.toWasmFuncType());
+					
 					funcType.getLocalValueTypes().stream().forEach(l -> wasmFunc.addLocal(l));
 					for(TypedStatement is : decl.block()) {
-						is.toWasmCode(wasmFunc);
+						is.toWasmCode(wasmFunc, builder);
 					}
 
 					wasmFunc.emitEnd();	
