@@ -44,6 +44,22 @@ public class TypedAstBuilder {
 		}
 	};
 
+	public record ExternalFunction (
+		int id,
+		Type returnType,
+		Optional<Params> argTypes
+	 ) {
+		Optional<List<WasmValueType>> getArgValueTypes() {
+			return this.argTypes.map(Params::toWasmValueTypes);
+		}
+
+		wasm_builder.FuncType toWasmFuncType() {
+			var params = this.getArgValueTypes().orElse(new ArrayList<>());
+			var result = this.returnType.toWasmValueType();
+
+			return new wasm_builder.FuncType(params, Arrays.asList(result));	
+		}
+	}
 	public class Enviroment {
 		public Optional<Enviroment> parent;
 		private Map<String, Symbol> variables; 
@@ -83,10 +99,11 @@ public class TypedAstBuilder {
 	public Enviroment currentEnv = new Enviroment(Optional.empty());
 	private Map<String, Function> functions = new HashMap<>();
 	private Optional<String> currentFunction = Optional.empty();		
-
+	private Map<String, ExternalFunction> externalFunctions = new HashMap<>(); 
+	
 	private int functionVariableId = 0;
 	private int functionId = 0;
-
+	private int externalFuncId = 0;
 	Result<Function, Function> enterNewFunction(String name, Type returnType, Optional<Params> args) {
 
 		if(this.currentFunction.isPresent()) {
@@ -184,5 +201,17 @@ public class TypedAstBuilder {
 			return new Err<>(errorMessageBuilder.toString());
 		}
 		return new Ok<>(typedStatements);
+	}
+
+	Result<ExternalFunction, ExternalFunction> addExternalFunction(String name, Optional<Params> params, Type returnType) {
+		var prevExtFunction = this.externalFunctions.get(name);
+		if(prevExtFunction != null) {
+			return new Err<>(prevExtFunction);
+		}
+		ExternalFunction func = new ExternalFunction(this.externalFuncId, returnType, params);
+		this.externalFunctions.put(name, func);
+		this.externalFuncId += 1;	
+
+		return new Ok<>(func);
 	}
 } 

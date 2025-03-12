@@ -50,6 +50,9 @@ public class App {
 			ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
 				
 			for(TypedStatement s : typedNodes) {
+				if(s instanceof TypedExternFndecl extDecl) {
+					System.out.println("Heya");	
+				}
 				if(s instanceof TypedFndecl decl) {
 					Function funcType = builder.getFunction(decl.id()).get();
 					wasm_builder.Func wasmFunc = bytecodeBuilder.createFunction(funcType.toWasmFuncType());

@@ -437,6 +437,23 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 }
 ;
 
+record ExternFndecl(Id id, Optional<Params> params, Type returnType) implements Statement {
+  public String toDebugText() {
+    return String.format(
+        "import fn %s(%s) -> %s",
+        id.toDebugText(),
+        params.map(Params::toDebugText).orElse(""),
+        returnType.toString());
+  }
+	@Override
+	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+		var func = builder.getFunction(id.name());
+		if(func.isPresent()) {
+			return new Err<>(String.format("Cannot import function %s, name is already taken", id.toDebugText()));
+		}
+		return new Ok<>(new TypedExternFndecl(this)); 
+	}
+}
 record Return(Expression expr) implements Statement {
   public String toDebugText() {
     return String.format("return %s", expr.toDebugText());
@@ -521,6 +538,7 @@ public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
 		return new Ok<>(new TypedCond(condExpr, ifBlock, typedElseBlock));
 	}
 }
+
 
 
 

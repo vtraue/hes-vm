@@ -37,6 +37,18 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 	}
 
 	@Override
+	public AstNode visitImport_fndecl(ReflangParser.Import_fndeclContext ctx) {
+		Id fnName = (Id)this.visit(ctx.name);
+		Optional<Params> params = Optional.empty(); 
+		if(ctx.params() != null) {
+			params = Optional.of((Params)this.visit(ctx.params()));	
+		}
+		Type ret_type = (Type)this.visit(ctx.ret_type);
+
+		return new ExternFndecl(fnName, params, ret_type);		
+
+	}
+	@Override
 	public AstNode visitVardeclt(ReflangParser.VardecltContext ctx) {
 		System.out.println("vardecl");
 		Id varname = new Id(ctx.name.getText());

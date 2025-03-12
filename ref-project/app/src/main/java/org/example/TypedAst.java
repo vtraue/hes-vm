@@ -124,6 +124,14 @@ record TypedFndecl(String id, Optional<Params> params, Type returnType, List<Typ
 		throw new UnsupportedOperationException("Unimplemented method 'toWasmCode'");
 	}};
 
+record TypedExternFndecl(ExternFndecl decl) implements TypedStatement {
+
+	@Override
+	public void toWasmCode(Func func) throws IOException {
+		// TODO Auto-generated method stub
+		throw new UnsupportedOperationException("Unimplemented method 'toWasmCode'");
+	}
+}
 record TypedReturn(TypedExpression expr) implements TypedStatement {
 
 	@Override
