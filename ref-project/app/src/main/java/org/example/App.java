@@ -49,7 +49,7 @@ public class App {
 			builder.leaveFunction();
 			bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(WasmValueType.i32, true)));
 			builder.importFunctions(bytecodeBuilder);
-
+			
 			ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
 			for(TypedStatement s : typedNodes) { 
 				if(s instanceof TypedExternFndecl extDecl) {
@@ -64,11 +64,10 @@ public class App {
 						is.toWasmCode(wasmFunc, builder);
 					}
 
-					wasmFunc.emitEnd();	
 					wasmFuncs.add(wasmFunc);
-
 				}
 			}
+			bytecodeBuilder.setStartFunction(builder.getGlobalFunctionId(builder.getFunction("main").get()));
 			bytecodeBuilder.build(wasmFuncs);
 			FileOutputStream out = new FileOutputStream("gen.wasm");
 			out.write(bytecodeBuilder.getWasmBuilder().getByteArray());

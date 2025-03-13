@@ -48,4 +48,8 @@ public class BytecodeBuilder {
 		Import im = new Import(module, name, funcType);
 		builder.addImport(im);
 	}
+
+	public void setStartFunction(int id) {
+		builder.setStartFunction(id);
+	}
 }

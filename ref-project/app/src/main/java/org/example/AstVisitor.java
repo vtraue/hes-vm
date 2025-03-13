@@ -42,9 +42,12 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 		if(ctx.params() != null) {
 			params = Optional.of((Params)this.visit(ctx.params()));	
 		}
-		Type ret_type = (Type)this.visit(ctx.ret_type);
+		Optional<Type> retType = Optional.empty();
+		if(ctx.ret_type != null) {
+			retType = Optional.of((Type)this.visit(ctx.ret_type)); 	
+		}
 		String env = ctx.env_name.getText();
-		return new ExternFndecl(ctx.name.getText(), env, params, ret_type);		
+		return new ExternFndecl(ctx.name.getText(), env, params, retType);		
 	}
 	@Override
 	public AstNode visitVardeclt(ReflangParser.VardecltContext ctx) {
@@ -96,10 +99,14 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 			params = Optional.of((Params)this.visit(ctx.params()));	
 		}
 
-		Type ret_type = (Type)this.visit(ctx.ret_type);
+		Optional<Type> retType = Optional.empty();
+		if(ctx.ret_type != null) {
+			retType = Optional.of((Type)this.visit(ctx.ret_type)); 	
+		}
+
 		Block declBlock = (Block)this.visit(ctx.decl_block);
 
-		return new Fndecl(fnName, params, ret_type, declBlock);
+		return new Fndecl(fnName, params, retType, declBlock);
 	}
 	@Override
 	public AstNode visitParams(ReflangParser.ParamsContext ctx) {
@@ -128,7 +135,12 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
 	@Override
 	public AstNode visitReturn(ReflangParser.ReturnContext ctx) {
-		return new Return((Expression)this.visit(ctx.expr()));
+		if(ctx.expr() != null) {
+			System.out.println("return");
+			return new Return(Optional.of((Expression)this.visit(ctx.expr())));
+		} else {
+			return new Return(Optional.empty());
+		}
 	}
 	@Override 
 	public AstNode visitVarname(ReflangParser.VarnameContext ctx) {
@@ -210,7 +222,7 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 	@Override
 	public AstNode visitLiteralStr(ReflangParser.LiteralStrContext ctx) {
 		System.out.println("String literal");
-		return new StringLiteral(ctx.STRING().getText());
+		return new StringLiteral(ctx.n.getText());
 	}
 	@Override
 	public AstNode visitLiteralTrue(ReflangParser.LiteralTrueContext ctx) {

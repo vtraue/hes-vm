@@ -9,6 +9,7 @@ import wasm_builder.WasmValueType;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
@@ -25,14 +26,14 @@ public class TypedAstBuilder {
 	interface Function {
 		int getId();
 		Optional<Params> getArgs();
-		Type getReturnType();
+		Optional<Type> getReturnType();
 		Optional<List<WasmValueType>> getArgValueTypes();
 		FuncType toWasmFuncType();	
 	}
 
 	public record InternalFunction (
 		int id,
-		Type returnType,
+		Optional<Type> returnType,
 		Optional<Params> argTypes,
 		List<Symbol> locals
 	) implements Function {
@@ -50,9 +51,9 @@ public class TypedAstBuilder {
 		
 		public FuncType toWasmFuncType() {
 			var params = this.getArgValueTypes().orElse(new ArrayList<>());
-			var result = this.returnType.toWasmValueType();
+			var result = this.returnType.map(t -> Arrays.asList(t.toWasmValueType())).orElse(new ArrayList<>());
 
-			return new wasm_builder.FuncType(params, Arrays.asList(result));	
+			return new wasm_builder.FuncType(params, result);	
 		}
 
 		@Override
@@ -66,7 +67,7 @@ public class TypedAstBuilder {
 		}
 
 		@Override
-		public Type getReturnType() {
+		public Optional<Type> getReturnType() {
 			return this.returnType;
 		}
 	};
@@ -75,7 +76,7 @@ public class TypedAstBuilder {
 		int id,
 		String env,
 		String name,
-		Type returnType,
+		Optional<Type> returnType,
 		Optional<Params> argTypes
 	 ) implements Function {
 
@@ -85,9 +86,9 @@ public class TypedAstBuilder {
 
 		public FuncType toWasmFuncType() {
 			var params = this.getArgValueTypes().orElse(new ArrayList<>());
-			var result = this.returnType.toWasmValueType();
+			var result = this.returnType.map(t -> Arrays.asList(t.toWasmValueType())).orElse(new ArrayList<>());
 
-			return new wasm_builder.FuncType(params, Arrays.asList(result));	
+			return new wasm_builder.FuncType(params, result);	
 		}
 
 		@Override
@@ -101,8 +102,8 @@ public class TypedAstBuilder {
 		}
 
 		@Override
-		public Type getReturnType() {
-			return this.returnType;
+		public Optional<Type> getReturnType() {
+			return this.returnType; 
 		}
 
 		public void importFunction(BytecodeBuilder builder) {
@@ -155,7 +156,7 @@ public class TypedAstBuilder {
 	private int functionVariableId = 0;
 	private int functionId = 0;
 	private int externalFuncId = 0;
-	Result<Function, Function> enterNewFunction(String name, Type returnType, Optional<Params> args) {
+	Result<Function, Function> enterNewFunction(String name, Optional<Type> returnType, Optional<Params> args) {
 
 		if(this.currentFunction.isPresent()) {
 			this.leaveFunction();
@@ -259,7 +260,7 @@ public class TypedAstBuilder {
 		return new Ok<>(typedStatements);
 	}
 
-	Result<ExternalFunction, ExternalFunction> addExternalFunction(String name, String env, Optional<Params> params, Type returnType) {
+	Result<ExternalFunction, ExternalFunction> addExternalFunction(String name, String env, Optional<Params> params, Optional<Type> returnType) {
 		var prevExtFunction = this.externalFunctions.get(name);
 		if(prevExtFunction != null) {
 			return new Err<>(prevExtFunction);
@@ -279,8 +280,12 @@ public class TypedAstBuilder {
 	}
 
 	public void importFunctions(BytecodeBuilder builder) {
+		var funcs = new ExternalFunction[this.externalFunctions.size()];
 		for(var extFunc : this.externalFunctions.values()) {
-			extFunc.importFunction(builder);
+			funcs[extFunc.id] = extFunc;
+		}
+		for(var f : funcs) {
+			builder.importFunc(f.env, f.name, f.toWasmFuncType());
 		}
 	}
 } 

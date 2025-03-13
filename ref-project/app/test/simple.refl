@@ -1,4 +1,6 @@
-import "env" fn extern_test_fn(a: int, b: int, c: int) -> int;
+import env fn print(num: int);
+import env fn print2(num: int, num2: int);
+import env fn extern_test_fn(a: int, b: int, c: int) -> int;
 
 fn should_work(a: int) -> int {
 	return 1;
@@ -11,10 +13,10 @@ fn should_work2(a: int, b: int, c: int) -> int {
 	return 3;
 }
 
-
-fn test_fn() -> int {
-	i := extern_test_fn(1, 2, 3);
-	c := should_work(1);
-	return 1; 
+fn main() {
+	print(1);
+	print2(1, 2);
+	i := extern_test_fn(1,2,3);
+	return; 
 }
 

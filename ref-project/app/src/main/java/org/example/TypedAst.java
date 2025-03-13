@@ -63,7 +63,7 @@ record TypedFncallArgs(List<TypedExpression> args) implements TypedAstNode {};
 record TypedFncall(String name, Function type, Optional<TypedFncallArgs> params) implements TypedExpression {
 	@Override
 	public Type getType() {
-		return type.getReturnType();
+		return type.getReturnType().orElse(Type.Void);
 	}
 
 	@Override
@@ -126,7 +126,7 @@ record TypedBlock(List<TypedStatement> statements) implements TypedStatement {
 
 record TypedParam(TypedId id, Type type) implements TypedAstNode{};
 record TypedParams(List<TypedParam> params) implements TypedAstNode {};
-record TypedFndecl(String id, Optional<Params> params, Type returnType, List<TypedStatement> block) implements TypedStatement {
+record TypedFndecl(String id, Optional<Params> params, Optional<Type> returnType, List<TypedStatement> block) implements TypedStatement {
 
 	@Override
 	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
@@ -142,15 +142,16 @@ record TypedExternFndecl(ExternFndecl decl) implements TypedStatement {
 		throw new UnsupportedOperationException("Unimplemented method 'toWasmCode'");
 	}
 }
-record TypedReturn(TypedExpression expr) implements TypedStatement {
-
+record TypedReturn(Optional<TypedExpression> expr) implements TypedStatement {
 	@Override
 	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
-		expr.toWasmCode(func, builder);
+		if(expr.isPresent()) {
+			expr.get().toWasmCode(func, builder);
+		} 
 		func.emitEnd();
 	}};
-record TypedWhile(TypedExpression expr, TypedBlock block) implements TypedStatement {
 
+record TypedWhile(TypedExpression expr, TypedBlock block) implements TypedStatement {
 	@Override
 	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
 		// TODO Auto-generated method stub

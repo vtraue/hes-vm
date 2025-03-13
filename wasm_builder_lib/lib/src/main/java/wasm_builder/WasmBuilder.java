@@ -16,11 +16,12 @@ public class WasmBuilder {
 	private ArrayList<Import> imports = new ArrayList<>();
 	private ArrayList<FuncType> importedFuncTypes = new ArrayList<>();
 	private ArrayList<GlobalType> importedGlobals = new ArrayList<>();
+	private Optional<Integer> startFunctionId = Optional.empty();	
 
 	public void build(List<Func> funcs) throws IOException {
-		ArrayList<FuncType> allFuncTypes = importedFuncTypes;
+		ArrayList<FuncType> allFuncTypes = new ArrayList<>(importedFuncTypes);
 		allFuncTypes.addAll(funcTypes);
-		ArrayList<GlobalType> allGlobals = importedGlobals;
+		ArrayList<GlobalType> allGlobals = new ArrayList<>(importedGlobals);
 		allGlobals.addAll(globals);
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
@@ -35,9 +36,28 @@ public class WasmBuilder {
 		if(!globals.isEmpty()){
 			writeGlobalSection(globals, out);
 		}
+
+		if(this.startFunctionId.isPresent()) {
+			writeStartSection(this.startFunctionId.get(), out);	
+		}
+
 		if (!funcTypes.isEmpty()) {
 			writeCodeSection(funcs, out);
 		}
+
+	}
+
+	private void writeStartSection(int id, ByteArrayOutputStream os) throws IOException {
+		ByteArrayOutputStream s = new ByteArrayOutputStream();
+		write(encodeU32ToLeb128(id), s);
+
+		write((byte) SectionId.Start.ordinal(), os);
+		write(encodeU32ToLeb128(s.size()), os);
+		
+		os.write(s.toByteArray());
+	}	
+	public void setStartFunction(int id) {
+		this.startFunctionId = Optional.of(id);	
 	}
 
 	public Func addFunc(FuncType funcType, Optional<List<WasmValueType>> locals) {
@@ -131,8 +151,11 @@ public class WasmBuilder {
 	}
 
 	private void writeImport(Import im, ByteArrayOutputStream os) throws IOException{
+		write(encodeU32ToLeb128(im.getModule().length()), os);
 		os.write(im.getModule().getBytes(StandardCharsets.UTF_8));
+		write(encodeU32ToLeb128(im.getName().length()), os);
 		os.write(im.getName().getBytes(StandardCharsets.UTF_8));
+
 		switch(im.getDesc()){
 			case FuncType f -> {
 				write((byte)0x00, os);
@@ -172,7 +195,7 @@ public class WasmBuilder {
 
 		write(encodeU32ToLeb128(funcTypes.size()), funcIdsBytes);
 		for (FuncType funcType : funcTypes) {
-			write((byte) funcTypes.indexOf(funcType), funcIdsBytes);
+			write((byte) (funcTypes.indexOf(funcType) + importedFuncTypes.size()), funcIdsBytes);
 		}
 
 		write((byte) SectionId.Function.ordinal(), os);
@@ -225,8 +248,7 @@ public class WasmBuilder {
 	private void writeFuncBody(Func f, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodyBytes = new ByteArrayOutputStream();
 		writeFuncLocals(f.getLocals(), funcBodyBytes);
-		if(f.getBody().size() >0){
-
+		if(f.getBody().size() > 0){
 			funcBodyBytes.write(f.getBody().toByteArray());
 		} else {
 			Instructions.addEnd(funcBodyBytes);

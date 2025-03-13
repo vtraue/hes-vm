@@ -29,7 +29,8 @@ sealed interface Expression extends Statement {
 enum Type implements AstNode {
   String,
   Bool,
-  Int;
+  Int,
+	Void;
 
   public String toString() {
     switch (this) {
@@ -39,6 +40,8 @@ enum Type implements AstNode {
         return "bool";
       case Int:
         return "int";
+			case Void:
+				return "void";
       default:
         return "";
     }
@@ -406,7 +409,7 @@ record Params(List<Param> params) implements AstNode {
 
 
 
-record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) implements Statement {
+record Fndecl(Id id, Optional<Params> params, Optional<Type> returnType, Block block) implements Statement {
   public String toDebugText() {
     return String.format(
         "fn %s(%s) -> %s %s",
@@ -453,7 +456,7 @@ record Fndecl(Id id, Optional<Params> params, Type returnType, Block block) impl
 }
 ;
 
-record ExternFndecl(String id, String env, Optional<Params> params, Type returnType) implements Statement {
+record ExternFndecl(String id, String env, Optional<Params> params, Optional<Type> returnType) implements Statement {
   public String toDebugText() {
     return String.format(
         "import fn %s(%s) -> %s",
@@ -471,29 +474,42 @@ record ExternFndecl(String id, String env, Optional<Params> params, Type returnT
 		return new Ok<>(new TypedExternFndecl(this)); 
 	}
 }
-record Return(Expression expr) implements Statement {
+record Return(Optional<Expression> expr) implements Statement {
   public String toDebugText() {
-    return String.format("return %s", expr.toDebugText());
+    return String.format("return %s", expr.map(s -> s.toDebugText()).orElse(""));
   }
 
 	@Override
 	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-		var typedExpressionResult = this.expr.getTypedAstNode(builder);
-		if(!typedExpressionResult.isOk()) {
-			return typedExpressionResult;
-		}
-		var typedExpression = (TypedExpression)typedExpressionResult.unwrap();
 		Optional<Function> currentFunction = builder.getCurrentFunction();
-
 		if(currentFunction.isEmpty()) {
 			return new Err<>("Return used outside of function");
 		}
-		if(!currentFunction.get().getReturnType().equals(typedExpression.getType())) {
-			return new Err<>(String.format("Function expects return type of %s", currentFunction.get().getReturnType())); 
+
+		if(this.expr.isPresent()) {
+			var typedExpressionResult = this.expr.get().getTypedAstNode(builder);
+			if(!typedExpressionResult.isOk()) {
+				return typedExpressionResult;
+			}
+			var typedExpression = (TypedExpression)typedExpressionResult.unwrap();
+
+			var returnType = currentFunction.get().getReturnType();
+			if(returnType.isPresent()) {
+				if(!returnType.get().equals(typedExpression.getType())) {
+					return new Err<>(String.format("Function expects return type of %s, got %s", returnType.get(), typedExpression.getType())); 
+				}
+			} 
+			return new Ok<>(new TypedReturn(Optional.of(typedExpression)));
 		}
-		return new Ok<>(typedExpression);
+
+		else if(currentFunction.get().getReturnType().isPresent()) {
+			return new Err<>("Functions expects at least one return type");
+		}
+
+		return new Ok<>(new TypedReturn(Optional.empty()));
 	}
 }
+
 
 
 record While(Expression expr, Block block) implements Statement {

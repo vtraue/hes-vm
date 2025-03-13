@@ -23,13 +23,13 @@ stmtExpr : e = expr ';' ;
 
 assign  : name=varname '=' init_expr=expr ';' ;
 varname : name=ID;
-import_fndecl : IMPORT env_name=STRING FN name=varname '(' decl_params=params? ')' '->' ret_type=type ';' ; 
-fndecl 	: FN name=varname '(' decl_params=params? ')' '->' ret_type=type decl_block=block;
+import_fndecl : IMPORT env_name = ID FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? ';' ; 
+fndecl 	: FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl_block=block;
 
 param 	: name=varname ':' t=type;
 params	: first = param (',' rest+=param)* ;
 
-return  : 'return' expr ';' ;
+return  : 'return' expr? ';' ;
 fncall  : name=varname '(' args? ')' ;
 args    :  first = expr (',' rest += expr)* ;
 block	  : '{' statements += statement* '}';
@@ -53,9 +53,9 @@ expr 		: fncall #fnc
         |  lhs = expr '<=' rhs = expr # Le
 				| varname # Id 
 				| NUMBER # LiteralNmb
-				| STRING # LiteralStr
 				| bool_literal #LiteralBool
 				| '(' expr ')' # Paren
+				| '"'n=STRING'"'# LiteralStr
 				;
 bool_literal : TRUE #LiteralTrue | FALSE #LiteralFalse;
 
@@ -75,8 +75,7 @@ FN		  : 'fn';
 ID      :  [a-z][a-zA-Z0-9_]* ;
 NUMBER  :  [0-9]+ ;
 
-
-STRING  :  '"' (~[\n\r"])* '"' ;
+STRING  :  '"'(~[\n\r"])*'"';
 
 
 COMMENT :  '#' ~[\n\r]* -> skip ;
