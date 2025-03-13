@@ -23,58 +23,58 @@ public class App {
 
   public static void main(String... args) throws IOException {
     File folder = new File("test");
-		BytecodeBuilder bytecodeBuilder = new BytecodeBuilder();	
-		for(File entry : folder.listFiles()) {
-			String content = new String(Files.readAllBytes(entry.toPath()));
-			ReflangLexer lexer = new ReflangLexer(CharStreams.fromString(content));
-			CommonTokenStream tokens = new CommonTokenStream(lexer);
-			ReflangParser parser = new ReflangParser(tokens);
-			
-			ParseTree tree = parser.program();
-			AstVisitor visitor = new AstVisitor();
-			visitor.visit(tree);
-			List<TypedStatement> typedNodes = new ArrayList<>();
-			TypedAstBuilder builder = new TypedAstBuilder();			
-			//builder.enterNewFunction("main", Type.Int, Optional.empty()).unwrap();			
+    BytecodeBuilder bytecodeBuilder = new BytecodeBuilder();  
+    for(File entry : folder.listFiles()) {
+      String content = new String(Files.readAllBytes(entry.toPath()));
+      ReflangLexer lexer = new ReflangLexer(CharStreams.fromString(content));
+      CommonTokenStream tokens = new CommonTokenStream(lexer);
+      ReflangParser parser = new ReflangParser(tokens);
+      
+      ParseTree tree = parser.program();
+      AstVisitor visitor = new AstVisitor();
+      visitor.visit(tree);
+      List<TypedStatement> typedNodes = new ArrayList<>();
+      TypedAstBuilder builder = new TypedAstBuilder();      
+      //builder.enterNewFunction("main", Type.Int, Optional.empty()).unwrap();      
 
-			for(Statement s : visitor.statements) {
-				var typedResult = s.getTypedAstNode(builder);
-				if(!typedResult.isOk()) {
-					System.out.println(typedResult.getErr());
-				} else {
-					typedNodes.add((TypedStatement)typedResult.unwrap());		
-					System.out.println(s.toDebugText());
-				}
-			}
-			builder.leaveFunction();
-			bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(WasmValueType.i32, true)));
-			builder.importFunctions(bytecodeBuilder);
-			
-			ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
-			for(TypedStatement s : typedNodes) { 
-				if(s instanceof TypedExternFndecl extDecl) {
-					System.out.println("Heya");	
-				}
-				if(s instanceof TypedFndecl decl) {
-					InternalFunction funcType = (InternalFunction)builder.getFunction(decl.id()).get();
-					wasm_builder.Func wasmFunc = bytecodeBuilder.createFunction(funcType.toWasmFuncType());
-					
-					funcType.getLocalValueTypes().stream().forEach(l -> wasmFunc.addLocal(l));
-					for(TypedStatement is : decl.block()) {
-						is.toWasmCode(wasmFunc, builder);
-					}
-					wasmFuncs.add(wasmFunc);
-					if(funcType.export()) {
-						bytecodeBuilder.exportFunction(decl.id(), funcType.id());
+      for(Statement s : visitor.statements) {
+        var typedResult = s.getTypedAstNode(builder);
+        if(!typedResult.isOk()) {
+          System.out.println(typedResult.getErr());
+        } else {
+          typedNodes.add((TypedStatement)typedResult.unwrap());   
+          System.out.println(s.toDebugText());
+        }
+      }
+      builder.leaveFunction();
+      bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(WasmValueType.i32, true)));
+      builder.importFunctions(bytecodeBuilder);
+      
+      ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
+      for(TypedStatement s : typedNodes) { 
+        if(s instanceof TypedExternFndecl extDecl) {
+          System.out.println("Heya"); 
+        }
+        if(s instanceof TypedFndecl decl) {
+          InternalFunction funcType = (InternalFunction)builder.getFunction(decl.id()).get();
+          wasm_builder.Func wasmFunc = bytecodeBuilder.createFunction(funcType.toWasmFuncType());
+          
+          funcType.getLocalValueTypes().stream().forEach(l -> wasmFunc.addLocal(l));
+          for(TypedStatement is : decl.block()) {
+            is.toWasmCode(wasmFunc, builder);
+          }
+          wasmFuncs.add(wasmFunc);
+          if(funcType.export()) {
+            bytecodeBuilder.exportFunction(decl.id(), funcType.id());
 
-					}
-				}
-			}
-			bytecodeBuilder.setStartFunction(builder.getGlobalFunctionId(builder.getFunction("main").get()));
-			bytecodeBuilder.build(wasmFuncs);
-			FileOutputStream out = new FileOutputStream("gen.wasm");
-			out.write(bytecodeBuilder.getWasmBuilder().getByteArray());
-			out.close();
-  	}
-	}
+          }
+        }
+      }
+      bytecodeBuilder.setStartFunction(builder.getGlobalFunctionId(builder.getFunction("main").get()));
+      bytecodeBuilder.build(wasmFuncs);
+      FileOutputStream out = new FileOutputStream("gen.wasm");
+      out.write(bytecodeBuilder.getWasmBuilder().getByteArray());
+      out.close();
+    }
+  }
 }
