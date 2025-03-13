@@ -1,0 +1,22 @@
+<!doctype html>
+
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <title>WASM test</title>
+  </head>
+
+  <body>
+    <script>
+		let imports = { env: {print: val => console.log(val), print2: val => console.log(val), extern_test_fn: (a, b, c) => console.log("blib")}}
+      WebAssembly.instantiateStreaming(fetch("gen.wasm"), imports)
+      .then(module => {
+        const imports = WebAssembly.Module.imports(module);
+        console.log(imports[0]);
+				console.log(module.exports);
+      });
+    </script>
+  </body>
+
+</html>

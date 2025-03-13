@@ -126,7 +126,7 @@ record TypedBlock(List<TypedStatement> statements) implements TypedStatement {
 
 record TypedParam(TypedId id, Type type) implements TypedAstNode{};
 record TypedParams(List<TypedParam> params) implements TypedAstNode {};
-record TypedFndecl(String id, Optional<Params> params, Optional<Type> returnType, List<TypedStatement> block) implements TypedStatement {
+record TypedFndecl(String id, Optional<Params> params, Optional<Type> returnType, boolean export, List<TypedStatement> block) implements TypedStatement {
 
 	@Override
 	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {

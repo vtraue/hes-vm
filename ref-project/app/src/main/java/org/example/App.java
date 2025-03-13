@@ -63,8 +63,11 @@ public class App {
 					for(TypedStatement is : decl.block()) {
 						is.toWasmCode(wasmFunc, builder);
 					}
-
 					wasmFuncs.add(wasmFunc);
+					if(funcType.export()) {
+						bytecodeBuilder.exportFunction(decl.id(), funcType.id());
+
+					}
 				}
 			}
 			bytecodeBuilder.setStartFunction(builder.getGlobalFunctionId(builder.getFunction("main").get()));

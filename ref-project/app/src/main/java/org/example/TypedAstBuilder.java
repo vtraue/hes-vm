@@ -35,8 +35,10 @@ public class TypedAstBuilder {
 		int id,
 		Optional<Type> returnType,
 		Optional<Params> argTypes,
+		boolean export,
 		List<Symbol> locals
 	) implements Function {
+
 		void addLocal(Symbol sym) {
 			this.locals.add(sym);
 		}
@@ -152,17 +154,17 @@ public class TypedAstBuilder {
 	private Map<String, Function> functions = new HashMap<>();
 	private Optional<String> currentFunction = Optional.empty();		
 	private Map<String, ExternalFunction> externalFunctions = new HashMap<>(); 
-	
+
 	private int functionVariableId = 0;
 	private int functionId = 0;
 	private int externalFuncId = 0;
-	Result<Function, Function> enterNewFunction(String name, Optional<Type> returnType, Optional<Params> args) {
+	Result<Function, Function> enterNewFunction(String name, Optional<Type> returnType, Optional<Params> args, boolean export) {
 
 		if(this.currentFunction.isPresent()) {
 			this.leaveFunction();
 		}
 
-		Function f = new InternalFunction(functionId, returnType, args, new ArrayList<>());	
+		Function f = new InternalFunction(functionId, returnType, args, export, new ArrayList<>());	
 		functionId += 1;	
 
 		Optional<Function> found = Optional.ofNullable(this.functions.get(name));

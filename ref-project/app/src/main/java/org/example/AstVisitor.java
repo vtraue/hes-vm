@@ -106,8 +106,27 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
 		Block declBlock = (Block)this.visit(ctx.decl_block);
 
-		return new Fndecl(fnName, params, retType, declBlock);
+		return new Fndecl(fnName, params, retType, false, declBlock);
 	}
+	@Override
+	public AstNode visitExport_fndecl(ReflangParser.Export_fndeclContext ctx) {
+		System.out.println("fndecl");
+		Id fnName = (Id)this.visit(ctx.name);
+		Optional<Params> params = Optional.empty(); 
+		if(ctx.params() != null) {
+			params = Optional.of((Params)this.visit(ctx.params()));	
+		}
+
+		Optional<Type> retType = Optional.empty();
+		if(ctx.ret_type != null) {
+			retType = Optional.of((Type)this.visit(ctx.ret_type)); 	
+		}
+
+		Block declBlock = (Block)this.visit(ctx.decl_block);
+		return new Fndecl(fnName, params, retType, true, declBlock);
+
+	}
+
 	@Override
 	public AstNode visitParams(ReflangParser.ParamsContext ctx) {
 		System.out.println("Params");

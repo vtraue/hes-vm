@@ -18,6 +18,8 @@ public class WasmBuilder {
 	private ArrayList<GlobalType> importedGlobals = new ArrayList<>();
 	private Optional<Integer> startFunctionId = Optional.empty();	
 
+	private ArrayList<Export> exportedFuncs = new ArrayList<>(); 
+
 	public void build(List<Func> funcs) throws IOException {
 		ArrayList<FuncType> allFuncTypes = new ArrayList<>(importedFuncTypes);
 		allFuncTypes.addAll(funcTypes);
@@ -35,6 +37,9 @@ public class WasmBuilder {
 		writeMemSection(out);
 		if(!globals.isEmpty()){
 			writeGlobalSection(globals, out);
+		}
+		if(!exportedFuncs.isEmpty()) {
+			writeExportSection(this.exportedFuncs, out);
 		}
 
 		if(this.startFunctionId.isPresent()) {
@@ -71,6 +76,10 @@ public class WasmBuilder {
 
 	public void addGlobal(GlobalType global) {
 		this.globals.add(global);
+	}
+
+	public void addExport(Export export) {
+		this.exportedFuncs.add(export);
 	}
 
 	public void setImports(List<Import> imports) {
@@ -150,7 +159,7 @@ public class WasmBuilder {
 		os.write(importBytes.toByteArray());
 	}
 
-	private void writeImport(Import im, ByteArrayOutputStream os) throws IOException{
+	private void writeImport(Import im, ByteArrayOutputStream os) throws IOException {
 		write(encodeU32ToLeb128(im.getModule().length()), os);
 		os.write(im.getModule().getBytes(StandardCharsets.UTF_8));
 		write(encodeU32ToLeb128(im.getName().length()), os);
@@ -188,6 +197,26 @@ public class WasmBuilder {
 				}
 			}
 		}
+	}
+	
+	private void writeExportSection(List<Export> exports, ByteArrayOutputStream os) throws IOException {
+		ByteArrayOutputStream exportBytes = new ByteArrayOutputStream();
+		System.out.println("Writing export section");
+		write(encodeU32ToLeb128(exports.size()), exportBytes);
+		for(Export export : exports) {
+			writeExport(export, exportBytes);
+		}
+		write((byte) SectionId.Export.ordinal(), os);
+		write(encodeU32ToLeb128(exportBytes.size()), os);
+		os.write(exportBytes.toByteArray());
+	}
+
+	private void writeExport(Export export, ByteArrayOutputStream os) throws IOException {
+		write(encodeU32ToLeb128(export.name().length()), os);
+		os.write(export.name().getBytes(StandardCharsets.UTF_8));
+		write((byte)0x00, os);
+		write(encodeU32ToLeb128(export.funcId()), os);
+
 	}
 
 	private void writeFuncSection(List<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {

@@ -2,20 +2,23 @@ import env fn print(num: int);
 import env fn print2(num: int, num2: int);
 import env fn extern_test_fn(a: int, b: int, c: int) -> int;
 
-fn should_work(a: int) -> int {
+export env fn should_work(a: int) -> int {
 	return 1;
 }
-fn should_work1(a: int, b: int) -> int {
+
+export env fn should_work1(a: int, b: int) -> int {
 	return 2;
 }
 
-fn should_work2(a: int, b: int, c: int) -> int {
+export env fn should_work2(a: int, b: int, c: int) -> int {
 	return 3;
 }
 
-fn main() {
+export env fn main() {
+	a := 5;
+	b := 9;
 	print(1);
-	print2(1, 2);
+	print2(5, 2);
 	i := extern_test_fn(1,2,3);
 	return; 
 }

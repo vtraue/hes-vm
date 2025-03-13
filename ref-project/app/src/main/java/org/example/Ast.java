@@ -408,8 +408,8 @@ record Params(List<Param> params) implements AstNode {
 }
 
 
-
-record Fndecl(Id id, Optional<Params> params, Optional<Type> returnType, Block block) implements Statement {
+record ExportDecl(String env) {};
+record Fndecl(Id id, Optional<Params> params, Optional<Type> returnType, boolean export, Block block) implements Statement {
   public String toDebugText() {
     return String.format(
         "fn %s(%s) -> %s %s",
@@ -432,7 +432,7 @@ record Fndecl(Id id, Optional<Params> params, Optional<Type> returnType, Block b
 		}
 		*/
 
-		builder.enterNewFunction(id.name(), returnType, params);
+		builder.enterNewFunction(id.name(), returnType, params, export);
 		StringBuilder errorMessageBuilder = new StringBuilder();
 		List<TypedStatement> typedStatements = new ArrayList<>();
 		boolean hasErrors = false;
@@ -451,7 +451,8 @@ record Fndecl(Id id, Optional<Params> params, Optional<Type> returnType, Block b
 			return new Err<>(errorMessageBuilder.toString());
 		}
 		builder.leaveFunction();	
-		return new Ok<>(new TypedFndecl(id.name(), params, returnType, typedStatements));
+
+		return new Ok<>(new TypedFndecl(id.name(), params, returnType, export, typedStatements));
 	}
 }
 ;

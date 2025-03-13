@@ -8,6 +8,7 @@ statement:
 				|  vardeclt
         |  assign
         |  stmtExpr 
+				|  export_fndecl
 				|  import_fndecl
     		|  fndecl
         |  cond
@@ -24,6 +25,7 @@ stmtExpr : e = expr ';' ;
 assign  : name=varname '=' init_expr=expr ';' ;
 varname : name=ID;
 import_fndecl : IMPORT env_name = ID FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? ';' ; 
+export_fndecl:  EXPORT FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl_block=block ;
 fndecl 	: FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl_block=block;
 
 param 	: name=varname ':' t=type;
@@ -70,6 +72,7 @@ FALSE : 'false' ;
 COLON : ':';
 COLON_EQ : ':=';
 IMPORT	: 'import';
+EXPORT 	: 'export';
 FN		  : 'fn';
 
 ID      :  [a-z][a-zA-Z0-9_]* ;

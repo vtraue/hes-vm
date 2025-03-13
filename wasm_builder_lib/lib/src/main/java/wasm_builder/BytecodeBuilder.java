@@ -52,4 +52,8 @@ public class BytecodeBuilder {
 	public void setStartFunction(int id) {
 		builder.setStartFunction(id);
 	}
+
+	public void exportFunction(String name, int id) {
+		builder.addExport(new Export(name, id));
+	}
 }
