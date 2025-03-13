@@ -2,6 +2,8 @@ package org.example;
 import java.util.Map;
 import java.util.Optional;
 import java.lang.Math;
+
+import wasm_builder.BytecodeBuilder;
 import wasm_builder.FuncType;
 import wasm_builder.WasmValueType;
 
@@ -71,6 +73,8 @@ public class TypedAstBuilder {
 
 	public record ExternalFunction (
 		int id,
+		String env,
+		String name,
 		Type returnType,
 		Optional<Params> argTypes
 	 ) implements Function {
@@ -99,6 +103,10 @@ public class TypedAstBuilder {
 		@Override
 		public Type getReturnType() {
 			return this.returnType;
+		}
+
+		public void importFunction(BytecodeBuilder builder) {
+			builder.importFunc(this.env, this.name, this.toWasmFuncType());
 		}
 	}
 
@@ -251,12 +259,12 @@ public class TypedAstBuilder {
 		return new Ok<>(typedStatements);
 	}
 
-	Result<ExternalFunction, ExternalFunction> addExternalFunction(String name, Optional<Params> params, Type returnType) {
+	Result<ExternalFunction, ExternalFunction> addExternalFunction(String name, String env, Optional<Params> params, Type returnType) {
 		var prevExtFunction = this.externalFunctions.get(name);
 		if(prevExtFunction != null) {
 			return new Err<>(prevExtFunction);
 		}
-		ExternalFunction func = new ExternalFunction(this.externalFuncId, returnType, params);
+		ExternalFunction func = new ExternalFunction(this.externalFuncId, env, name, returnType, params);
 		this.externalFunctions.put(name, func);
 		this.externalFuncId += 1;	
 
@@ -265,9 +273,14 @@ public class TypedAstBuilder {
 
 	int getGlobalFunctionId(Function fn) {
 		if(fn instanceof InternalFunction) {
-			return fn.getId() + Math.clamp(this.externalFunctions.size() - 1, 0, 999);
+			return fn.getId() + Math.clamp(this.externalFunctions.size(), 0, 999);
 		}
 		return fn.getId();
 	}
 
+	public void importFunctions(BytecodeBuilder builder) {
+		for(var extFunc : this.externalFunctions.values()) {
+			extFunc.importFunction(builder);
+		}
+	}
 } 

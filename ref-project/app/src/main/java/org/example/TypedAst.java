@@ -74,7 +74,7 @@ record TypedFncall(String name, Function type, Optional<TypedFncallArgs> params)
 				arg.toWasmCode(func, builder);
 			}
 		}
-		int func_id = builder.getGlobalFunctionId(this.type) - 1;
+		int func_id = builder.getGlobalFunctionId(this.type);
 		System.out.printf("Func id: %d\n", func_id); 
 		System.out.println("call!");
 		func.emitCall(func_id);

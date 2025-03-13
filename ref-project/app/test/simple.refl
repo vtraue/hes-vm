@@ -1,9 +1,9 @@
-import "env" fn extern_test_fn(a: int, b: int) -> int;
+import "env" fn extern_test_fn(a: int, b: int, c: int) -> int;
 
 fn should_work(a: int) -> int {
 	return 1;
 }
-fn should_work1(a: int) -> int {
+fn should_work1(a: int, b: int) -> int {
 	return 2;
 }
 
@@ -12,10 +12,9 @@ fn should_work2(a: int, b: int, c: int) -> int {
 }
 
 
-fn test_fn(a: int, b: bool) -> int {
-	i: int = should_work(1);
-	i = should_work1(2);
-	i = should_work2(99, 98, 97);
+fn test_fn() -> int {
+	i := extern_test_fn(1, 2, 3);
+	c := should_work(1);
 	return 1; 
 }
 

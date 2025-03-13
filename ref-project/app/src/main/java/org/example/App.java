@@ -35,7 +35,7 @@ public class App {
 			visitor.visit(tree);
 			List<TypedStatement> typedNodes = new ArrayList<>();
 			TypedAstBuilder builder = new TypedAstBuilder();			
-			builder.enterNewFunction("main", Type.Int, Optional.empty()).unwrap();			
+			//builder.enterNewFunction("main", Type.Int, Optional.empty()).unwrap();			
 
 			for(Statement s : visitor.statements) {
 				var typedResult = s.getTypedAstNode(builder);
@@ -47,10 +47,11 @@ public class App {
 				}
 			}
 			builder.leaveFunction();
-			bytecodeBuilder.setGlobals(Arrays.asList(WasmValueType.i32));
+			bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(WasmValueType.i32, true)));
+			builder.importFunctions(bytecodeBuilder);
+
 			ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
-				
-			for(TypedStatement s : typedNodes) {
+			for(TypedStatement s : typedNodes) { 
 				if(s instanceof TypedExternFndecl extDecl) {
 					System.out.println("Heya");	
 				}

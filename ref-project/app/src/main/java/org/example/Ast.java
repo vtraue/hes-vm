@@ -467,7 +467,7 @@ record ExternFndecl(String id, String env, Optional<Params> params, Type returnT
 		if(func.isPresent()) {
 			return new Err<>(String.format("Cannot import function %s, name is already taken", id));
 		}
-		builder.addExternalFunction(id, params, returnType);
+		builder.addExternalFunction(id, env, params, returnType);
 		return new Ok<>(new TypedExternFndecl(this)); 
 	}
 }
