@@ -18,9 +18,9 @@ public class WasmBuilder {
 	private ArrayList<GlobalType> importedGlobals = new ArrayList<>();
 
 	public void build(List<Func> funcs) throws IOException {
-		ArrayList<FuncType> allFuncTypes = importedFuncTypes;
+		ArrayList<FuncType> allFuncTypes = new ArrayList<>(importedFuncTypes);
 		allFuncTypes.addAll(funcTypes);
-		ArrayList<GlobalType> allGlobals = importedGlobals;
+		ArrayList<GlobalType> allGlobals = new ArrayList<>(importedGlobals);
 		allGlobals.addAll(globals);
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
@@ -172,7 +172,7 @@ public class WasmBuilder {
 
 		write(encodeU32ToLeb128(funcTypes.size()), funcIdsBytes);
 		for (FuncType funcType : funcTypes) {
-			write((byte) funcTypes.indexOf(funcType), funcIdsBytes);
+			write((byte) (funcTypes.indexOf(funcType) + importedFuncTypes.size()), funcIdsBytes);
 		}
 
 		write((byte) SectionId.Function.ordinal(), os);
