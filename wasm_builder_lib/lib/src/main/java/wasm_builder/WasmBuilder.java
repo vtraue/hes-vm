@@ -224,10 +224,17 @@ public class WasmBuilder {
 	private void writeExportSection(List<Export> exports, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream exportBytes = new ByteArrayOutputStream();
 		System.out.println("Writing export section");
-		write(encodeU32ToLeb128(exports.size()), exportBytes);
+		write(encodeU32ToLeb128(exports.size() + 1), exportBytes);
 		for(Export export : exports) {
 			writeExport(export, exportBytes);
 		}
+    //Exportiere immer Memory ID 0 
+    String memoryName = "memory";
+		write(encodeU32ToLeb128(memoryName.length()), exportBytes);
+		exportBytes.write(memoryName.getBytes(StandardCharsets.UTF_8));
+		write((byte)0x02, exportBytes);
+		write((byte)0x00, exportBytes);
+
 		write((byte) SectionId.Export.ordinal(), os);
 		write(encodeU32ToLeb128(exportBytes.size()), os);
 		os.write(exportBytes.toByteArray());

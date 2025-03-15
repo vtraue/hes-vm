@@ -15,10 +15,12 @@
       const readUTF8 = (ptr, len) => utf8Decoder.decode(new Uint8Array(memory.buffer, ptr, len));
 
       const env = {}; 
-      env.print = (msgPtr, msgLen) => console.log(readUTF8(msgPtr, msgLen));
+      env.print = (msgPtr, msgLen) => console.log(readUTF8(msgPtr + 4, msgLen));
 		  let imports = {env}
       WebAssembly.instantiateStreaming(fetch("gen.wasm"), imports)
       .then(module => {
+        memory = module.memory;
+        module.instance.exports.test();
 				console.log(module.exports);
       });
     </script>

@@ -12,8 +12,13 @@ export env fn should_work2(a: int, b: int, c: int) -> int {
 	return 3;
 }
 
-export env fn main() {
+export env fn test() {
+  test_string := "hey";
+  
   print("hey", 3);
+  return;
+}
+export env fn main() {
 	return; 
 }
 

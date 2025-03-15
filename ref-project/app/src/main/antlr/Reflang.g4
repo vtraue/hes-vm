@@ -75,11 +75,13 @@ IMPORT	: 'import';
 EXPORT 	: 'export';
 FN		  : 'fn';
 
+LEN     : 'len'; 
+RAW_DATA: 'raw_data';
+
 ID      :  [a-z][a-zA-Z0-9_]* ;
 NUMBER  :  [0-9]+ ;
 
 STRING  :  '"'(~[\n\r"])*'"';
-
 
 COMMENT :  '#' ~[\n\r]* -> skip ;
 WS      :  [ \t\n\r]+ -> skip ;
