@@ -6,3 +6,6 @@ run:
 
 to-wat:
 	wasm2wat app/web/gen.wasm	
+
+webserver: run
+  http-server app/web

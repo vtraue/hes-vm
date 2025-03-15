@@ -8,10 +8,12 @@ import java.util.Optional;
 
 public class Func {
 	private final FuncType funcType;
+  public WasmBuilder builder;
 	final private ByteArrayOutputStream body;
 	private ArrayList<WasmValueType> locals;
 
-	public Func(FuncType funcType, Optional<List<WasmValueType>> locals) {
+	public Func(WasmBuilder builder, FuncType funcType, Optional<List<WasmValueType>> locals) {
+    this.builder = builder;
 		this.funcType = funcType;
 		this.body = new ByteArrayOutputStream();
 		this.locals = locals.isPresent() ? new ArrayList<>(locals.get()) : new ArrayList<>();

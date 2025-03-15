@@ -2,6 +2,7 @@ package wasm_builder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -19,6 +20,9 @@ public class WasmBuilder {
 	private Optional<Integer> startFunctionId = Optional.empty();	
 
 	private ArrayList<Export> exportedFuncs = new ArrayList<>(); 
+  //private StringPool stringPool = new StringPool();
+  private ArrayList<byte[]> stringLiterals = new ArrayList<>();
+  private int stringLiteralMemIndex = 0;
 
 	public void build(List<Func> funcs) throws IOException {
 		ArrayList<FuncType> allFuncTypes = new ArrayList<>(importedFuncTypes);
@@ -27,6 +31,7 @@ public class WasmBuilder {
 		allGlobals.addAll(globals);
 		writeBinaryMagic(out);
 		writeBinaryVersion(out);
+
 		if (!funcTypes.isEmpty()) {
 			writeTypeSection(allFuncTypes, out);
 		}
@@ -41,16 +46,32 @@ public class WasmBuilder {
 		if(!exportedFuncs.isEmpty()) {
 			writeExportSection(this.exportedFuncs, out);
 		}
-
 		if(this.startFunctionId.isPresent()) {
 			writeStartSection(this.startFunctionId.get(), out);	
 		}
 
+    if(!stringLiterals.isEmpty()) {
+      writeDataCountSection(out);
+    }
+    
 		if (!funcTypes.isEmpty()) {
 			writeCodeSection(funcs, out);
 		}
 
+    if(!stringLiterals.isEmpty()) {
+      writeDataSection(out);
+    }
 	}
+
+  public int addStringData(List<String> strings) {
+    int currentIndex = this.stringLiteralMemIndex;
+    for(String s : strings) {
+      var literal = getStringLiteralBytes(s);
+      this.stringLiteralMemIndex += literal.length;
+      this.stringLiterals.add(literal);
+    }
+    return currentIndex;
+  }
 
 	private void writeStartSection(int id, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream s = new ByteArrayOutputStream();
@@ -67,7 +88,7 @@ public class WasmBuilder {
 
 	public Func addFunc(FuncType funcType, Optional<List<WasmValueType>> locals) {
 		this.funcTypes.add(funcType);
-		return new Func(funcType, locals);
+		return new Func(this,funcType, locals);
 	}
 
 	public void setGlobals(List<GlobalType> globals) {
@@ -126,6 +147,7 @@ public class WasmBuilder {
 			os.write(byteId);
 		}
 	}
+
 
 	private void writeFunctionTypes(List<FuncType> functypes, ByteArrayOutputStream os) throws IOException {
 		for (FuncType f : functypes) {
@@ -216,7 +238,6 @@ public class WasmBuilder {
 		os.write(export.name().getBytes(StandardCharsets.UTF_8));
 		write((byte)0x00, os);
 		write(encodeU32ToLeb128(export.funcId()), os);
-
 	}
 
 	private void writeFuncSection(List<FuncType> funcTypes, ByteArrayOutputStream os) throws IOException {
@@ -237,9 +258,59 @@ public class WasmBuilder {
 		write(encodeU32ToLeb128(3), os); // Section Size
 		write(encodeU32ToLeb128(1), os); // Num Memories
 		write(encodeU32ToLeb128(0), os); // limits flags
-		write(encodeU32ToLeb128(0), os); // limits min / initial
-
+		write(encodeU32ToLeb128(1), os); // limits min / initial
 	}
+
+  private byte[] getStringLiteralBytes(String s) {
+    
+    ByteArrayOutputStream litBytes = new ByteArrayOutputStream();
+    try {
+      byte[] sizeBytes = ByteBuffer.allocate(4).putInt(s.length()).array();
+
+      litBytes.write(sizeBytes);
+      litBytes.write(s.getBytes(StandardCharsets.UTF_8));
+      litBytes.write(0);
+    } catch(Exception e) {
+      System.out.println(e.toString());
+    }
+    return litBytes.toByteArray();
+  }
+
+  private void writeActiveDataMode(int offset, ByteArrayOutputStream os) throws IOException{
+    os.write(0);   
+    Instructions.addI32Const(offset, os);
+    Instructions.addEnd(os);
+  }
+
+  private int writeStringData(byte[] data, int offset, ByteArrayOutputStream os) throws IOException {
+    writeActiveDataMode(offset, os);  
+    write(encodeU32ToLeb128(data.length), os);
+    os.write(data);
+    return data.length;
+  }
+
+  private void writeDataCountSection(ByteArrayOutputStream os) throws IOException {
+    ByteArrayOutputStream section = new ByteArrayOutputStream();
+    write(encodeU32ToLeb128(this.stringLiterals.size()), section);
+
+    write((byte)SectionId.DataCount.ordinal(), os);
+    write(encodeU32ToLeb128(section.size()), os);
+    section.writeTo(os); 
+    
+  }
+
+  private void writeDataSection(ByteArrayOutputStream os) throws IOException {
+    ByteArrayOutputStream section = new ByteArrayOutputStream();
+    write(encodeU32ToLeb128(this.stringLiterals.size()), section);
+    int offset = 0;
+    for(var literal: this.stringLiterals) {
+      offset += writeStringData(literal, offset, section); 
+    }
+		write((byte)SectionId.Data.ordinal(), os);
+    write(encodeU32ToLeb128(section.size()), os);
+    section.writeTo(os);
+  }
+
 	private void writeGlobalSection(List<GlobalType> globals, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream globalsBytes = new ByteArrayOutputStream();
 		write(encodeU32ToLeb128(globals.size()), globalsBytes); // Anz Globals

@@ -1,5 +1,6 @@
 package org.example;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,7 +40,10 @@ record TypedLiteral(Literal lit, Type t) implements TypedExpression {
   public void toWasmCode(wasm_builder.Func func, TypedAstBuilder builder) throws IOException {
     switch(this.lit) {
       case BoolLiteral b -> func.emitConst(b.lit() ? 1 : 0);
-      case StringLiteral _ -> func.emitConst(999);
+      case StringLiteral l -> {
+        func.builder.addStringData(Arrays.asList(l.literal()));
+        func.emitConst(l.pointer());
+      }
       case IntLiteral i -> func.emitConst(i.literal());
     }
   }

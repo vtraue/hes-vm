@@ -12,7 +12,7 @@ public class BytecodeBuilder {
 		return this.builder;
 	}
 
-	public BytecodeBuilder() throws IOException {
+	public BytecodeBuilder() {
 		this.builder = new WasmBuilder();
 	}
 
@@ -56,4 +56,8 @@ public class BytecodeBuilder {
 	public void exportFunction(String name, int id) {
 		builder.addExport(new Export(name, id));
 	}
+
+  public int addStringData(List<String> strings) {
+    return builder.addStringData(strings);
+  }
 }

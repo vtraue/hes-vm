@@ -8,6 +8,8 @@ import java.util.stream.Stream;
 public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   int depth = 0;
   int currentVarDeclId = 0;
+  private int stringLiteralPointer = 0;
+  
   List<Statement> statements = new ArrayList<Statement>();
   
 
@@ -241,7 +243,11 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   @Override
   public AstNode visitLiteralStr(ReflangParser.LiteralStrContext ctx) {
     System.out.println("String literal");
-    return new StringLiteral(ctx.n.getText());
+    String str = ctx.STRING().getText();
+    String text = str.substring(1, str.length() - 1);
+    var literal = new StringLiteral(text, stringLiteralPointer);   
+    stringLiteralPointer += text.length() + 5;
+    return literal;
   }
   @Override
   public AstNode visitLiteralTrue(ReflangParser.LiteralTrueContext ctx) {

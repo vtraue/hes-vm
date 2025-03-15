@@ -134,7 +134,7 @@ record BoolLiteral(boolean lit) implements Literal {
   }
 }
 
-record StringLiteral(String literal) implements Literal {
+record StringLiteral(String literal, int pointer) implements Literal {
   public String toDebugText() {
     return String.format("%s", this.literal);
   }

@@ -57,7 +57,7 @@ expr 		: fncall #fnc
 				| NUMBER # LiteralNmb
 				| bool_literal #LiteralBool
 				| '(' expr ')' # Paren
-				| '"'n=STRING'"'# LiteralStr
+				| STRING # LiteralStr
 				;
 bool_literal : TRUE #LiteralTrue | FALSE #LiteralFalse;
 

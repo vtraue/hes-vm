@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.lang.Math;
 
 import wasm_builder.BytecodeBuilder;
+import wasm_builder.Func;
 import wasm_builder.FuncType;
 import wasm_builder.WasmValueType;
 
@@ -153,18 +154,19 @@ public class TypedAstBuilder {
   public Enviroment currentEnv = new Enviroment(Optional.empty());
   private Map<String, Function> functions = new HashMap<>();
   private Optional<String> currentFunction = Optional.empty();    
+
   private Map<String, ExternalFunction> externalFunctions = new HashMap<>(); 
 
   private int functionVariableId = 0;
   private int functionId = 0;
   private int externalFuncId = 0;
-  Result<Function, Function> enterNewFunction(String name, Optional<Type> returnType, Optional<Params> args, boolean export) {
 
+  Result<Function, Function> enterNewFunction(String name, Optional<Type> returnType, Optional<Params> args, boolean export) {
     if(this.currentFunction.isPresent()) {
       this.leaveFunction();
     }
 
-    Function f = new InternalFunction(functionId, returnType, args, export, new ArrayList<>()); 
+    InternalFunction f = new InternalFunction(functionId, returnType, args, export, new ArrayList<>()); 
     functionId += 1;  
 
     Optional<Function> found = Optional.ofNullable(this.functions.get(name));
@@ -290,4 +292,5 @@ public class TypedAstBuilder {
       builder.importFunc(f.env, f.name, f.toWasmFuncType());
     }
   }
+
 } 

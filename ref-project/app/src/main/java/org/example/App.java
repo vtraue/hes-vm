@@ -49,11 +49,15 @@ public class App {
       builder.leaveFunction();
       bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(WasmValueType.i32, true)));
       builder.importFunctions(bytecodeBuilder);
-      
+      bytecodeBuilder.addStringData(Arrays.asList("Test", "Test2"));     
+
       ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
       for(TypedStatement s : typedNodes) { 
         if(s instanceof TypedExternFndecl extDecl) {
           System.out.println("Heya"); 
+        }
+        if(s instanceof TypedLiteral l && l.lit() instanceof StringLiteral str) {
+          bytecodeBuilder.addStringData(Arrays.asList(str.literal()));
         }
         if(s instanceof TypedFndecl decl) {
           InternalFunction funcType = (InternalFunction)builder.getFunction(decl.id()).get();
