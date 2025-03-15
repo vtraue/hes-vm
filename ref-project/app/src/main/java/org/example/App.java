@@ -49,7 +49,6 @@ public class App {
       builder.leaveFunction();
       bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(WasmValueType.i32, true)));
       builder.importFunctions(bytecodeBuilder);
-      bytecodeBuilder.addStringData(Arrays.asList("Test", "Test2"));     
 
       ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
       for(TypedStatement s : typedNodes) { 
@@ -67,11 +66,10 @@ public class App {
           for(TypedStatement is : decl.block()) {
             is.toWasmCode(wasmFunc, builder);
           }
-          wasmFuncs.add(wasmFunc);
           if(funcType.export()) {
-            bytecodeBuilder.exportFunction(decl.id(), funcType.id());
-
+            bytecodeBuilder.exportFunction(decl.id(), builder.getGlobalFunctionId(funcType));
           }
+          wasmFuncs.add(wasmFunc);
         }
       }
       bytecodeBuilder.setStartFunction(builder.getGlobalFunctionId(builder.getFunction("main").get()));

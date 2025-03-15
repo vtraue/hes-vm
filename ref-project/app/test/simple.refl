@@ -1,4 +1,5 @@
 import env fn print(str: string, size: int);
+import env fn printNum(num: int);
 
 export env fn should_work(a: int) -> int {
 	return 1;
@@ -14,11 +15,13 @@ export env fn should_work2(a: int, b: int, c: int) -> int {
 
 export env fn test() {
   test_string := "hey";
-  
+  printNum(1); 
   print("hey", 3);
   return;
 }
+
 export env fn main() {
+  printNum(2); 
 	return; 
 }
 

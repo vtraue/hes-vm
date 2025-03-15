@@ -16,10 +16,11 @@
 
       const env = {}; 
       env.print = (msgPtr, msgLen) => console.log(readUTF8(msgPtr + 4, msgLen));
+      env.printNum = (num) => console.log(num);
 		  let imports = {env}
       WebAssembly.instantiateStreaming(fetch("gen.wasm"), imports)
       .then(module => {
-        memory = module.memory;
+        memory = module.instance.exports.memory;
         module.instance.exports.test();
 				console.log(module.exports);
       });
