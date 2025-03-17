@@ -35,3 +35,16 @@
 vm/.cache
 
 *.class
+
+*.idea
+*.project
+*.settings
+*.vscode
+*.classpath
+*.project
+*.settings
+*.wasm
+
+./ref-project/gradle/libs.versions.toml
+out
+
