@@ -14,6 +14,7 @@ pub enum BytecodeReaderError {
     InvalidHeaderMagicNumber,
     InvalidWasmVersion,
     InvalidFunctionTypeEncoding,
+    InvalidImportDesc,
 }
 
 pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
@@ -32,6 +33,7 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
             BytecodeReaderError::InvalidWasmVersion => todo!(),
             BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
+            BytecodeReaderError::InvalidImportDesc => todo!(),
         }
     }
 }
@@ -405,7 +407,7 @@ impl<'src> FromBytecodeReader<'src> for RefType {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, PartialOrd, Copy, Clone, Eq)]
 #[repr(u8)]
 pub enum ValueType {
     I32 = 0x7F,
@@ -475,34 +477,95 @@ impl<'src> FromBytecodeReader<'src> for FunctionType {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct Limits {
     min: u32,
     max: u32,
 }
 
-pub enum SectionData {
-    TypeSection(Box<[FunctionType]>),
-    FunctionSection(Box<[u32]>),
+impl<'src> FromBytecodeReader<'src> for Limits {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        Ok(Self {min: reader.read()?, max: reader.read()?})
+    }
 }
 
-pub struct Section {
+#[derive(Debug, Eq, PartialEq, Clone, Copy, PartialOrd)]
+pub struct GlobalType {
+    t: ValueType,
+    mutable: bool,
+}
+impl<'src> FromBytecodeReader<'src> for GlobalType{
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        Ok(Self {t: reader.read()?, mutable: reader.read()?})
+    }
+}
+
+
+
+#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
+pub enum ImportDesc {
+    TypeIdx(u32),
+    TableType(Limits),
+    MemType(Limits),
+    GlobalType(GlobalType),
+}
+impl<'src> FromBytecodeReader<'src> for ImportDesc {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        let id = reader.read_u8()?;
+        match id {
+            0x00 => Ok(Self::TypeIdx(reader.read()?)),
+            0x01 => Ok(Self::TableType(reader.read()?)),
+            0x02 => Ok(Self::MemType(reader.read()?)),
+            0x03 => Ok(Self::GlobalType(reader.read()?)),
+            _ => Err(BytecodeReaderError::InvalidImportDesc)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Import<'src> {
+    module: &'src str,
+    name: &'src str,
+    desc: ImportDesc,
+}
+impl<'src> FromBytecodeReader<'src> for Import<'src> {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        Ok(Self {module: reader.read()?, name: reader.read()?, desc: reader.read()?}) 
+    }
+}
+
+#[derive(Debug)]
+pub enum SectionData<'src> {
+    Type(Box<[FunctionType]>),
+    Import(Box<[Import<'src>]>),
+    Function(Box<[u32]>),
+}
+
+#[derive(Debug)]
+pub struct Section<'src> {
     size_bytes: usize,
-    data: SectionData,
+    data: SectionData<'src>,
 }
 
-impl<'src> FromBytecodeReader<'src> for Section {
+impl<'src> FromBytecodeReader<'src> for Section<'src> {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
         let section_id = reader.read_u8()?;
         let size_bytes = reader.read_var_u32()? as usize;
          
         let data: SectionData  = match section_id {
-            1 => SectionData::TypeSection(
+            1 => SectionData::Type(
                 reader
                     .read_vec_iter()?
                     .collect::<Result<Vec<_>>>()?
                     .into_boxed_slice(),
             ),
-            3 => SectionData::FunctionSection(
+            2 => SectionData::Import(
+                reader
+                    .read_vec_iter()?
+                    .collect::<Result<Vec<_>>>()?
+                    .into_boxed_slice(),
+            ),
+            3 => SectionData::Function(
                 reader
                     .read_vec_iter()?
                     .collect::<Result<Vec<_>>>()?
@@ -527,12 +590,30 @@ mod tests {
         let mut reader = BytecodeReader::new(wasm.as_slice());
         reader.check_header()?;
         let type_section = reader.read::<Section>()?;
-        if let SectionData::TypeSection(functions) = type_section.data {
-            assert!(functions[0].params.len() == 2);
-            assert!(functions[1].params.len() == 1);
-            assert!(functions[2].params.len() == 1 && functions[2].results.len() == 1);
+        if let SectionData::Type(types) = type_section.data {
+            assert!(types[0].params.len() == 2);
+            assert!(types[1].params.len() == 1);
+            assert!(types[2].params.len() == 1 && types[2].results.len() == 1);
+        } else {
+            panic!("Unexpected section");
+        }
+        
+        let import_section = reader.read::<Section>()?;
+        if let SectionData::Import(imports) = import_section.data {
+            assert!(imports[0].module == "env");  
+            assert!(imports[1].module == "env");  
+            assert!(imports[0].name == "print");  
+            assert!(imports[1].name == "printNum");  
+        } else {
+            panic!("Unexpected section");
         }
 
+        let function_section = reader.read::<Section>()?;
+        if let SectionData::Function(functions) = function_section.data {
+            assert!(functions[0] == 2);
+            assert!(functions[1] == 3);
+            assert!(functions[2] == 4);
+        }
         Ok(())
     }
 }
