@@ -1,4 +1,5 @@
 use core::fmt;
+use std::marker::PhantomData;
 
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
@@ -14,7 +15,7 @@ pub enum BytecodeReaderError {
     InvalidHeaderMagicNumber,
     InvalidWasmVersion,
     InvalidFunctionTypeEncoding,
-    InvalidImportDesc,
+    InvalidImportDesc(u8),
 }
 
 pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
@@ -29,11 +30,13 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::InvalidBool => write!(f, "Invalid boolean encoding"),
             BytecodeReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
             BytecodeReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
-            BytecodeReaderError::InvalidValueTypeId(id) => write!(f, "Invalid value type id: {}", id),
+            BytecodeReaderError::InvalidValueTypeId(id) => {
+                write!(f, "Invalid value type id: {}", id)
+            }
             BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
             BytecodeReaderError::InvalidWasmVersion => todo!(),
             BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
-            BytecodeReaderError::InvalidImportDesc => todo!(),
+            BytecodeReaderError::InvalidImportDesc(id) => write!(f, "Invalid import desc id: {}", id),
         }
     }
 }
@@ -87,6 +90,7 @@ impl<'src> FromBytecodeReader<'src> for &'src str {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BytecodeReader<'src> {
     buffer: &'src [u8],
     current_position: usize,
@@ -103,6 +107,9 @@ impl<'src> BytecodeReader<'src> {
 
     pub fn current_buffer(&self) -> &'src [u8] {
         &self.buffer[self.current_position..]
+    }
+    pub fn bytes_left(&self) -> usize {
+        return self.buffer.len() - self.current_position
     }
 
     pub fn can_read_bytes(&self, len: usize) -> Result<()> {
@@ -327,6 +334,32 @@ impl<'src> BytecodeReader<'src> {
             _marker: std::marker::PhantomData,
         })
     }
+
+    pub fn read_vec_boxed_slice<T>(&mut self) -> Result<Box<[T]>>
+    where
+        T: FromBytecodeReader<'src>,
+    {
+        Ok(self
+            .read_vec_iter()?
+            .collect::<Result<Vec<_>>>()?
+            .into_boxed_slice())
+    }
+
+    //NOTE: (joh): Ich mag das size argument hier nicht so gerne. es wäre schöner, wenn das hier
+    //gelesen werden könnte
+    pub fn get_section_reader<T>(&mut self, size: usize) -> Result<BytecodeSubReader<'src, T>>
+    where
+        T: FromBytecodeReader<'src> 
+    {
+        let slice: &'src [u8] = &self.buffer[self.current_position..self.current_position + size];
+        let mut reader = BytecodeReader::new(slice); 
+        let count = reader.read_var_u32()? as usize;
+        
+        self.skip_bytes(size)?;
+         
+        Ok(BytecodeSubReader {reader, count, read: 0, _marker: PhantomData}) 
+    }
+    
 }
 
 pub struct BytecodeVecIter<'src, 'me, T: FromBytecodeReader<'src>> {
@@ -339,7 +372,7 @@ pub struct BytecodeVecIter<'src, 'me, T: FromBytecodeReader<'src>> {
 
 impl<'src, 'me, T: FromBytecodeReader<'src>> Iterator for BytecodeVecIter<'src, 'me, T> {
     type Item = Result<T>;
-
+    
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_position >= self.count || self.done {
             None
@@ -352,6 +385,38 @@ impl<'src, 'me, T: FromBytecodeReader<'src>> Iterator for BytecodeVecIter<'src, 
             }
             Some(res)
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BytecodeSubReader<'src, T: FromBytecodeReader<'src>> 
+{
+    reader: BytecodeReader<'src>,  
+    count: usize,
+    read: usize,
+
+    _marker: PhantomData<T>,
+}
+
+impl<'src, T: FromBytecodeReader<'src>> BytecodeSubReader<'src, T> {
+    pub fn read(&mut self) -> Option<Result<T>> {
+        if self.read < self.count {
+            let elem = self.reader.read::<T>(); 
+            self.read += 1;
+            Some(elem)
+        } else {
+            println!("No more elements");
+            
+            None
+        }
+    }
+}
+
+impl<'src, T: FromBytecodeReader<'src>> Iterator for BytecodeSubReader<'src, T> {
+    type Item = Result<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.read() 
     }
 }
 
@@ -465,7 +530,7 @@ impl<'src> FromBytecodeReader<'src> for FunctionType {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
         let magic = reader.read_u8()?;
         if magic != 0x60 {
-            return Err(BytecodeReaderError::InvalidFunctionTypeEncoding)
+            return Err(BytecodeReaderError::InvalidFunctionTypeEncoding);
         }
         let params = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
         let results = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
@@ -485,7 +550,10 @@ pub struct Limits {
 
 impl<'src> FromBytecodeReader<'src> for Limits {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
-        Ok(Self {min: reader.read()?, max: reader.read()?})
+        Ok(Self {
+            min: reader.read()?,
+            max: reader.read()?,
+        })
     }
 }
 
@@ -494,13 +562,14 @@ pub struct GlobalType {
     t: ValueType,
     mutable: bool,
 }
-impl<'src> FromBytecodeReader<'src> for GlobalType{
+impl<'src> FromBytecodeReader<'src> for GlobalType {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
-        Ok(Self {t: reader.read()?, mutable: reader.read()?})
+        Ok(Self {
+            t: reader.read()?,
+            mutable: reader.read()?,
+        })
     }
 }
-
-
 
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub enum ImportDesc {
@@ -517,7 +586,7 @@ impl<'src> FromBytecodeReader<'src> for ImportDesc {
             0x01 => Ok(Self::TableType(reader.read()?)),
             0x02 => Ok(Self::MemType(reader.read()?)),
             0x03 => Ok(Self::GlobalType(reader.read()?)),
-            _ => Err(BytecodeReaderError::InvalidImportDesc)
+            _ => Err(BytecodeReaderError::InvalidImportDesc(id)),
         }
     }
 }
@@ -530,15 +599,27 @@ pub struct Import<'src> {
 }
 impl<'src> FromBytecodeReader<'src> for Import<'src> {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
-        Ok(Self {module: reader.read()?, name: reader.read()?, desc: reader.read()?}) 
+        Ok(Self {
+            module: reader.read()?,
+            name: reader.read()?,
+            desc: reader.read()?,
+        })
     }
 }
+
+type ImportReader<'src> = BytecodeSubReader<'src, Import<'src>>; 
+type TypeId = u32;
+type FunctionReader<'src> = BytecodeSubReader<'src, TypeId>; 
+type LimitsReader<'src> = BytecodeSubReader<'src, Limits>; 
 
 #[derive(Debug)]
 pub enum SectionData<'src> {
     Type(Box<[FunctionType]>),
-    Import(Box<[Import<'src>]>),
-    Function(Box<[u32]>),
+    Import(ImportReader<'src>),
+    Function(FunctionReader<'src>),
+    Table(LimitsReader<'src>),
+    Memory(LimitsReader<'src>),
+    
 }
 
 #[derive(Debug)]
@@ -551,28 +632,18 @@ impl<'src> FromBytecodeReader<'src> for Section<'src> {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
         let section_id = reader.read_u8()?;
         let size_bytes = reader.read_var_u32()? as usize;
-         
-        let data: SectionData  = match section_id {
-            1 => SectionData::Type(
-                reader
-                    .read_vec_iter()?
-                    .collect::<Result<Vec<_>>>()?
-                    .into_boxed_slice(),
-            ),
-            2 => SectionData::Import(
-                reader
-                    .read_vec_iter()?
-                    .collect::<Result<Vec<_>>>()?
-                    .into_boxed_slice(),
-            ),
-            3 => SectionData::Function(
-                reader
-                    .read_vec_iter()?
-                    .collect::<Result<Vec<_>>>()?
-                    .into_boxed_slice()),
+
+        let data: SectionData = match section_id {
+            1 => SectionData::Type(reader.read_vec_boxed_slice()?),
+            2 => SectionData::Import(reader.get_section_reader(size_bytes)?),
+            3 => SectionData::Function(reader.get_section_reader(size_bytes)?),
+            4 => SectionData::Table(reader.get_section_reader(size_bytes)?),
+            5 => SectionData::Memory(reader.get_section_reader(size_bytes)?),
+
             _ => panic!("Unknown section id {}", section_id),
         };
-        Ok(Section { size_bytes, data})
+
+        Ok(Section { size_bytes, data })
     }
 }
 
@@ -597,23 +668,29 @@ mod tests {
         } else {
             panic!("Unexpected section");
         }
-        
+
+        println!("Type section done!");
+
         let import_section = reader.read::<Section>()?;
         if let SectionData::Import(imports) = import_section.data {
-            assert!(imports[0].module == "env");  
-            assert!(imports[1].module == "env");  
-            assert!(imports[0].name == "print");  
-            assert!(imports[1].name == "printNum");  
+            let imports = imports.collect::<Result<Vec<_>>>()?.into_boxed_slice();
+            assert!(imports[0].module == "env");
+            assert!(imports[1].module == "env");
+            assert!(imports[0].name == "print");
+            assert!(imports[1].name == "printNum");
         } else {
             panic!("Unexpected section");
         }
 
+        println!("Import section done!");
         let function_section = reader.read::<Section>()?;
         if let SectionData::Function(functions) = function_section.data {
+            let functions = functions.collect::<Result<Vec<_>>>()?.into_boxed_slice();
             assert!(functions[0] == 2);
             assert!(functions[1] == 3);
             assert!(functions[2] == 4);
         }
+        println!("Function section done!");
         Ok(())
     }
 }
