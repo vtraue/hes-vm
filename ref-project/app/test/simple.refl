@@ -14,9 +14,9 @@ export env fn should_work2(a: int, b: int, c: int) -> int {
 }
 
 export env fn test() {
-  test_string := "hey";
+  test_string := "blubbi";
   printNum(1); 
-  print("hey", 3);
+  print(test_string, 3);
   return;
 }
 

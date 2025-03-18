@@ -2,17 +2,23 @@ use core::fmt;
 
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BytecodeReaderError {
     InvalidLeb,
     EndOfBuffer,
     InvalidUtf8InName(std::str::Utf8Error),
     InvalidBool,
     InvalidTypeId,
+    InvalidRefTypeId,
+    InvalidValueTypeId(u8),
+    InvalidHeaderMagicNumber,
+    InvalidWasmVersion,
+    InvalidFunctionTypeEncoding,
 }
 
 pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
 
+pub const WASM_HEADER_MAGIC: &[u8; 4] = b"\0asm";
 impl fmt::Display for BytecodeReaderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
@@ -21,6 +27,11 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::InvalidUtf8InName(utf8_error) => utf8_error.fmt(f),
             BytecodeReaderError::InvalidBool => write!(f, "Invalid boolean encoding"),
             BytecodeReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
+            BytecodeReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
+            BytecodeReaderError::InvalidValueTypeId(id) => write!(f, "Invalid value type id: {}", id),
+            BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
+            BytecodeReaderError::InvalidWasmVersion => todo!(),
+            BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
         }
     }
 }
@@ -68,16 +79,16 @@ impl<'src> FromBytecodeReader<'src> for u8 {
         reader.read_u8()
     }
 }
-impl<'src> FromBytecodeReader<'src> for &'src str{
+impl<'src> FromBytecodeReader<'src> for &'src str {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
         reader.read_name()
     }
 }
 
-
 pub struct BytecodeReader<'src> {
     buffer: &'src [u8],
     current_position: usize,
+    //TODO: (joh): Erlaube generische Allokatoren
 }
 
 impl<'src> BytecodeReader<'src> {
@@ -281,6 +292,19 @@ impl<'src> BytecodeReader<'src> {
         self.read_sized_name(len)
     }
 
+    pub fn check_header(&mut self) -> Result<()> {
+        let header = self.read_bytes(4)?;
+        if header != WASM_HEADER_MAGIC {
+            return Err(BytecodeReaderError::InvalidHeaderMagicNumber);
+        }
+        let version = self.read_bytes(4)?;
+        if version[0] != 1 {
+            return Err(BytecodeReaderError::InvalidWasmVersion);
+        }
+
+        Ok(())
+    }
+
     pub fn read<T>(&mut self) -> Result<T>
     where
         T: FromBytecodeReader<'src>,
@@ -292,7 +316,7 @@ impl<'src> BytecodeReader<'src> {
     where
         T: FromBytecodeReader<'src>,
     {
-        let size = self.read_u32()? as usize;
+        let size = self.read_var_u32()? as usize;
         Ok(BytecodeVecIter {
             count: size,
             current_position: 0,
@@ -334,7 +358,7 @@ pub enum NumberType {
     I32 = 0x7F,
     I64 = 0x7E,
     F32 = 0x7D,
-    F64 = 0x7C
+    F64 = 0x7C,
 }
 
 impl std::convert::TryFrom<u8> for NumberType {
@@ -346,9 +370,169 @@ impl std::convert::TryFrom<u8> for NumberType {
             0x7E => Ok(Self::I64),
             0x7D => Ok(Self::F32),
             0x7C => Ok(Self::F64),
-            _ => Err(BytecodeReaderError::InvalidTypeId)
+            _ => Err(BytecodeReaderError::InvalidTypeId),
         }
     }
 }
 
+impl<'src> FromBytecodeReader<'src> for NumberType {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        reader.read_u8()?.try_into()
+    }
+}
 
+#[repr(u8)]
+pub enum RefType {
+    Funcref = 0x70,
+    Externref = 0x6F,
+}
+
+impl std::convert::TryFrom<u8> for RefType {
+    type Error = BytecodeReaderError;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0x70 => Ok(Self::Funcref),
+            0x6F => Ok(Self::Externref),
+            _ => Err(BytecodeReaderError::InvalidRefTypeId),
+        }
+    }
+}
+
+impl<'src> FromBytecodeReader<'src> for RefType {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        reader.read_u8()?.try_into()
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum ValueType {
+    I32 = 0x7F,
+    I64 = 0x7E,
+    F32 = 0x7D,
+    F64 = 0x7C,
+    Funcref = 0x70,
+    Externref = 0x6F,
+    Vectype = 0x7B,
+}
+
+impl std::convert::TryFrom<u8> for ValueType {
+    type Error = BytecodeReaderError;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0x7F => Ok(Self::I32),
+            0x7E => Ok(Self::I64),
+            0x7D => Ok(Self::F32),
+            0x7C => Ok(Self::F64),
+            0x70 => Ok(Self::Funcref),
+            0x6F => Ok(Self::Externref),
+            0x7B => Ok(Self::Vectype),
+            _ => Err(BytecodeReaderError::InvalidValueTypeId(value)),
+        }
+    }
+}
+
+impl<'src> FromBytecodeReader<'src> for ValueType {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        reader.read_u8()?.try_into()
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionType {
+    params: Box<[ValueType]>,
+    results: Box<[ValueType]>,
+}
+
+impl FunctionType {
+    pub fn new<P, R>(params: P, results: R) -> Self
+    where
+        P: IntoIterator<Item = ValueType>,
+        R: IntoIterator<Item = ValueType>,
+    {
+        Self {
+            params: params.into_iter().collect::<Vec<_>>().into(),
+            results: results.into_iter().collect::<Vec<_>>().into(),
+        }
+    }
+}
+
+impl<'src> FromBytecodeReader<'src> for FunctionType {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        let magic = reader.read_u8()?;
+        if magic != 0x60 {
+            return Err(BytecodeReaderError::InvalidFunctionTypeEncoding)
+        }
+        let params = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
+        let results = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
+
+        Ok(Self {
+            params: params.into_boxed_slice(),
+            results: results.into_boxed_slice(),
+        })
+    }
+}
+
+pub struct Limits {
+    min: u32,
+    max: u32,
+}
+
+pub enum SectionData {
+    TypeSection(Box<[FunctionType]>),
+    FunctionSection(Box<[u32]>),
+}
+
+pub struct Section {
+    size_bytes: usize,
+    data: SectionData,
+}
+
+impl<'src> FromBytecodeReader<'src> for Section {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        let section_id = reader.read_u8()?;
+        let size_bytes = reader.read_var_u32()? as usize;
+         
+        let data: SectionData  = match section_id {
+            1 => SectionData::TypeSection(
+                reader
+                    .read_vec_iter()?
+                    .collect::<Result<Vec<_>>>()?
+                    .into_boxed_slice(),
+            ),
+            3 => SectionData::FunctionSection(
+                reader
+                    .read_vec_iter()?
+                    .collect::<Result<Vec<_>>>()?
+                    .into_boxed_slice()),
+            _ => panic!("Unknown section id {}", section_id),
+        };
+        Ok(Section { size_bytes, data})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{env, fs};
+
+    use super::*;
+
+    #[test]
+    fn wasm_check_simple() -> Result<()> {
+        let path = env::current_dir().unwrap();
+        println!("Dir: {}", path.display());
+        let wasm = fs::read("gen.wasm").expect("Unable to read file");
+        let mut reader = BytecodeReader::new(wasm.as_slice());
+        reader.check_header()?;
+        let type_section = reader.read::<Section>()?;
+        if let SectionData::TypeSection(functions) = type_section.data {
+            assert!(functions[0].params.len() == 2);
+            assert!(functions[1].params.len() == 1);
+            assert!(functions[2].params.len() == 1 && functions[2].results.len() == 1);
+        }
+
+        Ok(())
+    }
+}
