@@ -20,6 +20,7 @@ pub enum BytecodeReaderError {
     InvalidImportDesc(u8),
     UnimplementedOpcode(u8),
     ExpectedConstExpression(Op),
+    InvalidLimits,
 }
 
 pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
@@ -35,14 +36,15 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
             BytecodeReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
             BytecodeReaderError::InvalidValueTypeId(id) => {
-                                write!(f, "Invalid value type id: {}", id)
-                            }
+                                        write!(f, "Invalid value type id: {}", id)
+                                    }
             BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
             BytecodeReaderError::InvalidWasmVersion => todo!(),
             BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
             BytecodeReaderError::InvalidImportDesc(id) => write!(f, "Invalid import desc id: {}", id),
             BytecodeReaderError::UnimplementedOpcode(_) => todo!(),
             BytecodeReaderError::ExpectedConstExpression(op) => todo!(),
+            BytecodeReaderError::InvalidLimits => todo!(),
         }
     }
 }
@@ -602,15 +604,16 @@ impl<'src> FromBytecodeReader<'src> for FunctionType {
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct Limits {
     min: u32,
-    max: u32,
+    max: Option<u32>,
 }
 
 impl<'src> FromBytecodeReader<'src> for Limits {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
-        Ok(Self {
-            min: reader.read()?,
-            max: reader.read()?,
-        })
+        match reader.read_u8()? {
+            0x00 => Ok(Self {min: reader.read()?, max : None}),
+            0x01 =>  Ok(Self {min: reader.read()?, max : Some(reader.read()?)}),
+            _ => Err(BytecodeReaderError::InvalidLimits)
+        }
     }
 }
 
@@ -722,7 +725,7 @@ impl<'src> FromBytecodeReader<'src> for Section<'src> {
             3 => SectionData::Function(reader.get_section_reader(size_bytes)?),
             4 => SectionData::Table(reader.get_section_reader(size_bytes)?),
             5 => SectionData::Memory(reader.get_section_reader(size_bytes)?),
-
+            6 => SectionData::Global(reader.get_section_reader(size_bytes)?),
             _ => panic!("Unknown section id {}", section_id),
         };
 
@@ -768,12 +771,31 @@ mod tests {
         println!("Import section done!");
         let function_section = reader.read::<Section>()?;
         if let SectionData::Function(functions) = function_section.data {
+            println!("Reading function section");
             let functions = functions.collect::<Result<Vec<_>>>()?.into_boxed_slice();
             assert!(functions[0] == 2);
             assert!(functions[1] == 3);
             assert!(functions[2] == 4);
+        } else {
+            panic!("Unexpected section");
         }
+
         println!("Function section done!");
+        
+        let mem_section = reader.read::<Section>()?;
+        match mem_section.data {
+            SectionData::Memory(mem) => assert!(mem.collect::<Result<Vec<_>>>()?[0].min == 1),
+            _ => panic!("Invalid memory section"),
+        }
+        let globals_section = reader.read::<Section>()?;
+        if let SectionData::Global(globals) = globals_section.data {
+            let globals = globals.collect::<Result<Vec<_>>>()?;
+            assert!(globals[0].init_expr[0] == Op::I32Const(0));
+            assert!(globals[0].t.mutable);
+        } else {
+            println!("{:?}", globals_section);
+            assert!(false);
+        }
         Ok(())
     }
 }
