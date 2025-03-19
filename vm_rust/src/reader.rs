@@ -21,6 +21,7 @@ pub enum BytecodeReaderError {
     UnimplementedOpcode(u8),
     ExpectedConstExpression(Op),
     InvalidLimits,
+    InvalidExportDesc,
 }
 
 pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
@@ -36,8 +37,8 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
             BytecodeReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
             BytecodeReaderError::InvalidValueTypeId(id) => {
-                                        write!(f, "Invalid value type id: {}", id)
-                                    }
+                                                write!(f, "Invalid value type id: {}", id)
+                                            }
             BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
             BytecodeReaderError::InvalidWasmVersion => todo!(),
             BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
@@ -45,6 +46,7 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::UnimplementedOpcode(_) => todo!(),
             BytecodeReaderError::ExpectedConstExpression(op) => todo!(),
             BytecodeReaderError::InvalidLimits => todo!(),
+            BytecodeReaderError::InvalidExportDesc => todo!(),
         }
     }
 }
@@ -633,7 +635,7 @@ impl<'src> FromBytecodeReader<'src> for GlobalType {
 
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub enum ImportDesc {
-    TypeIdx(u32),
+    TypeIdx(TypeId),
     TableType(Limits),
     MemType(Limits),
     GlobalType(GlobalType),
@@ -675,6 +677,7 @@ pub type TypeId = u32;
 pub type TableId = u32;
 pub type LocalId = u32;
 pub type GlobalId = u32;
+pub type MemId = u32;
 
 pub enum Reftype {
     Funcref,
@@ -698,6 +701,32 @@ impl<'src> FromBytecodeReader<'src> for Global {
         Ok(Global {t, init_expr})
     }
 }
+
+#[derive(Debug)]
+pub enum ExportDesc {
+    FuncId(FuncId),
+    TableId(TableId),
+    MemId(MemId),
+    GlobalId(GlobalId),
+}
+impl<'src> FromBytecodeReader<'src> for ExportDesc {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        match reader.read_u8()? {
+            0x00 => reader.read::<FuncId>().map(|f| Self::FuncId(f)),
+            0x01 => reader.read().map(|f| Self::TableId(f)),
+            0x02 => reader.read().map(|f| Self::MemId(f)),
+            0x03 => reader.read().map(|f| Self::GlobalId(f)),
+            _ => Err(BytecodeReaderError::InvalidExportDesc),
+            
+        }
+    }
+}
+
+pub struct Export<'src> {
+    name: &'src str,
+    desc: ExportDesc
+}
+
 #[derive(Debug)]
 pub enum SectionData<'src> {
     Type(Box<[FunctionType]>),
@@ -706,6 +735,7 @@ pub enum SectionData<'src> {
     Table(LimitsReader<'src>),
     Memory(LimitsReader<'src>),
     Global(GlobalsReader<'src>),    
+    Start(FuncId),
 }
 
 #[derive(Debug)]
@@ -797,5 +827,7 @@ mod tests {
             assert!(false);
         }
         Ok(())
+        
     }
+
 }
