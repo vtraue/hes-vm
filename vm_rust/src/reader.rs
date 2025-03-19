@@ -1,6 +1,8 @@
 use core::fmt;
 use std::marker::PhantomData;
 
+use crate::op::Op;
+
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
 #[derive(Debug, PartialEq)]
@@ -16,6 +18,8 @@ pub enum BytecodeReaderError {
     InvalidWasmVersion,
     InvalidFunctionTypeEncoding,
     InvalidImportDesc(u8),
+    UnimplementedOpcode(u8),
+    ExpectedConstExpression(Op),
 }
 
 pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
@@ -23,7 +27,7 @@ pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
 pub const WASM_HEADER_MAGIC: &[u8; 4] = b"\0asm";
 impl fmt::Display for BytecodeReaderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
+        match self {
             BytecodeReaderError::InvalidLeb => write!(f, "Invalid leb128 formated number"),
             BytecodeReaderError::EndOfBuffer => write!(f, "Reached end of buffer"),
             BytecodeReaderError::InvalidUtf8InName(utf8_error) => utf8_error.fmt(f),
@@ -31,12 +35,14 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
             BytecodeReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
             BytecodeReaderError::InvalidValueTypeId(id) => {
-                write!(f, "Invalid value type id: {}", id)
-            }
+                                write!(f, "Invalid value type id: {}", id)
+                            }
             BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
             BytecodeReaderError::InvalidWasmVersion => todo!(),
             BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
             BytecodeReaderError::InvalidImportDesc(id) => write!(f, "Invalid import desc id: {}", id),
+            BytecodeReaderError::UnimplementedOpcode(_) => todo!(),
+            BytecodeReaderError::ExpectedConstExpression(op) => todo!(),
         }
     }
 }
@@ -84,6 +90,17 @@ impl<'src> FromBytecodeReader<'src> for u8 {
         reader.read_u8()
     }
 }
+impl<'src> FromBytecodeReader<'src> for u64 {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        reader.read_var_u64()
+    }
+}
+impl<'src> FromBytecodeReader<'src> for i64 {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        reader.read_var_i64()
+    }
+}
+
 impl<'src> FromBytecodeReader<'src> for &'src str {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
         reader.read_name()
@@ -109,7 +126,7 @@ impl<'src> BytecodeReader<'src> {
         &self.buffer[self.current_position..]
     }
     pub fn bytes_left(&self) -> usize {
-        return self.buffer.len() - self.current_position
+        self.buffer.len() - self.current_position
     }
 
     pub fn can_read_bytes(&self, len: usize) -> Result<()> {
@@ -359,7 +376,11 @@ impl<'src> BytecodeReader<'src> {
          
         Ok(BytecodeSubReader {reader, count, read: 0, _marker: PhantomData}) 
     }
-    
+
+    pub fn read_const_expr_iter<'me>(&'me mut self) -> ConstantExprIter<'src, 'me> {
+        ConstantExprIter {current_position: 0, done: false, reader: self}
+    }
+
 }
 
 pub struct BytecodeVecIter<'src, 'me, T: FromBytecodeReader<'src>> {
@@ -384,6 +405,42 @@ impl<'src, 'me, T: FromBytecodeReader<'src>> Iterator for BytecodeVecIter<'src, 
                 self.current_position += 1;
             }
             Some(res)
+        }
+    }
+}
+
+pub struct ConstantExprIter<'src, 'me> {
+    current_position: usize,
+    done: bool,
+    reader: &'me mut BytecodeReader<'src>, }
+impl<'src, 'me> Iterator for ConstantExprIter<'src, 'me> {
+    type Item = Result<Op>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            None
+        }
+        else {
+            match self.reader.read::<Op>() {
+                Err(e) => {
+                    self.done = true;
+                    Some(Err(e))
+                },
+                Ok(Op::End) => {
+                    self.done = true;
+                    Some(Ok(Op::End))
+                }
+
+                Ok(op) => {
+                    if op.is_const() {
+                        self.current_position += 1;
+                        Some(Ok(op))
+                    } else {
+                        self.done = true;
+                        Some(Err(BytecodeReaderError::ExpectedConstExpression(op)))
+                    }
+                }
+            }
         }
     }
 }
@@ -607,11 +664,37 @@ impl<'src> FromBytecodeReader<'src> for Import<'src> {
     }
 }
 
+
+
+pub type LabelId = u32;
+pub type FuncId = u32; 
+pub type TypeId = u32;
+pub type TableId = u32;
+pub type LocalId = u32;
+pub type GlobalId = u32;
+
+pub enum Reftype {
+    Funcref,
+    Externref
+}
 type ImportReader<'src> = BytecodeSubReader<'src, Import<'src>>; 
-type TypeId = u32;
 type FunctionReader<'src> = BytecodeSubReader<'src, TypeId>; 
 type LimitsReader<'src> = BytecodeSubReader<'src, Limits>; 
+type GlobalsReader<'src> = BytecodeSubReader<'src, Global>;
 
+#[derive(Debug)]
+pub struct Global {
+    t: GlobalType,
+    init_expr: Box<[Op]>
+}
+
+impl<'src> FromBytecodeReader<'src> for Global {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        let t = reader.read::<GlobalType>()?;
+        let init_expr = reader.read_const_expr_iter().collect::<Result<Vec<_>>>()?.into_boxed_slice();
+        Ok(Global {t, init_expr})
+    }
+}
 #[derive(Debug)]
 pub enum SectionData<'src> {
     Type(Box<[FunctionType]>),
@@ -619,7 +702,7 @@ pub enum SectionData<'src> {
     Function(FunctionReader<'src>),
     Table(LimitsReader<'src>),
     Memory(LimitsReader<'src>),
-    
+    Global(GlobalsReader<'src>),    
 }
 
 #[derive(Debug)]
