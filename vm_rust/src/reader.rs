@@ -687,6 +687,7 @@ type ImportReader<'src> = BytecodeSubReader<'src, Import<'src>>;
 type FunctionReader<'src> = BytecodeSubReader<'src, TypeId>; 
 type LimitsReader<'src> = BytecodeSubReader<'src, Limits>; 
 type GlobalsReader<'src> = BytecodeSubReader<'src, Global>;
+type ExportsReader<'src> = BytecodeSubReader<'src, Export<'src>>;
 
 #[derive(Debug)]
 pub struct Global {
@@ -702,7 +703,7 @@ impl<'src> FromBytecodeReader<'src> for Global {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ExportDesc {
     FuncId(FuncId),
     TableId(TableId),
@@ -722,10 +723,18 @@ impl<'src> FromBytecodeReader<'src> for ExportDesc {
     }
 }
 
+#[derive(Debug)]
 pub struct Export<'src> {
     name: &'src str,
     desc: ExportDesc
 }
+
+impl<'src> FromBytecodeReader<'src> for Export<'src> {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        Ok(Self {name: reader.read()?, desc: reader.read()?})
+    }
+}
+
 
 #[derive(Debug)]
 pub enum SectionData<'src> {
@@ -735,6 +744,7 @@ pub enum SectionData<'src> {
     Table(LimitsReader<'src>),
     Memory(LimitsReader<'src>),
     Global(GlobalsReader<'src>),    
+    Export(ExportsReader<'src>),
     Start(FuncId),
 }
 
@@ -756,6 +766,9 @@ impl<'src> FromBytecodeReader<'src> for Section<'src> {
             4 => SectionData::Table(reader.get_section_reader(size_bytes)?),
             5 => SectionData::Memory(reader.get_section_reader(size_bytes)?),
             6 => SectionData::Global(reader.get_section_reader(size_bytes)?),
+            7 => SectionData::Export(reader.get_section_reader(size_bytes)?),
+            8 => SectionData::Start(reader.read()?),
+
             _ => panic!("Unknown section id {}", section_id),
         };
 
@@ -810,24 +823,43 @@ mod tests {
             panic!("Unexpected section");
         }
 
-        println!("Function section done!");
-        
         let mem_section = reader.read::<Section>()?;
         match mem_section.data {
             SectionData::Memory(mem) => assert!(mem.collect::<Result<Vec<_>>>()?[0].min == 1),
             _ => panic!("Invalid memory section"),
         }
+
         let globals_section = reader.read::<Section>()?;
         if let SectionData::Global(globals) = globals_section.data {
             let globals = globals.collect::<Result<Vec<_>>>()?;
             assert!(globals[0].init_expr[0] == Op::I32Const(0));
             assert!(globals[0].t.mutable);
         } else {
-            println!("{:?}", globals_section);
-            assert!(false);
+            panic!("Invalid section");
+        }
+
+        let export_section = reader.read::<Section>()?;
+        if let SectionData::Export(exports) = export_section.data {
+            let exports = exports.collect::<Result<Vec<_>>>()?;    
+            assert!(exports[0].name == "should_work");
+            assert!(exports[0].desc == ExportDesc::FuncId(2));
+
+            assert!(exports[1].name == "should_work1");
+            assert!(exports[1].desc == ExportDesc::FuncId(3));
+
+            assert!(exports[2].name == "should_work2");
+            assert!(exports[2].desc == ExportDesc::FuncId(4));
+
+        }
+        
+        let start_section = reader.read::<Section>()?; 
+        if let SectionData::Start(start) = start_section.data {
+            assert!(start == 6);
+        } else {
+            panic!("Invalid section");
         }
         Ok(())
-        
+
     }
 
 }
