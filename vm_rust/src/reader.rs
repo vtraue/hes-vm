@@ -22,6 +22,7 @@ pub enum BytecodeReaderError {
     ExpectedConstExpression(Op),
     InvalidLimits,
     InvalidExportDesc,
+    MalformedCodeSection,
 }
 
 pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
@@ -37,8 +38,8 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
             BytecodeReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
             BytecodeReaderError::InvalidValueTypeId(id) => {
-                                                write!(f, "Invalid value type id: {}", id)
-                                            }
+                                                        write!(f, "Invalid value type id: {}", id)
+                                                    }
             BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
             BytecodeReaderError::InvalidWasmVersion => todo!(),
             BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
@@ -47,6 +48,7 @@ impl fmt::Display for BytecodeReaderError {
             BytecodeReaderError::ExpectedConstExpression(op) => todo!(),
             BytecodeReaderError::InvalidLimits => todo!(),
             BytecodeReaderError::InvalidExportDesc => todo!(),
+            BytecodeReaderError::MalformedCodeSection => todo!(),
         }
     }
 }
@@ -384,7 +386,7 @@ impl<'src> BytecodeReader<'src> {
     pub fn read_const_expr_iter<'me>(&'me mut self) -> ConstantExprIter<'src, 'me> {
         ConstantExprIter {current_position: 0, done: false, reader: self}
     }
-
+        
 }
 
 pub struct BytecodeVecIter<'src, 'me, T: FromBytecodeReader<'src>> {
@@ -455,7 +457,7 @@ pub struct BytecodeSubReader<'src, T: FromBytecodeReader<'src>>
     reader: BytecodeReader<'src>,  
     count: usize,
     read: usize,
-
+        
     _marker: PhantomData<T>,
 }
 
@@ -480,6 +482,53 @@ impl<'src, T: FromBytecodeReader<'src>> Iterator for BytecodeSubReader<'src, T> 
         self.read() 
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct CodeReader<'src> {
+    reader: BytecodeReader<'src>,
+    depth: usize,
+    instructions_read: usize,
+    done: bool,
+}
+
+impl<'src> CodeReader<'src> {
+    pub fn new(buffer: &'src [u8]) -> Self {
+        CodeReader {reader: BytecodeReader::new(buffer), depth: 0, instructions_read: 0, done: false}
+    }
+}
+impl<'src> Iterator for CodeReader<'src> {
+    type Item = Result<Op>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            None
+        } else {
+            let op = self.reader.read::<Op>();
+            match op {
+                Err(e) => {
+                    self.done = true;
+                    //TODO: (joh) Überprüfe ob EOF, falls ja: Malformed 
+                    Some(Err(e))
+                }
+                Ok(Op::End) => {
+                    if self.depth <= 0 {
+                        self.done = true;
+                    } else {
+                        self.depth -= 1;
+                    }
+                    Some(Ok(Op::End))
+                }
+
+                Ok(op) if op.needs_end_terminator() => {
+                    self.depth += 1;
+                    Some(Ok(op))
+                }
+                Ok(op) => Some(Ok(op))
+            }
+        }
+    }
+}
+
 
 #[repr(u8)]
 pub enum NumberType {
@@ -544,7 +593,20 @@ pub enum ValueType {
     Externref = 0x6F,
     Vectype = 0x7B,
 }
-
+impl fmt::Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            ValueType::I32 => "i32",
+            ValueType::I64 => "i64",
+            ValueType::F32 => "f32",
+            ValueType::F64 => "f64",
+            ValueType::Funcref => "funcref",
+            ValueType::Externref => "externref",
+            ValueType::Vectype => "vec",
+        };
+        write!(f, "{str}")
+    }
+}
 impl std::convert::TryFrom<u8> for ValueType {
     type Error = BytecodeReaderError;
 
@@ -688,7 +750,7 @@ type FunctionReader<'src> = BytecodeSubReader<'src, TypeId>;
 type LimitsReader<'src> = BytecodeSubReader<'src, Limits>; 
 type GlobalsReader<'src> = BytecodeSubReader<'src, Global>;
 type ExportsReader<'src> = BytecodeSubReader<'src, Export<'src>>;
-
+type FunctionBodyReader<'src> = BytecodeSubReader<'src, Function<'src>>;
 #[derive(Debug)]
 pub struct Global {
     t: GlobalType,
@@ -735,6 +797,72 @@ impl<'src> FromBytecodeReader<'src> for Export<'src> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Locals {
+    n: u32,
+    t: ValueType
+}
+
+impl<'src> FromBytecodeReader<'src> for Locals {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        let n: u32 = reader.read()?;
+        println!("count: {n}"); 
+        
+        let t: ValueType = reader.read()?; 
+        println!("t: {t}"); 
+        Ok(Self {n, t})
+    }
+}
+
+impl IntoIterator for Locals {
+    type Item = ValueType;
+    type IntoIter = LocalsIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        LocalsIterator {locals: self, current_position: 0}
+    }
+}
+
+pub struct LocalsIterator {
+    locals: Locals,
+    current_position: u32
+}
+impl<'me> Iterator for LocalsIterator {
+    type Item = ValueType;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_position >= self.locals.n {
+            None
+        } else {
+            self.current_position += 1;
+            Some(self.locals.t)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Function<'src> {
+    locals: Box<[Locals]>,
+    code: CodeReader<'src>
+}
+impl<'src> FromBytecodeReader<'src> for Function<'src> {
+    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+        println!("Reading function");
+        let full_code_size = reader.read_var_u32()?;
+        println!("Code size: {full_code_size}");
+         
+        let start_position = reader.current_position;
+        println!("Reading locals");
+        let locals = reader.read_vec_boxed_slice::<Locals>()?;
+        println!("Done!"); 
+        let locals_size = reader.current_position - start_position;
+        let code_size = full_code_size as usize - locals_size;   
+
+        let code_reader = CodeReader::new(&reader.current_buffer()[..code_size]);
+        reader.skip_bytes(code_size)?; 
+        Ok(Function {locals, code: code_reader})
+    }
+}
 
 #[derive(Debug)]
 pub enum SectionData<'src> {
@@ -746,6 +874,8 @@ pub enum SectionData<'src> {
     Global(GlobalsReader<'src>),    
     Export(ExportsReader<'src>),
     Start(FuncId),
+    DataCount(u32),
+    Code(FunctionBodyReader<'src>),
 }
 
 #[derive(Debug)]
@@ -753,6 +883,7 @@ pub struct Section<'src> {
     size_bytes: usize,
     data: SectionData<'src>,
 }
+
 
 impl<'src> FromBytecodeReader<'src> for Section<'src> {
     fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
@@ -768,7 +899,8 @@ impl<'src> FromBytecodeReader<'src> for Section<'src> {
             6 => SectionData::Global(reader.get_section_reader(size_bytes)?),
             7 => SectionData::Export(reader.get_section_reader(size_bytes)?),
             8 => SectionData::Start(reader.read()?),
-
+            10 => SectionData::Code(reader.get_section_reader(size_bytes)?),             
+            12 => SectionData::DataCount(reader.read()?),
             _ => panic!("Unknown section id {}", section_id),
         };
 
@@ -858,8 +990,23 @@ mod tests {
         } else {
             panic!("Invalid section");
         }
+
+        let data_count_section = reader.read::<Section>()?;
+        if let SectionData::DataCount(count) = data_count_section.data {
+            assert!(count == 1);
+        } else {
+            panic!("Invalid section");
+        }
+
+        let code_section = reader.read::<Section>()?;
+        if let SectionData::Code(code) = code_section.data {
+            let mut code = code.collect::<Result<Vec<_>>>()?;
+            assert!(code[0].locals[0].n == 1);
+            assert!(code[0].code.next() == Some(Ok(Op::I32Const(1))));
+        } else {
+            panic!("Invalid section");
+        }
         Ok(())
-
+         
     }
-
 }
