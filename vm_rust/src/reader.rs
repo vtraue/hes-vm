@@ -1007,6 +1007,5 @@ mod tests {
             panic!("Invalid section");
         }
         Ok(())
-         
     }
 }

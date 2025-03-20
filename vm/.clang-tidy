@@ -1,1 +1,0 @@
-Checks: 'clang-diagnostic-*, clang-analyzer-*, performance-*, bugprone-*, modernize-*, -modernize-use-trailing-return-type, -bugprone-suspicious-include'

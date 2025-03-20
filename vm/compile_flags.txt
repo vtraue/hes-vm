@@ -1,9 +1,0 @@
--std=c++23 
--g 
--Werror 
--Wall 
--fsanitize=address 
--Wextra 
--pedantic-errors 
--Wconversion 
--Wsign-conversion
