@@ -3,6 +3,7 @@ package wasm_builder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -272,7 +273,10 @@ public class WasmBuilder {
     
     ByteArrayOutputStream litBytes = new ByteArrayOutputStream();
     try {
-      byte[] sizeBytes = ByteBuffer.allocate(4).putInt(s.length()).array();
+      var buffer = ByteBuffer.allocate(4);
+      buffer.order(ByteOrder.LITTLE_ENDIAN); 
+
+      byte[] sizeBytes = buffer.putInt(s.length()).array();
 
       litBytes.write(sizeBytes);
       litBytes.write(s.getBytes(StandardCharsets.UTF_8));
