@@ -1,5 +1,5 @@
-pub mod reader;
 pub mod op;
+pub mod reader;
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }

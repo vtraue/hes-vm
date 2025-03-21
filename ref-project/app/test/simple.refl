@@ -1,26 +1,26 @@
 import env fn print(str: string, size: int);
 import env fn printNum(num: int);
 
-export env fn should_work(a: int) -> int {
+export fn should_work(a: int) -> int {
 	return 1;
 }
 
-export env fn should_work1(a: int, b: int) -> int {
+export fn should_work1(a: int, b: int) -> int {
 	return 2;
 }
 
-export env fn should_work2(a: int, b: int, c: int) -> int {
+export fn should_work2(a: int, b: int, c: int) -> int {
 	return 3;
 }
 
-export env fn test() {
+export fn test() {
   test_string := "blubbi";
   printNum(1); 
   print(test_string, 3);
   return;
 }
 
-export env fn main() {
+export fn main() {
   printNum(2); 
 	return; 
 }
