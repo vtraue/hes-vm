@@ -6,7 +6,7 @@ use crate::op::Op;
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
 #[derive(Debug, PartialEq)]
-pub enum BytecodeReaderError {
+pub enum ReaderError {
     InvalidLeb,
     EndOfBuffer,
     InvalidUtf8InName(std::str::Utf8Error),
@@ -28,107 +28,107 @@ pub enum BytecodeReaderError {
     StringLiteralIsNotValidUtf(std::str::Utf8Error),
 }
 
-pub type Result<T, E = BytecodeReaderError> = core::result::Result<T, E>;
+pub type Result<T, E = ReaderError> = core::result::Result<T, E>;
 pub const WASM_HEADER_MAGIC: &[u8; 4] = b"\0asm";
 
-impl fmt::Display for BytecodeReaderError {
+impl fmt::Display for ReaderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BytecodeReaderError::InvalidLeb => write!(f, "Invalid leb128 formated number"),
-            BytecodeReaderError::EndOfBuffer => write!(f, "Reached end of buffer"),
-            BytecodeReaderError::InvalidUtf8InName(utf8_error) => utf8_error.fmt(f),
-            BytecodeReaderError::InvalidBool => write!(f, "Invalid boolean encoding"),
-            BytecodeReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
-            BytecodeReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
-            BytecodeReaderError::InvalidValueTypeId(id) => {
+            ReaderError::InvalidLeb => write!(f, "Invalid leb128 formated number"),
+            ReaderError::EndOfBuffer => write!(f, "Reached end of buffer"),
+            ReaderError::InvalidUtf8InName(utf8_error) => utf8_error.fmt(f),
+            ReaderError::InvalidBool => write!(f, "Invalid boolean encoding"),
+            ReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
+            ReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
+            ReaderError::InvalidValueTypeId(id) => {
                                 write!(f, "Invalid value type id: {}", id)
                             }
-            BytecodeReaderError::InvalidHeaderMagicNumber => todo!(),
-            BytecodeReaderError::InvalidWasmVersion => todo!(),
-            BytecodeReaderError::InvalidFunctionTypeEncoding => todo!(),
-            BytecodeReaderError::InvalidImportDesc(id) => {
+            ReaderError::InvalidHeaderMagicNumber => todo!(),
+            ReaderError::InvalidWasmVersion => todo!(),
+            ReaderError::InvalidFunctionTypeEncoding => todo!(),
+            ReaderError::InvalidImportDesc(id) => {
                                 write!(f, "Invalid import desc id: {}", id)
                             }
-            BytecodeReaderError::UnimplementedOpcode(_) => todo!(),
-            BytecodeReaderError::ExpectedConstExpression(op) => todo!(),
-            BytecodeReaderError::InvalidLimits => todo!(),
-            BytecodeReaderError::InvalidExportDesc => todo!(),
-            BytecodeReaderError::MalformedCodeSection => todo!(),
-            BytecodeReaderError::InvalidDataMode(_) => todo!(),
-            BytecodeReaderError::DataIsNotStringLiteral => todo!(),
-            BytecodeReaderError::StringLiteralIsNotValidUtf(utf8_error) => todo!(),
+            ReaderError::UnimplementedOpcode(_) => todo!(),
+            ReaderError::ExpectedConstExpression(op) => todo!(),
+            ReaderError::InvalidLimits => todo!(),
+            ReaderError::InvalidExportDesc => todo!(),
+            ReaderError::MalformedCodeSection => todo!(),
+            ReaderError::InvalidDataMode(_) => todo!(),
+            ReaderError::DataIsNotStringLiteral => todo!(),
+            ReaderError::StringLiteralIsNotValidUtf(utf8_error) => todo!(),
         }
     }
 }
 
-impl From<std::str::Utf8Error> for BytecodeReaderError {
+impl From<std::str::Utf8Error> for ReaderError {
     fn from(value: std::str::Utf8Error) -> Self {
-        BytecodeReaderError::InvalidUtf8InName(value)
+        ReaderError::InvalidUtf8InName(value)
     }
 }
 
-pub trait FromBytecodeReader<'src>: Sized {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self>;
+pub trait FromReader<'src>: Sized {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self>;
 }
 
-impl<'src> FromBytecodeReader<'src> for bool {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for bool {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         match reader.read_u8()? {
             0 => Ok(false),
             1 => Ok(true),
-            _ => Err(BytecodeReaderError::InvalidBool),
+            _ => Err(ReaderError::InvalidBool),
         }
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for u32 {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for u32 {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_var_u32()
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for usize {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for usize {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(reader.read_var_u32()? as usize)
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for i32 {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for i32 {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_var_i32()
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for u8 {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for u8 {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_u8()
     }
 }
-impl<'src> FromBytecodeReader<'src> for u64 {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for u64 {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_var_u64()
     }
 }
-impl<'src> FromBytecodeReader<'src> for i64 {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for i64 {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_var_i64()
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for &'src str {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for &'src str {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_name()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct BytecodeReader<'src> {
+pub struct Reader<'src> {
     buffer: &'src [u8],
     current_position: usize,
     //TODO: (joh): Erlaube generische Allokatoren
 }
 
-impl<'src> BytecodeReader<'src> {
+impl<'src> Reader<'src> {
     pub fn new(buffer: &'src [u8]) -> Self {
         Self {
             buffer,
@@ -145,7 +145,7 @@ impl<'src> BytecodeReader<'src> {
 
     pub fn can_read_bytes(&self, len: usize) -> Result<()> {
         if self.current_position + len > self.buffer.len() {
-            Err(BytecodeReaderError::EndOfBuffer)
+            Err(ReaderError::EndOfBuffer)
         } else {
             Ok(())
         }
@@ -192,7 +192,7 @@ impl<'src> BytecodeReader<'src> {
             let byte = self.read_u8()?;
             result |= ((byte & 0x7F) as u32) << shift;
             if shift >= 25 && (byte >> (32 - shift)) != 0 {
-                return Err(BytecodeReaderError::InvalidLeb);
+                return Err(ReaderError::InvalidLeb);
             }
             shift += 7;
             if (byte & 0x80) == 0 {
@@ -221,7 +221,7 @@ impl<'src> BytecodeReader<'src> {
             result |= (byte & 0x7F) << shift;
             if shift >= 57 && (byte >> (64 - shift)) != 0 {
                 // The continuation bit or unused bits are set.
-                return Err(BytecodeReaderError::InvalidLeb);
+                return Err(ReaderError::InvalidLeb);
             }
             shift += 7;
             if (byte & 0x80) == 0 {
@@ -252,7 +252,7 @@ impl<'src> BytecodeReader<'src> {
                 let continuation_bit = (byte & 0x80) != 0;
                 let sign_and_unused_bit = (byte << 1) as i8 >> (32 - shift);
                 if continuation_bit || (sign_and_unused_bit != 0 && sign_and_unused_bit != -1) {
-                    return Err(BytecodeReaderError::InvalidLeb);
+                    return Err(ReaderError::InvalidLeb);
                 }
                 return Ok(result);
             }
@@ -281,7 +281,7 @@ impl<'src> BytecodeReader<'src> {
                 let continuation_bit = (byte & 0x80) != 0;
                 let sign_and_unused_bit = (byte << 1) as i8 >> (33 - shift);
                 if continuation_bit || (sign_and_unused_bit != 0 && sign_and_unused_bit != -1) {
-                    return Err(BytecodeReaderError::InvalidLeb);
+                    return Err(ReaderError::InvalidLeb);
                 }
                 return Ok(result);
             }
@@ -304,7 +304,7 @@ impl<'src> BytecodeReader<'src> {
                 let continuation_bit = (byte & 0x80) != 0;
                 let sign_and_unused_bit = ((byte << 1) as i8) >> (64 - shift);
                 if continuation_bit || (sign_and_unused_bit != 0 && sign_and_unused_bit != -1) {
-                    return Err(BytecodeReaderError::InvalidLeb);
+                    return Err(ReaderError::InvalidLeb);
                 }
                 return Ok(result);
             }
@@ -335,11 +335,11 @@ impl<'src> BytecodeReader<'src> {
     pub fn check_header(&mut self) -> Result<()> {
         let header = self.read_bytes(4)?;
         if header != WASM_HEADER_MAGIC {
-            return Err(BytecodeReaderError::InvalidHeaderMagicNumber);
+            return Err(ReaderError::InvalidHeaderMagicNumber);
         }
         let version = self.read_bytes(4)?;
         if version[0] != 1 {
-            return Err(BytecodeReaderError::InvalidWasmVersion);
+            return Err(ReaderError::InvalidWasmVersion);
         }
 
         Ok(())
@@ -347,17 +347,17 @@ impl<'src> BytecodeReader<'src> {
 
     pub fn read<T>(&mut self) -> Result<T>
     where
-        T: FromBytecodeReader<'src>,
+        T: FromReader<'src>,
     {
         T::from_reader(self)
     }
 
-    pub fn read_vec_iter<'me, T>(&'me mut self) -> Result<BytecodeVecIter<'src, 'me, T>>
+    pub fn read_vec_iter<'me, T>(&'me mut self) -> Result<VecIter<'src, 'me, T>>
     where
-        T: FromBytecodeReader<'src>,
+        T: FromReader<'src>,
     {
         let size = self.read_var_u32()? as usize;
-        Ok(BytecodeVecIter {
+        Ok(VecIter {
             count: size,
             current_position: 0,
             done: false,
@@ -368,7 +368,7 @@ impl<'src> BytecodeReader<'src> {
 
     pub fn read_vec_boxed_slice<T>(&mut self) -> Result<Box<[T]>>
     where
-        T: FromBytecodeReader<'src>,
+        T: FromReader<'src>,
     {
         Ok(self
             .read_vec_iter()?
@@ -383,17 +383,17 @@ impl<'src> BytecodeReader<'src> {
 
     //NOTE: (joh): Ich mag das size argument hier nicht so gerne. es wäre schöner, wenn das hier
     //gelesen werden könnte
-    pub fn get_section_reader<T>(&mut self, size: usize) -> Result<BytecodeSubReader<'src, T>>
+    pub fn get_section_reader<T>(&mut self, size: usize) -> Result<SubReader<'src, T>>
     where
-        T: FromBytecodeReader<'src>,
+        T: FromReader<'src>,
     {
         let slice: &'src [u8] = &self.buffer[self.current_position..self.current_position + size];
-        let mut reader = BytecodeReader::new(slice);
+        let mut reader = Reader::new(slice);
         let count = reader.read_var_u32()? as usize;
 
         self.skip_bytes(size)?;
 
-        Ok(BytecodeSubReader {
+        Ok(SubReader {
             reader,
             count,
             read: 0,
@@ -408,17 +408,32 @@ impl<'src> BytecodeReader<'src> {
             reader: self,
         }
     }
+    pub fn iter_section<'me>(&'me mut self) -> SectionsIter<'src, 'me> {
+        SectionsIter {reader: self}
+    }
 }
 
-pub struct BytecodeVecIter<'src, 'me, T: FromBytecodeReader<'src>> {
+pub struct SectionsIter<'src, 'me> {
+    reader: &'me mut Reader<'src>
+}
+impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
+    type Item = Result<Section<'src>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.reader.can_read_bytes(1).ok()?;
+        Some(self.reader.read::<Section>())
+    }
+}
+
+pub struct VecIter<'src, 'me, T: FromReader<'src>> {
     count: usize,
     current_position: usize,
     done: bool,
-    reader: &'me mut BytecodeReader<'src>,
+    reader: &'me mut Reader<'src>,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<'src, 'me, T: FromBytecodeReader<'src>> Iterator for BytecodeVecIter<'src, 'me, T> {
+impl<'src, 'me, T: FromReader<'src>> Iterator for VecIter<'src, 'me, T> {
     type Item = Result<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -439,7 +454,7 @@ impl<'src, 'me, T: FromBytecodeReader<'src>> Iterator for BytecodeVecIter<'src, 
 pub struct ConstantExprIter<'src, 'me> {
     current_position: usize,
     done: bool,
-    reader: &'me mut BytecodeReader<'src>,
+    reader: &'me mut Reader<'src>,
 }
 impl<'src, 'me> Iterator for ConstantExprIter<'src, 'me> {
     type Item = Result<Op>;
@@ -464,7 +479,7 @@ impl<'src, 'me> Iterator for ConstantExprIter<'src, 'me> {
                         Some(Ok(op))
                     } else {
                         self.done = true;
-                        Some(Err(BytecodeReaderError::ExpectedConstExpression(op)))
+                        Some(Err(ReaderError::ExpectedConstExpression(op)))
                     }
                 }
             }
@@ -473,15 +488,15 @@ impl<'src, 'me> Iterator for ConstantExprIter<'src, 'me> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BytecodeSubReader<'src, T: FromBytecodeReader<'src>> {
-    reader: BytecodeReader<'src>,
+pub struct SubReader<'src, T: FromReader<'src>> {
+    reader: Reader<'src>,
     count: usize,
     read: usize,
 
     _marker: PhantomData<T>,
 }
 
-impl<'src, T: FromBytecodeReader<'src>> BytecodeSubReader<'src, T> {
+impl<'src, T: FromReader<'src>> SubReader<'src, T> {
     pub fn read(&mut self) -> Option<Result<T>> {
         if self.read < self.count {
             let elem = self.reader.read::<T>();
@@ -495,7 +510,7 @@ impl<'src, T: FromBytecodeReader<'src>> BytecodeSubReader<'src, T> {
     }
 }
 
-impl<'src, T: FromBytecodeReader<'src>> Iterator for BytecodeSubReader<'src, T> {
+impl<'src, T: FromReader<'src>> Iterator for SubReader<'src, T> {
     type Item = Result<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -505,7 +520,7 @@ impl<'src, T: FromBytecodeReader<'src>> Iterator for BytecodeSubReader<'src, T> 
 
 #[derive(Debug, Clone)]
 pub struct CodeReader<'src> {
-    reader: BytecodeReader<'src>,
+    reader: Reader<'src>,
     depth: usize,
     instructions_read: usize,
     done: bool,
@@ -514,7 +529,7 @@ pub struct CodeReader<'src> {
 impl<'src> CodeReader<'src> {
     pub fn new(buffer: &'src [u8]) -> Self {
         CodeReader {
-            reader: BytecodeReader::new(buffer),
+            reader: Reader::new(buffer),
             depth: 0,
             instructions_read: 0,
             done: false,
@@ -563,7 +578,7 @@ pub enum NumberType {
 }
 
 impl std::convert::TryFrom<u8> for NumberType {
-    type Error = BytecodeReaderError;
+    type Error = ReaderError;
 
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         match value {
@@ -571,13 +586,13 @@ impl std::convert::TryFrom<u8> for NumberType {
             0x7E => Ok(Self::I64),
             0x7D => Ok(Self::F32),
             0x7C => Ok(Self::F64),
-            _ => Err(BytecodeReaderError::InvalidTypeId),
+            _ => Err(ReaderError::InvalidTypeId),
         }
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for NumberType {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for NumberType {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_u8()?.try_into()
     }
 }
@@ -589,19 +604,19 @@ pub enum RefType {
 }
 
 impl std::convert::TryFrom<u8> for RefType {
-    type Error = BytecodeReaderError;
+    type Error = ReaderError;
 
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         match value {
             0x70 => Ok(Self::Funcref),
             0x6F => Ok(Self::Externref),
-            _ => Err(BytecodeReaderError::InvalidRefTypeId),
+            _ => Err(ReaderError::InvalidRefTypeId),
         }
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for RefType {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for RefType {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_u8()?.try_into()
     }
 }
@@ -632,7 +647,7 @@ impl fmt::Display for ValueType {
     }
 }
 impl std::convert::TryFrom<u8> for ValueType {
-    type Error = BytecodeReaderError;
+    type Error = ReaderError;
 
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         match value {
@@ -643,13 +658,13 @@ impl std::convert::TryFrom<u8> for ValueType {
             0x70 => Ok(Self::Funcref),
             0x6F => Ok(Self::Externref),
             0x7B => Ok(Self::Vectype),
-            _ => Err(BytecodeReaderError::InvalidValueTypeId(value)),
+            _ => Err(ReaderError::InvalidValueTypeId(value)),
         }
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for ValueType {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for ValueType {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_u8()?.try_into()
     }
 }
@@ -673,11 +688,11 @@ impl FunctionType {
     }
 }
 
-impl<'src> FromBytecodeReader<'src> for FunctionType {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for FunctionType {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let magic = reader.read_u8()?;
         if magic != 0x60 {
-            return Err(BytecodeReaderError::InvalidFunctionTypeEncoding);
+            return Err(ReaderError::InvalidFunctionTypeEncoding);
         }
         let params = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
         let results = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
@@ -695,8 +710,8 @@ pub struct Limits {
     max: Option<u32>,
 }
 
-impl<'src> FromBytecodeReader<'src> for Limits {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Limits {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         match reader.read_u8()? {
             0x00 => Ok(Self {
                 min: reader.read()?,
@@ -706,7 +721,7 @@ impl<'src> FromBytecodeReader<'src> for Limits {
                 min: reader.read()?,
                 max: Some(reader.read()?),
             }),
-            _ => Err(BytecodeReaderError::InvalidLimits),
+            _ => Err(ReaderError::InvalidLimits),
         }
     }
 }
@@ -716,8 +731,8 @@ pub struct GlobalType {
     t: ValueType,
     mutable: bool,
 }
-impl<'src> FromBytecodeReader<'src> for GlobalType {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for GlobalType {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
             t: reader.read()?,
             mutable: reader.read()?,
@@ -732,15 +747,15 @@ pub enum ImportDesc {
     MemType(Limits),
     GlobalType(GlobalType),
 }
-impl<'src> FromBytecodeReader<'src> for ImportDesc {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for ImportDesc {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let id = reader.read_u8()?;
         match id {
             0x00 => Ok(Self::TypeIdx(reader.read()?)),
             0x01 => Ok(Self::TableType(reader.read()?)),
             0x02 => Ok(Self::MemType(reader.read()?)),
             0x03 => Ok(Self::GlobalType(reader.read()?)),
-            _ => Err(BytecodeReaderError::InvalidImportDesc(id)),
+            _ => Err(ReaderError::InvalidImportDesc(id)),
         }
     }
 }
@@ -751,8 +766,8 @@ pub struct Import<'src> {
     name: &'src str,
     desc: ImportDesc,
 }
-impl<'src> FromBytecodeReader<'src> for Import<'src> {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Import<'src> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
             module: reader.read()?,
             name: reader.read()?,
@@ -773,13 +788,13 @@ pub enum Reftype {
     Funcref,
     Externref,
 }
-type ImportReader<'src> = BytecodeSubReader<'src, Import<'src>>;
-type FunctionReader<'src> = BytecodeSubReader<'src, TypeId>;
-type LimitsReader<'src> = BytecodeSubReader<'src, Limits>;
-type GlobalsReader<'src> = BytecodeSubReader<'src, Global>;
-type ExportsReader<'src> = BytecodeSubReader<'src, Export<'src>>;
-type FunctionBodyReader<'src> = BytecodeSubReader<'src, Function<'src>>;
-type DataReader<'src> = BytecodeSubReader<'src, Data<'src>>;
+type ImportReader<'src> = SubReader<'src, Import<'src>>;
+type FunctionReader<'src> = SubReader<'src, TypeId>;
+type LimitsReader<'src> = SubReader<'src, Limits>;
+type GlobalsReader<'src> = SubReader<'src, Global>;
+type ExportsReader<'src> = SubReader<'src, Export<'src>>;
+type FunctionBodyReader<'src> = SubReader<'src, Function<'src>>;
+type DataReader<'src> = SubReader<'src, Data<'src>>;
 
 #[derive(Debug)]
 pub struct Global {
@@ -787,8 +802,8 @@ pub struct Global {
     init_expr: Box<[Op]>,
 }
 
-impl<'src> FromBytecodeReader<'src> for Global {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Global {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let t = reader.read::<GlobalType>()?;
         let init_expr = reader
             .read_const_expr_iter()
@@ -805,14 +820,14 @@ pub enum ExportDesc {
     MemId(MemId),
     GlobalId(GlobalId),
 }
-impl<'src> FromBytecodeReader<'src> for ExportDesc {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for ExportDesc {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         match reader.read_u8()? {
             0x00 => reader.read::<FuncId>().map(Self::FuncId),
             0x01 => reader.read().map(Self::TableId),
             0x02 => reader.read().map(Self::MemId),
             0x03 => reader.read().map(Self::GlobalId),
-            _ => Err(BytecodeReaderError::InvalidExportDesc),
+            _ => Err(ReaderError::InvalidExportDesc),
         }
     }
 }
@@ -823,8 +838,8 @@ pub struct Export<'src> {
     desc: ExportDesc,
 }
 
-impl<'src> FromBytecodeReader<'src> for Export<'src> {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Export<'src> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
             name: reader.read()?,
             desc: reader.read()?,
@@ -838,8 +853,8 @@ pub struct Locals {
     t: ValueType,
 }
 
-impl<'src> FromBytecodeReader<'src> for Locals {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Locals {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let n: u32 = reader.read()?;
         println!("count: {n}");
 
@@ -883,8 +898,8 @@ pub struct Function<'src> {
     locals: Box<[Locals]>,
     code: CodeReader<'src>,
 }
-impl<'src> FromBytecodeReader<'src> for Function<'src> {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Function<'src> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         println!("Reading function");
         let full_code_size = reader.read_var_u32()?;
         println!("Code size: {full_code_size}");
@@ -915,8 +930,8 @@ pub enum Data<'src> {
     Passive(&'src [u8]),
 }
 
-impl<'src> FromBytecodeReader<'src> for Data<'src> {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Data<'src> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         match reader.read_var_u32()? {
             0 => Ok(Self::Active {
                 mem_id: 0,
@@ -935,23 +950,23 @@ impl<'src> FromBytecodeReader<'src> for Data<'src> {
                     .into_boxed_slice(),
                 data: reader.read_vec_bytes()?,
             }),
-            n => Err(BytecodeReaderError::InvalidDataMode(n)),
+            n => Err(ReaderError::InvalidDataMode(n)),
         }
     }
 }
 
 impl<'src> TryFrom<&'src Data<'src>> for &'src str {
-    type Error = BytecodeReaderError;
+    type Error = ReaderError;
 
     fn try_from(value: &'src Data<'src>) -> std::result::Result<Self, Self::Error> {
         match value {
             Data::Active { mem_id: _, expr: _, data } | Data::Passive(data) => {
                 let size = u32::from_le_bytes(data[0..4]
                     .try_into()
-                    .map_err(|_| BytecodeReaderError::DataIsNotStringLiteral)?); 
+                    .map_err(|_| ReaderError::DataIsNotStringLiteral)?); 
                 println!("size {size}, bin: {:#x}", size);
                 str::from_utf8(&data[4..4 + size as usize])
-                    .map_err(BytecodeReaderError::StringLiteralIsNotValidUtf)
+                    .map_err(ReaderError::StringLiteralIsNotValidUtf)
             }
         }
     }
@@ -978,8 +993,8 @@ pub struct Section<'src> {
     data: SectionData<'src>,
 }
 
-impl<'src> FromBytecodeReader<'src> for Section<'src> {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> Result<Self> {
+impl<'src> FromReader<'src> for Section<'src> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let section_id = reader.read_u8()?;
         let size_bytes = reader.read_var_u32()? as usize;
 
@@ -1008,110 +1023,98 @@ mod tests {
 
     use super::*;
 
+    fn get_wasm_gen() -> Box<[u8]> {
+        let source = include_str!("wat/gen.wat");
+        wat::parse_str(source).unwrap().into_boxed_slice() 
+    }
+
+    #[test] 
+    fn wasm_check_section_iter() -> Result<(), ReaderError> {
+        let wasm = get_wasm_gen(); 
+        let mut reader = Reader::new(&wasm);
+        reader.check_header()?;
+        reader.iter_section().collect::<Result<Vec<_>>>()?;
+        Ok(())
+    }
+
     #[test]
     fn wasm_check_simple() -> Result<()> {
         let path = env::current_dir().unwrap();
         println!("Dir: {}", path.display());
-        let wasm = fs::read("gen.wasm").expect("Unable to read file");
-        let mut reader = BytecodeReader::new(wasm.as_slice());
+        let wasm = get_wasm_gen(); 
+        let mut reader = Reader::new(&wasm);
         reader.check_header()?;
-        let type_section = reader.read::<Section>()?;
-        if let SectionData::Type(types) = type_section.data {
-            assert!(types[0].params.len() == 2);
-            assert!(types[1].params.len() == 1);
-            assert!(types[2].params.len() == 1 && types[2].results.len() == 1);
-        } else {
-            panic!("Unexpected section");
-        }
 
-        println!("Type section done!");
+        for s in reader.iter_section() {
+            match (s?).data {
+                SectionData::Type(function_types) => {
+                    assert!(function_types[0].params.len() == 2);
+                    assert!(function_types[1].params.len() == 1);
+                    assert!(function_types[2].params.len() == 1 && function_types[2].results.len() == 1);
+                }
+                SectionData::Import(mut sub_reader) => {
+                    let i = sub_reader.next().unwrap()?;
+                    assert!(i.module == "env");
+                    assert!(i.name == "print");
 
-        let import_section = reader.read::<Section>()?;
-        if let SectionData::Import(imports) = import_section.data {
-            let imports = imports.collect::<Result<Vec<_>>>()?.into_boxed_slice();
-            assert!(imports[0].module == "env");
-            assert!(imports[1].module == "env");
-            assert!(imports[0].name == "print");
-            assert!(imports[1].name == "printNum");
-        } else {
-            panic!("Unexpected section");
-        }
+                    let i = sub_reader.next().unwrap()?;
+                    assert!(i.module == "env");
+                    assert!(i.name == "printNum");
+                }
 
-        println!("Import section done!");
-        let function_section = reader.read::<Section>()?;
-        if let SectionData::Function(functions) = function_section.data {
-            println!("Reading function section");
-            let functions = functions.collect::<Result<Vec<_>>>()?.into_boxed_slice();
-            assert!(functions[0] == 2);
-            assert!(functions[1] == 3);
-            assert!(functions[2] == 4);
-        } else {
-            panic!("Unexpected section");
-        }
+                SectionData::Function(sub_reader) => {
+                    let functions = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
+                    assert!(functions[0] == 2);
+                    assert!(functions[1] == 3);
+                    assert!(functions[2] == 4);
+                },
+                SectionData::Table(sub_reader) => todo!(),
+                SectionData::Memory(mut sub_reader) => {
+                    let mem = sub_reader.next().unwrap()?;
+                    assert!(mem.min == 1);
+                }
 
-        let mem_section = reader.read::<Section>()?;
-        match mem_section.data {
-            SectionData::Memory(mem) => assert!(mem.collect::<Result<Vec<_>>>()?[0].min == 1),
-            _ => panic!("Invalid memory section"),
-        }
+                SectionData::Global(mut sub_reader) => {
+                    let global = sub_reader.next().unwrap()?;
+                    assert!(global.init_expr[0] == Op::I32Const(0));
+                    assert!(global.t.mutable);
+                }
 
-        let globals_section = reader.read::<Section>()?;
-        if let SectionData::Global(globals) = globals_section.data {
-            let globals = globals.collect::<Result<Vec<_>>>()?;
-            assert!(globals[0].init_expr[0] == Op::I32Const(0));
-            assert!(globals[0].t.mutable);
-        } else {
-            panic!("Invalid section");
-        }
+                SectionData::Export(mut sub_reader) => {
+                    let export = sub_reader.next().unwrap()?;
+                    assert!(export.name == "should_work");
+                    assert!(export.desc == ExportDesc::FuncId(2));
+                    let export = sub_reader.next().unwrap()?;
 
-        let export_section = reader.read::<Section>()?;
-        if let SectionData::Export(exports) = export_section.data {
-            let exports = exports.collect::<Result<Vec<_>>>()?;
-            assert!(exports[0].name == "should_work");
-            assert!(exports[0].desc == ExportDesc::FuncId(2));
+                    assert!(export.name == "should_work1");
+                    assert!(export.desc == ExportDesc::FuncId(3));
+                    let export = sub_reader.next().unwrap()?;
 
-            assert!(exports[1].name == "should_work1");
-            assert!(exports[1].desc == ExportDesc::FuncId(3));
+                    assert!(export.name == "should_work2");
+                    assert!(export.desc == ExportDesc::FuncId(4));
 
-            assert!(exports[2].name == "should_work2");
-            assert!(exports[2].desc == ExportDesc::FuncId(4));
-        }
+                },
 
-        let start_section = reader.read::<Section>()?;
-        if let SectionData::Start(start) = start_section.data {
-            assert!(start == 6);
-        } else {
-            panic!("Invalid section");
-        }
+                SectionData::Start(start) => {
+                    assert!(start == 6);
+                },
 
-        let data_count_section = reader.read::<Section>()?;
-        if let SectionData::DataCount(count) = data_count_section.data {
-            assert!(count == 1);
-        } else {
-            panic!("Invalid section");
-        }
-
-        let code_section = reader.read::<Section>()?;
-        if let SectionData::Code(code) = code_section.data {
-            let mut code = code.collect::<Result<Vec<_>>>()?;
-            assert!(code[0].locals[0].n == 1);
-            assert!(code[0].code.next() == Some(Ok(Op::I32Const(1))));
-        } else {
-            panic!("Invalid section");
-        }
-        let data_section = reader.read::<Section>()?;
-
-        if let SectionData::Data(data) = data_section.data {
-            let data = data.collect::<Result<Vec<_>>>()?; 
-            if let Data::Active { mem_id, expr, data: bytes} = &data[0] {
-                assert!(*mem_id == 0);
-                assert!(expr[0] == Op::I32Const(0));
-                let str: &str = (&data[0]).try_into()?;
-                assert!(str == "blubbi"); 
-            } else {
-                panic!("Invalid data type");
+                SectionData::DataCount(_) => todo!(),
+                SectionData::Code(mut sub_reader) => {
+                    let mut code = sub_reader.next().unwrap()?;
+                    assert!(code.locals[0].n == 1);
+                    assert!(code.code.next() == Some(Ok(Op::I32Const(1))));
+                }
+                SectionData::Data(mut sub_reader) => {
+                    let data = sub_reader.next().unwrap()?;
+                    if let Data::Active { mem_id, expr, data: _bytes} = &data {
+                        assert!(*mem_id == 0);
+                        assert!(expr[0] == Op::I32Const(0));
+                        let str: &str = (&data).try_into()?;
+                        assert!(str == "blubbi"); 
+                    }
+                },
             }
-            
         }
         Ok(())
     }

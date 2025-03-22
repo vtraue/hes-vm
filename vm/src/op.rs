@@ -1,5 +1,5 @@
 use crate::reader::{
-    self, BytecodeReader, FromBytecodeReader, FuncId, GlobalId, LabelId, LocalId, TableId, TypeId,
+    self, Reader, FromReader, FuncId, GlobalId, LabelId, LocalId, TableId, TypeId,
     ValueType,
 };
 
@@ -10,8 +10,8 @@ pub enum Blocktype {
     TypeIndex(i32),
 }
 
-impl<'src> FromBytecodeReader<'src> for Blocktype {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> reader::Result<Self> {
+impl<'src> FromReader<'src> for Blocktype {
+    fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
         let desc = reader.read_var_s33()?;
 
         match desc {
@@ -28,8 +28,8 @@ pub struct Memarg {
     align: u32,
 }
 
-impl<'src> FromBytecodeReader<'src> for Memarg {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> reader::Result<Self> {
+impl<'src> FromReader<'src> for Memarg {
+    fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
         Ok(Memarg {
             offset: reader.read()?,
             align: reader.read()?,
@@ -115,24 +115,18 @@ pub enum Op {
 
 impl Op {
     pub fn needs_end_terminator(&self) -> bool {
-        match self {
-            Op::Block(_) | Op::Loop(_) => true,
-            _ => false,
-        }
+        matches!(self, Op::Block(_) | Op::Loop(_))
     }
 
     pub fn is_const(&self) -> bool {
         //TODO: (joh): Das stimmt so nicht 100%, wir muessten
         //testen ob ein Global.Get in der Form Const t ist: https://webassembly.github.io/spec/core/valid/instructions.html#constant-expressions
         //Das muessten wir spaeter dann in
-        match self {
-            Self::I32Const(_) | Self::I64Const(_) | Self::GlobalGet(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::I32Const(_) | Self::I64Const(_) | Self::GlobalGet(_))
     }
 }
-impl<'src> FromBytecodeReader<'src> for Op {
-    fn from_reader(reader: &mut BytecodeReader<'src>) -> reader::Result<Self> {
+impl<'src> FromReader<'src> for Op {
+    fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
         let opcode = reader.read_u8()?;
         let instr = match opcode {
             0x00 => Self::Unreachable,
