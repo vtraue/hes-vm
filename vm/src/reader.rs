@@ -1,7 +1,7 @@
 use core::fmt;
-use std::{io::Read, marker::PhantomData};
-
-use crate::op::Op;
+use std::{ffi::os_str::Display, io::Read, marker::PhantomData};
+use itertools::Itertools;
+use crate::{op::Op, parser::ValidationError};
 
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
@@ -408,7 +408,7 @@ impl<'src> Reader<'src> {
             reader: self,
         }
     }
-    pub fn iter_section<'me>(&'me mut self) -> SectionsIter<'src, 'me> {
+    pub fn sections_iter<'me>(&'me mut self) -> SectionsIter<'src, 'me> {
         SectionsIter {reader: self}
     }
 }
@@ -597,10 +597,32 @@ impl<'src> FromReader<'src> for NumberType {
     }
 }
 
+impl fmt::Display for NumberType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            NumberType::I32 => "i32",
+            NumberType::I64 => "i64",
+            NumberType::F32 => "f32",
+            NumberType::F64 => "f64",
+        };
+        f.write_str(str) 
+    }
+}
+
 #[repr(u8)]
 pub enum RefType {
     Funcref = 0x70,
     Externref = 0x6F,
+}
+
+impl fmt::Display for RefType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            RefType::Funcref => "Funcref",
+            RefType::Externref => "Externref",
+        };
+        f.write_str(str)
+    }
 }
 
 impl std::convert::TryFrom<u8> for RefType {
@@ -632,6 +654,7 @@ pub enum ValueType {
     Externref = 0x6F,
     Vectype = 0x7B,
 }
+
 impl fmt::Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match self {
@@ -703,6 +726,12 @@ impl<'src> FromReader<'src> for FunctionType {
         })
     }
 }
+impl fmt::Display for FunctionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        //NOTE: (joh): Checke ob das allokiert
+        write!(f, "({}) -> ({})", self.params.iter().format(", "), self.results.iter().format(","))
+    }
+}
 
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct Limits {
@@ -725,6 +754,7 @@ impl<'src> FromReader<'src> for Limits {
         }
     }
 }
+
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, PartialOrd)]
 pub struct GlobalType {
@@ -766,6 +796,7 @@ pub struct Import<'src> {
     name: &'src str,
     desc: ImportDesc,
 }
+
 impl<'src> FromReader<'src> for Import<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
@@ -775,6 +806,8 @@ impl<'src> FromReader<'src> for Import<'src> {
         })
     }
 }
+
+
 
 pub type LabelId = u32;
 pub type FuncId = u32;
@@ -788,13 +821,13 @@ pub enum Reftype {
     Funcref,
     Externref,
 }
-type ImportReader<'src> = SubReader<'src, Import<'src>>;
-type FunctionReader<'src> = SubReader<'src, TypeId>;
-type LimitsReader<'src> = SubReader<'src, Limits>;
-type GlobalsReader<'src> = SubReader<'src, Global>;
-type ExportsReader<'src> = SubReader<'src, Export<'src>>;
-type FunctionBodyReader<'src> = SubReader<'src, Function<'src>>;
-type DataReader<'src> = SubReader<'src, Data<'src>>;
+pub type ImportReader<'src> = SubReader<'src, Import<'src>>;
+pub type FunctionReader<'src> = SubReader<'src, TypeId>;
+pub type LimitsReader<'src> = SubReader<'src, Limits>;
+pub type GlobalsReader<'src> = SubReader<'src, Global>;
+pub type ExportsReader<'src> = SubReader<'src, Export<'src>>;
+pub type FunctionBodyReader<'src> = SubReader<'src, Function<'src>>;
+pub type DataReader<'src> = SubReader<'src, Data<'src>>;
 
 #[derive(Debug)]
 pub struct Global {
@@ -972,8 +1005,16 @@ impl<'src> TryFrom<&'src Data<'src>> for &'src str {
     }
 }
 
+
+#[derive(Debug)]
+pub struct CustomSectionData<'src> {
+    name: &'src str,
+    data: &'src[u8],
+}
+
 #[derive(Debug)]
 pub enum SectionData<'src> {
+    Custom(CustomSectionData<'src>),
     Type(Box<[FunctionType]>),
     Import(ImportReader<'src>),
     Function(FunctionReader<'src>),
@@ -999,6 +1040,12 @@ impl<'src> FromReader<'src> for Section<'src> {
         let size_bytes = reader.read_var_u32()? as usize;
 
         let data: SectionData = match section_id {
+            0 => { 
+                let start = reader.current_position;
+                let name = reader.read::<&str>()?; 
+                let size_bytes = reader.current_position - start;
+                SectionData::Custom(CustomSectionData { name, data: reader.read_bytes(size_bytes)?})
+            }
             1 => SectionData::Type(reader.read_vec_boxed_slice()?),
             2 => SectionData::Import(reader.get_section_reader(size_bytes)?),
             3 => SectionData::Function(reader.get_section_reader(size_bytes)?),
@@ -1033,7 +1080,7 @@ mod tests {
         let wasm = get_wasm_gen(); 
         let mut reader = Reader::new(&wasm);
         reader.check_header()?;
-        reader.iter_section().collect::<Result<Vec<_>>>()?;
+        reader.sections_iter().collect::<Result<Vec<_>>>()?;
         Ok(())
     }
 
@@ -1045,75 +1092,72 @@ mod tests {
         let mut reader = Reader::new(&wasm);
         reader.check_header()?;
 
-        for s in reader.iter_section() {
-            match (s?).data {
+        for s in reader.sections_iter() {
+            match s?.data {
                 SectionData::Type(function_types) => {
-                    assert!(function_types[0].params.len() == 2);
-                    assert!(function_types[1].params.len() == 1);
-                    assert!(function_types[2].params.len() == 1 && function_types[2].results.len() == 1);
-                }
+                                assert!(function_types[0].params.len() == 2);
+                                assert!(function_types[1].params.len() == 1);
+                                assert!(function_types[2].params.len() == 1 && function_types[2].results.len() == 1);
+                                println!("{}", function_types.iter().format("\n"))
+                            }
                 SectionData::Import(mut sub_reader) => {
-                    let i = sub_reader.next().unwrap()?;
-                    assert!(i.module == "env");
-                    assert!(i.name == "print");
+                                let i = sub_reader.next().unwrap()?;
+                                assert!(i.module == "env");
+                                assert!(i.name == "print");
 
-                    let i = sub_reader.next().unwrap()?;
-                    assert!(i.module == "env");
-                    assert!(i.name == "printNum");
-                }
-
+                                let i = sub_reader.next().unwrap()?;
+                                assert!(i.module == "env");
+                                assert!(i.name == "printNum");
+                            }
                 SectionData::Function(sub_reader) => {
-                    let functions = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
-                    assert!(functions[0] == 2);
-                    assert!(functions[1] == 3);
-                    assert!(functions[2] == 4);
-                },
+                                let functions = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
+                                assert!(functions[0] == 2);
+                                assert!(functions[1] == 3);
+                                assert!(functions[2] == 4);
+                            },
                 SectionData::Table(sub_reader) => todo!(),
                 SectionData::Memory(mut sub_reader) => {
-                    let mem = sub_reader.next().unwrap()?;
-                    assert!(mem.min == 1);
-                }
-
+                                let mem = sub_reader.next().unwrap()?;
+                                assert!(mem.min == 1);
+                            }
                 SectionData::Global(mut sub_reader) => {
-                    let global = sub_reader.next().unwrap()?;
-                    assert!(global.init_expr[0] == Op::I32Const(0));
-                    assert!(global.t.mutable);
-                }
-
+                                let global = sub_reader.next().unwrap()?;
+                                assert!(global.init_expr[0] == Op::I32Const(0));
+                                assert!(global.t.mutable);
+                            }
                 SectionData::Export(mut sub_reader) => {
-                    let export = sub_reader.next().unwrap()?;
-                    assert!(export.name == "should_work");
-                    assert!(export.desc == ExportDesc::FuncId(2));
-                    let export = sub_reader.next().unwrap()?;
+                                let export = sub_reader.next().unwrap()?;
+                                assert!(export.name == "should_work");
+                                assert!(export.desc == ExportDesc::FuncId(2));
+                                let export = sub_reader.next().unwrap()?;
 
-                    assert!(export.name == "should_work1");
-                    assert!(export.desc == ExportDesc::FuncId(3));
-                    let export = sub_reader.next().unwrap()?;
+                                assert!(export.name == "should_work1");
+                                assert!(export.desc == ExportDesc::FuncId(3));
+                                let export = sub_reader.next().unwrap()?;
 
-                    assert!(export.name == "should_work2");
-                    assert!(export.desc == ExportDesc::FuncId(4));
+                                assert!(export.name == "should_work2");
+                                assert!(export.desc == ExportDesc::FuncId(4));
 
-                },
-
+                            },
                 SectionData::Start(start) => {
-                    assert!(start == 6);
-                },
-
+                                assert!(start == 6);
+                            },
                 SectionData::DataCount(_) => todo!(),
                 SectionData::Code(mut sub_reader) => {
-                    let mut code = sub_reader.next().unwrap()?;
-                    assert!(code.locals[0].n == 1);
-                    assert!(code.code.next() == Some(Ok(Op::I32Const(1))));
-                }
+                                let mut code = sub_reader.next().unwrap()?;
+                                assert!(code.locals[0].n == 1);
+                                assert!(code.code.next() == Some(Ok(Op::I32Const(1))));
+                            }
                 SectionData::Data(mut sub_reader) => {
-                    let data = sub_reader.next().unwrap()?;
-                    if let Data::Active { mem_id, expr, data: _bytes} = &data {
-                        assert!(*mem_id == 0);
-                        assert!(expr[0] == Op::I32Const(0));
-                        let str: &str = (&data).try_into()?;
-                        assert!(str == "blubbi"); 
-                    }
-                },
+                                let data = sub_reader.next().unwrap()?;
+                                if let Data::Active { mem_id, expr, data: _bytes} = &data {
+                                    assert!(*mem_id == 0);
+                                    assert!(expr[0] == Op::I32Const(0));
+                                    let str: &str = (&data).try_into()?;
+                                    assert!(str == "blubbi"); 
+                                }
+                            },
+                SectionData::Custom(data) => todo!(),
             }
         }
         Ok(())

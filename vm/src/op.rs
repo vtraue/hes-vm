@@ -1,6 +1,7 @@
+use std::{ffi::os_str::Display, fmt::{self, write}};
+
 use crate::reader::{
-    self, Reader, FromReader, FuncId, GlobalId, LabelId, LocalId, TableId, TypeId,
-    ValueType,
+    self, FromReader, FuncId, FunctionType, GlobalId, LabelId, LocalId, Reader, TableId, TypeId, ValueType
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +23,15 @@ impl<'src> FromReader<'src> for Blocktype {
     }
 }
 
+impl fmt::Display for Blocktype{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Blocktype::Empty => write!(f, ""),
+            Blocktype::Value(value_type) => write!(f, "-> <{value_type}>"),
+            Blocktype::TypeIndex(id) => write!(f, "{id}"),
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Memarg {
     offset: u32,
@@ -34,6 +44,11 @@ impl<'src> FromReader<'src> for Memarg {
             offset: reader.read()?,
             align: reader.read()?,
         })
+    }
+}
+impl fmt::Display for Memarg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(offset: {}, align: {}", self.offset, self.align)
     }
 }
 
