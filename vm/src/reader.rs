@@ -761,6 +761,7 @@ pub struct GlobalType {
     t: ValueType,
     mutable: bool,
 }
+
 impl<'src> FromReader<'src> for GlobalType {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
@@ -770,6 +771,12 @@ impl<'src> FromReader<'src> for GlobalType {
     }
 }
 
+impl fmt::Display for GlobalType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut_str = if self.mutable {"mut"} else {""};
+        write!(f, "{} {}", mut_str, self.t) 
+    }
+}
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub enum ImportDesc {
     TypeIdx(TypeId),
@@ -807,8 +814,6 @@ impl<'src> FromReader<'src> for Import<'src> {
     }
 }
 
-
-
 pub type LabelId = u32;
 pub type FuncId = u32;
 pub type TypeId = u32;
@@ -821,6 +826,7 @@ pub enum Reftype {
     Funcref,
     Externref,
 }
+pub type TypeReader<'src> = SubReader<'src, FunctionType>; 
 pub type ImportReader<'src> = SubReader<'src, Import<'src>>;
 pub type FunctionReader<'src> = SubReader<'src, TypeId>;
 pub type LimitsReader<'src> = SubReader<'src, Limits>;
@@ -1015,7 +1021,7 @@ pub struct CustomSectionData<'src> {
 #[derive(Debug)]
 pub enum SectionData<'src> {
     Custom(CustomSectionData<'src>),
-    Type(Box<[FunctionType]>),
+    Type(TypeReader<'src>),
     Import(ImportReader<'src>),
     Function(FunctionReader<'src>),
     Table(LimitsReader<'src>),
@@ -1046,7 +1052,7 @@ impl<'src> FromReader<'src> for Section<'src> {
                 let size_bytes = reader.current_position - start;
                 SectionData::Custom(CustomSectionData { name, data: reader.read_bytes(size_bytes)?})
             }
-            1 => SectionData::Type(reader.read_vec_boxed_slice()?),
+            1 => SectionData::Type(reader.get_section_reader(size_bytes)?),
             2 => SectionData::Import(reader.get_section_reader(size_bytes)?),
             3 => SectionData::Function(reader.get_section_reader(size_bytes)?),
             4 => SectionData::Table(reader.get_section_reader(size_bytes)?),
@@ -1094,11 +1100,13 @@ mod tests {
 
         for s in reader.sections_iter() {
             match s?.data {
-                SectionData::Type(function_types) => {
-                                assert!(function_types[0].params.len() == 2);
-                                assert!(function_types[1].params.len() == 1);
-                                assert!(function_types[2].params.len() == 1 && function_types[2].results.len() == 1);
-                                println!("{}", function_types.iter().format("\n"))
+                SectionData::Type(sub_reader) => {
+                                let types = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
+                                assert!(types[0].params.len() == 2);
+                                assert!(types[1].params.len() == 1);
+                                assert!(types[2].params.len() == 1 && types[2].results.len() == 1);
+                                println!("Found function types: ");
+                                println!("{}", types.iter().format("\n"))
                             }
                 SectionData::Import(mut sub_reader) => {
                                 let i = sub_reader.next().unwrap()?;
@@ -1160,6 +1168,13 @@ mod tests {
                 SectionData::Custom(data) => todo!(),
             }
         }
+        Ok(())
+    }
+    #[test]
+    fn print_raw_bytecode() -> Result<()> {
+        let wasm = get_wasm_gen(); 
+        let mut reader = Reader::new(&wasm);
+        reader.check_header()?;
         Ok(())
     }
 }

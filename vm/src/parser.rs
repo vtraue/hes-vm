@@ -35,3 +35,6 @@ impl ModuleInfo {
     }
 }
 */
+
+pub fn print_raw_module() {
+}
