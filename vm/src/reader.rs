@@ -41,14 +41,14 @@ impl fmt::Display for ReaderError {
             ReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
             ReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
             ReaderError::InvalidValueTypeId(id) => {
-                                write!(f, "Invalid value type id: {}", id)
-                            }
+                write!(f, "Invalid value type id: {}", id)
+            }
             ReaderError::InvalidHeaderMagicNumber => todo!(),
             ReaderError::InvalidWasmVersion => todo!(),
             ReaderError::InvalidFunctionTypeEncoding => todo!(),
             ReaderError::InvalidImportDesc(id) => {
-                                write!(f, "Invalid import desc id: {}", id)
-                            }
+                write!(f, "Invalid import desc id: {}", id)
+            }
             ReaderError::UnimplementedOpcode(_) => todo!(),
             ReaderError::ExpectedConstExpression(op) => todo!(),
             ReaderError::InvalidLimits => todo!(),
@@ -324,7 +324,7 @@ impl<'src> Reader<'src> {
     }
 
     pub fn read_sized_name(&mut self, size: usize) -> Result<&'src str> {
-        Ok(str::from_utf8(self.read_bytes(size)?)?)
+        Ok(std::str::from_utf8(self.read_bytes(size)?)?)
     }
 
     pub fn read_name(&mut self) -> Result<&'src str> {
@@ -409,12 +409,12 @@ impl<'src> Reader<'src> {
         }
     }
     pub fn iter_section<'me>(&'me mut self) -> SectionsIter<'src, 'me> {
-        SectionsIter {reader: self}
+        SectionsIter { reader: self }
     }
 }
 
 pub struct SectionsIter<'src, 'me> {
-    reader: &'me mut Reader<'src>
+    reader: &'me mut Reader<'src>,
 }
 impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
     type Item = Result<Section<'src>>;
@@ -960,12 +960,19 @@ impl<'src> TryFrom<&'src Data<'src>> for &'src str {
 
     fn try_from(value: &'src Data<'src>) -> std::result::Result<Self, Self::Error> {
         match value {
-            Data::Active { mem_id: _, expr: _, data } | Data::Passive(data) => {
-                let size = u32::from_le_bytes(data[0..4]
-                    .try_into()
-                    .map_err(|_| ReaderError::DataIsNotStringLiteral)?); 
+            Data::Active {
+                mem_id: _,
+                expr: _,
+                data,
+            }
+            | Data::Passive(data) => {
+                let size = u32::from_le_bytes(
+                    data[0..4]
+                        .try_into()
+                        .map_err(|_| ReaderError::DataIsNotStringLiteral)?,
+                );
                 println!("size {size}, bin: {:#x}", size);
-                str::from_utf8(&data[4..4 + size as usize])
+                std::str::from_utf8(&data[4..4 + size as usize])
                     .map_err(ReaderError::StringLiteralIsNotValidUtf)
             }
         }
@@ -989,8 +996,8 @@ pub enum SectionData<'src> {
 
 #[derive(Debug)]
 pub struct Section<'src> {
-    size_bytes: usize,
-    data: SectionData<'src>,
+    pub size_bytes: usize,
+    pub data: SectionData<'src>,
 }
 
 impl<'src> FromReader<'src> for Section<'src> {
@@ -1025,12 +1032,12 @@ mod tests {
 
     fn get_wasm_gen() -> Box<[u8]> {
         let source = include_str!("wat/gen.wat");
-        wat::parse_str(source).unwrap().into_boxed_slice() 
+        wat::parse_str(source).unwrap().into_boxed_slice()
     }
 
-    #[test] 
+    #[test]
     fn wasm_check_section_iter() -> Result<(), ReaderError> {
-        let wasm = get_wasm_gen(); 
+        let wasm = get_wasm_gen();
         let mut reader = Reader::new(&wasm);
         reader.check_header()?;
         reader.iter_section().collect::<Result<Vec<_>>>()?;
@@ -1041,7 +1048,7 @@ mod tests {
     fn wasm_check_simple() -> Result<()> {
         let path = env::current_dir().unwrap();
         println!("Dir: {}", path.display());
-        let wasm = get_wasm_gen(); 
+        let wasm = get_wasm_gen();
         let mut reader = Reader::new(&wasm);
         reader.check_header()?;
 
@@ -1050,7 +1057,9 @@ mod tests {
                 SectionData::Type(function_types) => {
                     assert!(function_types[0].params.len() == 2);
                     assert!(function_types[1].params.len() == 1);
-                    assert!(function_types[2].params.len() == 1 && function_types[2].results.len() == 1);
+                    assert!(
+                        function_types[2].params.len() == 1 && function_types[2].results.len() == 1
+                    );
                 }
                 SectionData::Import(mut sub_reader) => {
                     let i = sub_reader.next().unwrap()?;
@@ -1067,7 +1076,7 @@ mod tests {
                     assert!(functions[0] == 2);
                     assert!(functions[1] == 3);
                     assert!(functions[2] == 4);
-                },
+                }
                 SectionData::Table(sub_reader) => todo!(),
                 SectionData::Memory(mut sub_reader) => {
                     let mem = sub_reader.next().unwrap()?;
@@ -1092,12 +1101,11 @@ mod tests {
 
                     assert!(export.name == "should_work2");
                     assert!(export.desc == ExportDesc::FuncId(4));
-
-                },
+                }
 
                 SectionData::Start(start) => {
                     assert!(start == 6);
-                },
+                }
 
                 SectionData::DataCount(_) => todo!(),
                 SectionData::Code(mut sub_reader) => {
@@ -1107,13 +1115,18 @@ mod tests {
                 }
                 SectionData::Data(mut sub_reader) => {
                     let data = sub_reader.next().unwrap()?;
-                    if let Data::Active { mem_id, expr, data: _bytes} = &data {
+                    if let Data::Active {
+                        mem_id,
+                        expr,
+                        data: _bytes,
+                    } = &data
+                    {
                         assert!(*mem_id == 0);
                         assert!(expr[0] == Op::I32Const(0));
                         let str: &str = (&data).try_into()?;
-                        assert!(str == "blubbi"); 
+                        assert!(str == "blubbi");
                     }
-                },
+                }
             }
         }
         Ok(())

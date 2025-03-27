@@ -108,6 +108,10 @@ impl App for HesApp {
     }
 }
 
+//fn show_bytecode(ui &mut egui::ui) {
+//
+//}
+
 fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;

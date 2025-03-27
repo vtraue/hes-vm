@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-
+vm = {path = "../vm/"}
 eframe = "0.31.1"
+wat = "1.227.1"
