@@ -785,7 +785,7 @@ impl fmt::Display for FunctionType {
         )
     }
 }
-
+impl FixedBinarySize for 
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct Limits {
     min: u32,
