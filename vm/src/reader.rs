@@ -1,7 +1,7 @@
-use core::fmt;
-use std::{ffi::os_str::Display, io::Read, marker::PhantomData};
-use itertools::Itertools;
 use crate::{op::Op, parser::ValidationError};
+use core::fmt::{self};
+use itertools::Itertools;
+use std::{ffi::os_str::Display, io::Read, marker::PhantomData};
 
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
@@ -41,14 +41,14 @@ impl fmt::Display for ReaderError {
             ReaderError::InvalidTypeId => write!(f, "Invalid Type id"),
             ReaderError::InvalidRefTypeId => write!(f, "Invalid ref type id"),
             ReaderError::InvalidValueTypeId(id) => {
-                                write!(f, "Invalid value type id: {}", id)
-                            }
+                write!(f, "Invalid value type id: {}", id)
+            }
             ReaderError::InvalidHeaderMagicNumber => todo!(),
             ReaderError::InvalidWasmVersion => todo!(),
             ReaderError::InvalidFunctionTypeEncoding => todo!(),
             ReaderError::InvalidImportDesc(id) => {
-                                write!(f, "Invalid import desc id: {}", id)
-                            }
+                write!(f, "Invalid import desc id: {}", id)
+            }
             ReaderError::UnimplementedOpcode(_) => todo!(),
             ReaderError::ExpectedConstExpression(op) => todo!(),
             ReaderError::InvalidLimits => todo!(),
@@ -121,6 +121,11 @@ impl<'src> FromReader<'src> for &'src str {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Offset {
+    offset: usize,
+    len: usize,
+}
 #[derive(Debug, Clone)]
 pub struct Reader<'src> {
     buffer: &'src [u8],
@@ -352,6 +357,31 @@ impl<'src> Reader<'src> {
         T::from_reader(self)
     }
 
+    pub fn read_with_slice<T>(&mut self) -> Result<(T, &'src [u8])>
+    where
+        T: FromReader<'src>,
+    {
+        let start = self.current_position;
+        let elem = T::from_reader(self);
+        Ok((elem?, &self.buffer[start..self.current_position]))
+    }
+
+    pub fn read_with_offset<T>(&mut self) -> Result<(Offset, T)>
+    where
+        T: FromReader<'src>,
+    {
+        let start = self.current_position;
+        let elem = T::from_reader(self)?;
+        let bytes_read = self.current_position - start;
+        Ok((
+            Offset {
+                offset: start,
+                len: bytes_read,
+            },
+            elem,
+        ))
+    }
+
     pub fn read_vec_iter<'me, T>(&'me mut self) -> Result<VecIter<'src, 'me, T>>
     where
         T: FromReader<'src>,
@@ -408,20 +438,21 @@ impl<'src> Reader<'src> {
             reader: self,
         }
     }
+
     pub fn sections_iter<'me>(&'me mut self) -> SectionsIter<'src, 'me> {
-        SectionsIter {reader: self}
+        SectionsIter { reader: self }
     }
 }
 
 pub struct SectionsIter<'src, 'me> {
-    reader: &'me mut Reader<'src>
+    reader: &'me mut Reader<'src>,
 }
 impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
-    type Item = Result<Section<'src>>;
+    type Item = Result<(Section<'src>, &'src [u8])>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.can_read_bytes(1).ok()?;
-        Some(self.reader.read::<Section>())
+        Some(self.reader.read_with_slice::<Section>())
     }
 }
 
@@ -497,9 +528,9 @@ pub struct SubReader<'src, T: FromReader<'src>> {
 }
 
 impl<'src, T: FromReader<'src>> SubReader<'src, T> {
-    pub fn read(&mut self) -> Option<Result<T>> {
+    pub fn read_with_slice(&mut self) -> Option<Result<(T, &'src [u8])>> {
         if self.read < self.count {
-            let elem = self.reader.read::<T>();
+            let elem = self.reader.read_with_slice::<T>();
             self.read += 1;
             Some(elem)
         } else {
@@ -508,6 +539,13 @@ impl<'src, T: FromReader<'src>> SubReader<'src, T> {
             None
         }
     }
+
+    pub fn read(&mut self) -> Option<Result<T>> {
+        Some(self.read_with_slice()?.map(|s| s.0))
+    }
+    pub fn iter_with_slice<'me>(&'me mut self) -> SubReaderSliceIter<'src, 'me, T> {
+        SubReaderSliceIter(self)
+    }
 }
 
 impl<'src, T: FromReader<'src>> Iterator for SubReader<'src, T> {
@@ -515,6 +553,15 @@ impl<'src, T: FromReader<'src>> Iterator for SubReader<'src, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.read()
+    }
+}
+
+pub struct SubReaderSliceIter<'src, 'me, T: FromReader<'src>>(&'me mut SubReader<'src, T>);
+impl<'src, 'me, T: FromReader<'src>> Iterator for SubReaderSliceIter<'src, 'me, T> {
+    type Item = Result<(T, &'src [u8])>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.read_with_slice()
     }
 }
 
@@ -536,32 +583,33 @@ impl<'src> CodeReader<'src> {
         }
     }
 }
+
 impl<'src> Iterator for CodeReader<'src> {
-    type Item = Result<Op>;
+    type Item = Result<(Op, &'src [u8])>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             None
         } else {
-            let op = self.reader.read::<Op>();
+            let op = self.reader.read_with_slice::<Op>();
             match op {
                 Err(e) => {
                     self.done = true;
                     //TODO: (joh) Überprüfe ob EOF, falls ja: Malformed
                     Some(Err(e))
                 }
-                Ok(Op::End) => {
+                Ok((Op::End, _)) => {
                     if self.depth == 0 {
                         self.done = true;
                     } else {
                         self.depth -= 1;
                     }
-                    Some(Ok(Op::End))
+                    Some(op)
                 }
 
-                Ok(op) if op.needs_end_terminator() => {
+                Ok((ref opcode, _)) if opcode.needs_end_terminator() => {
                     self.depth += 1;
-                    Some(Ok(op))
+                    Some(op)
                 }
                 Ok(op) => Some(Ok(op)),
             }
@@ -605,7 +653,7 @@ impl fmt::Display for NumberType {
             NumberType::F32 => "f32",
             NumberType::F64 => "f64",
         };
-        f.write_str(str) 
+        f.write_str(str)
     }
 }
 
@@ -729,7 +777,12 @@ impl<'src> FromReader<'src> for FunctionType {
 impl fmt::Display for FunctionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         //NOTE: (joh): Checke ob das allokiert
-        write!(f, "({}) -> ({})", self.params.iter().format(", "), self.results.iter().format(","))
+        write!(
+            f,
+            "({}) -> ({})",
+            self.params.iter().format(", "),
+            self.results.iter().format(",")
+        )
     }
 }
 
@@ -755,6 +808,14 @@ impl<'src> FromReader<'src> for Limits {
     }
 }
 
+impl<'src> fmt::Display for Limits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.max {
+            Some(m) => write!(f, "({}..{})", self.min, m),
+            None => write!(f, "({}..)", self.min),
+        }
+    }
+}
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, PartialOrd)]
 pub struct GlobalType {
@@ -773,8 +834,8 @@ impl<'src> FromReader<'src> for GlobalType {
 
 impl fmt::Display for GlobalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut_str = if self.mutable {"mut"} else {""};
-        write!(f, "{} {}", mut_str, self.t) 
+        let mut_str = if self.mutable { "mut" } else { "" };
+        write!(f, "{} {}", mut_str, self.t)
     }
 }
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
@@ -796,6 +857,16 @@ impl<'src> FromReader<'src> for ImportDesc {
         }
     }
 }
+impl fmt::Display for ImportDesc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportDesc::TypeIdx(i) => write!(f, "{i}"),
+            ImportDesc::TableType(limits) => write!(f, "{limits}"),
+            ImportDesc::MemType(limits) => todo!(),
+            ImportDesc::GlobalType(global_type) => todo!(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Import<'src> {
@@ -813,6 +884,11 @@ impl<'src> FromReader<'src> for Import<'src> {
         })
     }
 }
+impl<'src> fmt::Display for Import<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}: {} {})", self.module, self.name, self.desc)
+    }
+}
 
 pub type LabelId = u32;
 pub type FuncId = u32;
@@ -826,7 +902,7 @@ pub enum Reftype {
     Funcref,
     Externref,
 }
-pub type TypeReader<'src> = SubReader<'src, FunctionType>; 
+pub type TypeReader<'src> = SubReader<'src, FunctionType>;
 pub type ImportReader<'src> = SubReader<'src, Import<'src>>;
 pub type FunctionReader<'src> = SubReader<'src, TypeId>;
 pub type LimitsReader<'src> = SubReader<'src, Limits>;
@@ -851,7 +927,11 @@ impl<'src> FromReader<'src> for Global {
         Ok(Global { t, init_expr })
     }
 }
-
+impl<'src> fmt::Display for Global {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} = {}", self.t, self.init_expr.iter().format(" ,"))
+    }
+}
 #[derive(Debug, PartialEq)]
 pub enum ExportDesc {
     FuncId(FuncId),
@@ -871,6 +951,17 @@ impl<'src> FromReader<'src> for ExportDesc {
     }
 }
 
+impl fmt::Display for ExportDesc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportDesc::FuncId(id) => write!(f, "func id: {id}"),
+            ExportDesc::TableId(id) => write!(f, "table id: {id}"),
+            ExportDesc::MemId(id) => write!(f, "mem id {id}"),
+            ExportDesc::GlobalId(id) => write!(f, "global id {id}"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Export<'src> {
     name: &'src str,
@@ -886,6 +977,11 @@ impl<'src> FromReader<'src> for Export<'src> {
     }
 }
 
+impl fmt::Display for Export<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.name, self.desc)
+    }
+}
 #[derive(Debug, Clone)]
 pub struct Locals {
     n: u32,
@@ -958,7 +1054,19 @@ impl<'src> FromReader<'src> for Function<'src> {
         })
     }
 }
-
+impl fmt::Display for Function<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for locals in self.locals.iter() {
+            write!(f, "Locals: ({})\n", locals.clone().into_iter().format(" ,"))?;
+        }
+        for res in self.code.clone() {
+            if let Ok((op, slice)) = res {
+                write!(f, "{op} : {:#04x?}\n", slice)?;
+            }
+        }
+        Ok(())
+    }
+}
 #[derive(Debug)]
 pub enum Data<'src> {
     Active {
@@ -999,10 +1107,17 @@ impl<'src> TryFrom<&'src Data<'src>> for &'src str {
 
     fn try_from(value: &'src Data<'src>) -> std::result::Result<Self, Self::Error> {
         match value {
-            Data::Active { mem_id: _, expr: _, data } | Data::Passive(data) => {
-                let size = u32::from_le_bytes(data[0..4]
-                    .try_into()
-                    .map_err(|_| ReaderError::DataIsNotStringLiteral)?); 
+            Data::Active {
+                mem_id: _,
+                expr: _,
+                data,
+            }
+            | Data::Passive(data) => {
+                let size = u32::from_le_bytes(
+                    data[0..4]
+                        .try_into()
+                        .map_err(|_| ReaderError::DataIsNotStringLiteral)?,
+                );
                 println!("size {size}, bin: {:#x}", size);
                 str::from_utf8(&data[4..4 + size as usize])
                     .map_err(ReaderError::StringLiteralIsNotValidUtf)
@@ -1011,11 +1126,10 @@ impl<'src> TryFrom<&'src Data<'src>> for &'src str {
     }
 }
 
-
 #[derive(Debug)]
 pub struct CustomSectionData<'src> {
     name: &'src str,
-    data: &'src[u8],
+    data: &'src [u8],
 }
 
 #[derive(Debug)]
@@ -1046,11 +1160,14 @@ impl<'src> FromReader<'src> for Section<'src> {
         let size_bytes = reader.read_var_u32()? as usize;
 
         let data: SectionData = match section_id {
-            0 => { 
+            0 => {
                 let start = reader.current_position;
-                let name = reader.read::<&str>()?; 
+                let name = reader.read::<&str>()?;
                 let size_bytes = reader.current_position - start;
-                SectionData::Custom(CustomSectionData { name, data: reader.read_bytes(size_bytes)?})
+                SectionData::Custom(CustomSectionData {
+                    name,
+                    data: reader.read_bytes(size_bytes)?,
+                })
             }
             1 => SectionData::Type(reader.get_section_reader(size_bytes)?),
             2 => SectionData::Import(reader.get_section_reader(size_bytes)?),
@@ -1072,18 +1189,18 @@ impl<'src> FromReader<'src> for Section<'src> {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs};
+    use std::{env, fs, iter};
 
     use super::*;
 
     fn get_wasm_gen() -> Box<[u8]> {
         let source = include_str!("wat/gen.wat");
-        wat::parse_str(source).unwrap().into_boxed_slice() 
+        wat::parse_str(source).unwrap().into_boxed_slice()
     }
 
-    #[test] 
+    #[test]
     fn wasm_check_section_iter() -> Result<(), ReaderError> {
-        let wasm = get_wasm_gen(); 
+        let wasm = get_wasm_gen();
         let mut reader = Reader::new(&wasm);
         reader.check_header()?;
         reader.sections_iter().collect::<Result<Vec<_>>>()?;
@@ -1094,77 +1211,81 @@ mod tests {
     fn wasm_check_simple() -> Result<()> {
         let path = env::current_dir().unwrap();
         println!("Dir: {}", path.display());
-        let wasm = get_wasm_gen(); 
+        let wasm = get_wasm_gen();
         let mut reader = Reader::new(&wasm);
         reader.check_header()?;
 
         for s in reader.sections_iter() {
-            match s?.data {
+            match s?.0.data {
                 SectionData::Type(sub_reader) => {
-                                let types = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
-                                assert!(types[0].params.len() == 2);
-                                assert!(types[1].params.len() == 1);
-                                assert!(types[2].params.len() == 1 && types[2].results.len() == 1);
-                                println!("Found function types: ");
-                                println!("{}", types.iter().format("\n"))
-                            }
+                    let types = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
+                    assert!(types[0].params.len() == 2);
+                    assert!(types[1].params.len() == 1);
+                    assert!(types[2].params.len() == 1 && types[2].results.len() == 1);
+                    println!("Found function types: ");
+                    println!("{}", types.iter().format("\n"))
+                }
                 SectionData::Import(mut sub_reader) => {
-                                let i = sub_reader.next().unwrap()?;
-                                assert!(i.module == "env");
-                                assert!(i.name == "print");
+                    let i = sub_reader.next().unwrap()?;
+                    assert!(i.module == "env");
+                    assert!(i.name == "print");
 
-                                let i = sub_reader.next().unwrap()?;
-                                assert!(i.module == "env");
-                                assert!(i.name == "printNum");
-                            }
+                    let i = sub_reader.next().unwrap()?;
+                    assert!(i.module == "env");
+                    assert!(i.name == "printNum");
+                }
                 SectionData::Function(sub_reader) => {
-                                let functions = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
-                                assert!(functions[0] == 2);
-                                assert!(functions[1] == 3);
-                                assert!(functions[2] == 4);
-                            },
+                    let functions = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
+                    assert!(functions[0] == 2);
+                    assert!(functions[1] == 3);
+                    assert!(functions[2] == 4);
+                }
                 SectionData::Table(sub_reader) => todo!(),
                 SectionData::Memory(mut sub_reader) => {
-                                let mem = sub_reader.next().unwrap()?;
-                                assert!(mem.min == 1);
-                            }
+                    let mem = sub_reader.next().unwrap()?;
+                    assert!(mem.min == 1);
+                }
                 SectionData::Global(mut sub_reader) => {
-                                let global = sub_reader.next().unwrap()?;
-                                assert!(global.init_expr[0] == Op::I32Const(0));
-                                assert!(global.t.mutable);
-                            }
+                    let global = sub_reader.next().unwrap()?;
+                    assert!(global.init_expr[0] == Op::I32Const(0));
+                    assert!(global.t.mutable);
+                }
                 SectionData::Export(mut sub_reader) => {
-                                let export = sub_reader.next().unwrap()?;
-                                assert!(export.name == "should_work");
-                                assert!(export.desc == ExportDesc::FuncId(2));
-                                let export = sub_reader.next().unwrap()?;
+                    let export = sub_reader.next().unwrap()?;
+                    assert!(export.name == "should_work");
+                    assert!(export.desc == ExportDesc::FuncId(2));
+                    let export = sub_reader.next().unwrap()?;
 
-                                assert!(export.name == "should_work1");
-                                assert!(export.desc == ExportDesc::FuncId(3));
-                                let export = sub_reader.next().unwrap()?;
+                    assert!(export.name == "should_work1");
+                    assert!(export.desc == ExportDesc::FuncId(3));
+                    let export = sub_reader.next().unwrap()?;
 
-                                assert!(export.name == "should_work2");
-                                assert!(export.desc == ExportDesc::FuncId(4));
-
-                            },
+                    assert!(export.name == "should_work2");
+                    assert!(export.desc == ExportDesc::FuncId(4));
+                }
                 SectionData::Start(start) => {
-                                assert!(start == 6);
-                            },
+                    assert!(start == 6);
+                }
                 SectionData::DataCount(_) => todo!(),
                 SectionData::Code(mut sub_reader) => {
-                                let mut code = sub_reader.next().unwrap()?;
-                                assert!(code.locals[0].n == 1);
-                                assert!(code.code.next() == Some(Ok(Op::I32Const(1))));
-                            }
+                    let mut code = sub_reader.next().unwrap()?;
+                    assert!(code.locals[0].n == 1);
+                    assert!(code.code.next().unwrap().unwrap().0 == (Op::I32Const(1)));
+                }
                 SectionData::Data(mut sub_reader) => {
-                                let data = sub_reader.next().unwrap()?;
-                                if let Data::Active { mem_id, expr, data: _bytes} = &data {
-                                    assert!(*mem_id == 0);
-                                    assert!(expr[0] == Op::I32Const(0));
-                                    let str: &str = (&data).try_into()?;
-                                    assert!(str == "blubbi"); 
-                                }
-                            },
+                    let data = sub_reader.next().unwrap()?;
+                    if let Data::Active {
+                        mem_id,
+                        expr,
+                        data: _bytes,
+                    } = &data
+                    {
+                        assert!(*mem_id == 0);
+                        assert!(expr[0] == Op::I32Const(0));
+                        let str: &str = (&data).try_into()?;
+                        assert!(str == "blubbi");
+                    }
+                }
                 SectionData::Custom(data) => todo!(),
             }
         }
@@ -1172,9 +1293,89 @@ mod tests {
     }
     #[test]
     fn print_raw_bytecode() -> Result<()> {
-        let wasm = get_wasm_gen(); 
+        let wasm = get_wasm_gen();
         let mut reader = Reader::new(&wasm);
         reader.check_header()?;
+        for s in reader.sections_iter() {
+            let section = s?;
+            let slice = section.1;
+            match section.0.data {
+                SectionData::Custom(custom_section_data) => todo!(),
+                SectionData::Type(mut sub_reader) => {
+                    println!("Type section: {:0x?}", slice);
+                    for res in sub_reader.iter_with_slice() {
+                        if let Ok((t, data)) = res {
+                            println!("{}:\n{:#04x?}", t, data)
+                        }
+                    }
+                    let types = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
+                    println!("Types: {}", types.iter().format(" ,"));
+                }
+                SectionData::Import(mut sub_reader) => {
+                    println!("Import section: {:0x?}", slice);
+                    for res in sub_reader.iter_with_slice() {
+                        if let Ok((t, data)) = res {
+                            println!("{}:\n{:#04x?}", t, data);
+                        }
+                    }
+                }
+                SectionData::Function(mut sub_reader) => {
+                    println!("Function section: {:0x?}", slice);
+                    for res in sub_reader.iter_with_slice() {
+                        if let Ok((t, data)) = res {
+                            println!("Function {}:\n{:#04x?}", t, data);
+                        }
+                    }
+                }
+                SectionData::Table(mut sub_reader) => {
+                    println!("Table section: {:0x?}", slice);
+                    for res in sub_reader.iter_with_slice() {
+                        if let Ok((t, data)) = res {
+                            println!("Table {}:\n{:#04x?}", t, data);
+                        }
+                    }
+                }
+                SectionData::Memory(mut sub_reader) => {
+                    println!("Memory section: {:0x?}", slice);
+                    for res in sub_reader.iter_with_slice() {
+                        if let Ok((t, data)) = res {
+                            println!("Memory {}:\n{:#04x?}", t, data);
+                        }
+                    }
+                }
+                SectionData::Global(mut sub_reader) => {
+                    println!("Global section: {:0x?}", slice);
+                    for res in sub_reader.iter_with_slice() {
+                        if let Ok((t, data)) = res {
+                            println!("Global {}:\n{:#04x?}", t, data);
+                        }
+                    }
+                }
+                SectionData::Export(mut sub_reader) => {
+                    println!("Export section: {:0x?}", slice);
+                    for res in sub_reader.iter_with_slice() {
+                        if let Ok((t, data)) = res {
+                            println!("Export {}:\n{:#04x?}", t, data);
+                        }
+                    }
+                }
+                SectionData::Start(s) => {
+                    println!("Start section: {:0x?}", s);
+                }
+                SectionData::DataCount(_) => todo!(),
+                SectionData::Code(mut sub_reader) => {
+                    println!("Code section: {:0x?}", slice);
+                    for code in sub_reader.iter_with_slice() {
+                        if let Ok((func, slice)) = code {
+                            println!("Function: {func}");
+                        }
+                    }
+                }
+                SectionData::Data(sub_reader) => {
+                    println!("Data section!");
+                }
+            }
+        }
         Ok(())
     }
 }

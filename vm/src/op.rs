@@ -1,7 +1,11 @@
-use std::{ffi::os_str::Display, fmt::{self, write}};
+use std::{
+    ffi::os_str::Display,
+    fmt::{self, write},
+};
 
 use crate::reader::{
-    self, FromReader, FuncId, FunctionType, GlobalId, LabelId, LocalId, Reader, TableId, TypeId, ValueType
+    self, FromReader, FuncId, FunctionType, GlobalId, LabelId, LocalId, Reader, TableId, TypeId,
+    ValueType,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +27,7 @@ impl<'src> FromReader<'src> for Blocktype {
     }
 }
 
-impl fmt::Display for Blocktype{
+impl fmt::Display for Blocktype {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Blocktype::Empty => write!(f, ""),
@@ -123,6 +127,37 @@ pub enum Op {
     I64Leu,
     I64Ges,
     I64Geu,
+    I32Add,
+    I32Sub,
+    I32Mul,
+    I32Divs,
+    I32Divu,
+    I32Rems,
+    I32Remu,
+    I32And,
+    I32Or,
+    I32Xor,
+    I32Shl,
+    I32Shrs,
+    I32Shru,
+    I32Rotl,
+    I32Rotr,
+    I64Add,
+    I64Sub,
+    I64Mul,
+    I64Divs,
+    I64Divu,
+    I64Rems,
+    I64Remu,
+    I64And,
+    I64Or,
+    I64Xor,
+    I64Shl,
+    I64Shrs,
+    I64Shru,
+    I64Rotl,
+    I64Rotr,
+
     MemoryCopy,
     MemoryFill,
     //TODO: (joh): Float ops
@@ -137,7 +172,10 @@ impl Op {
         //TODO: (joh): Das stimmt so nicht 100%, wir muessten
         //testen ob ein Global.Get in der Form Const t ist: https://webassembly.github.io/spec/core/valid/instructions.html#constant-expressions
         //Das muessten wir spaeter dann in
-        matches!(self, Self::I32Const(_) | Self::I64Const(_) | Self::GlobalGet(_))
+        matches!(
+            self,
+            Self::I32Const(_) | Self::I64Const(_) | Self::GlobalGet(_)
+        )
     }
 }
 impl<'src> FromReader<'src> for Op {
@@ -213,10 +251,151 @@ impl<'src> FromReader<'src> for Op {
             0x58 => Op::I64Leu,
             0x59 => Op::I64Ges,
             0x5A => Op::I64Geu,
+
+            0x6A => Op::I32Add,
+            0x6B => Op::I32Sub,
+            0x6C => Op::I32Mul,
+            0x6D => Op::I32Divs,
+            0x6E => Op::I32Divu,
+            0x6F => Op::I32Rems,
+            0x70 => Op::I32Remu,
+            0x71 => Op::I32And,
+            0x72 => Op::I32Or,
+            0x73 => Op::I32Xor,
+            0x74 => Op::I32Shl,
+            0x75 => Op::I32Shrs,
+            0x76 => Op::I32Shru,
+            0x77 => Op::I32Rotl,
+            0x78 => Op::I32Rotr,
+
+            0x7C => Op::I64Add,
+            0x7D => Op::I64Sub,
+            0x7E => Op::I64Mul,
+            0x7F => Op::I64Divs,
+            0x80 => Op::I64Divu,
+            0x81 => Op::I64Rems,
+            0x82 => Op::I64Remu,
+            0x83 => Op::I64And,
+            0x84 => Op::I64Or,
+            0x85 => Op::I64Xor,
+            0x86 => Op::I64Shl,
+            0x87 => Op::I64Shrs,
+            0x89 => Op::I64Shru,
+            0x8A => Op::I64Rotl,
+            0x8B => Op::I64Rotr,
+
             0xFC => todo!(), //Memory
             //
-            _ => panic!("Unimplemented Opcode"),
+            _ => panic!("Unimplemented Opcode {:0X}", opcode),
         };
+
         Ok(instr)
+    }
+}
+
+impl fmt::Display for Op {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Op::Unreachable => write!(f, "unreachable"),
+            Op::Nop => write!(f, "nop"),
+            Op::Block(blocktype) => write!(f, "block {blocktype}"),
+            Op::Loop(blocktype) => write!(f, "loop {blocktype}"),
+            Op::If(blocktype) => write!(f, "if {blocktype}"),
+            Op::Else => write!(f, "else"),
+            Op::End => write!(f, "end"),
+            Op::Br(label_id) => write!(f, "br {label_id}"),
+            Op::BrIf(label_id) => write!(f, "br_if {label_id}"),
+            Op::Return => write!(f, "return"),
+            Op::Call(func_id) => write!(f, "call {func_id}"),
+            Op::CallIndirect(table_id, type_id) => write!(f, "call_indirect {table_id} {type_id}"),
+            Op::Drop => write!(f, "drop"),
+            Op::Select => write!(f, "select"),
+            Op::LocalGet(id) => write!(f, "local.get {id}"),
+            Op::LocalSet(id) => write!(f, "local.set {id}"),
+            Op::LocalTee(id) => write!(f, "local.tee {id}"),
+            Op::GlobalGet(id) => write!(f, "global.get {id}"),
+            Op::GlobalSet(id) => write!(f, "global.set {id}"),
+            Op::I32Load(memarg) => write!(f, "i32.load {memarg}"),
+            Op::I64Load(memarg) => write!(f, "i64.load {memarg}"),
+            Op::F32Load(memarg) => write!(f, "f32.load {memarg}"),
+            Op::F64Load(memarg) => write!(f, "f64.load {memarg}"),
+            Op::I32Load8s(memarg) => write!(f, "i32.load8s {memarg}"),
+            Op::I32Load8u(memarg) => write!(f, "i32.load8u {memarg}"),
+            Op::I32Load16s(memarg) => write!(f, "i32.load16s {memarg}"),
+            Op::I32Load16u(memarg) => write!(f, "i32.load16u {memarg}"),
+            Op::I64Load8s(memarg) => write!(f, "i64.load8s {memarg}"),
+            Op::I64Load8u(memarg) => write!(f, "i64.load8u {memarg}"),
+            Op::I64Load16s(memarg) => write!(f, "i64.load16s {memarg}"),
+            Op::I64Load16u(memarg) => write!(f, "i64.load16u {memarg}"),
+            Op::I64Load32s(memarg) => write!(f, "i64.load32s {memarg}"),
+            Op::I64Load32u(memarg) => write!(f, "i64.load32u {memarg}"),
+            Op::I32Store(memarg) => write!(f, "i32.store {memarg}"),
+            Op::I64Store(memarg) => write!(f, "i64.store {memarg}"),
+            Op::F32Store(memarg) => write!(f, "f32.store {memarg}"),
+            Op::F64Store(memarg) => write!(f, "i64.store {memarg}"),
+            Op::I32Store8(memarg) => write!(f, "i32.store8 {memarg}"),
+            Op::I32Store16(memarg) => write!(f, "i32.store16 {memarg}"),
+            Op::I64Store8(memarg) => write!(f, "i64.store8 {memarg}"),
+            Op::I64Store16(memarg) => write!(f, "i64.store16 {memarg}"),
+            Op::I64Store32(memarg) => write!(f, "i64.store32 {memarg}"),
+            Op::I32Const(arg) => write!(f, "i32.const {arg}"),
+            Op::I64Const(arg) => write!(f, "i64.const {arg}"),
+            Op::F32Const(arg) => write!(f, "f32.const {arg}"),
+            Op::F64Const(arg) => write!(f, "f64.const {arg}"),
+            Op::I32Eqz => write!(f, "i32.eqz"),
+            Op::I32Eq => write!(f, "i32.eq"),
+            Op::I32Ne => write!(f, "i32.ne"),
+            Op::I32Lts => write!(f, "i32.lts"),
+            Op::I32Ltu => write!(f, "i32.ltu"),
+            Op::I32Gts => write!(f, "i32.gts"),
+            Op::I32Gtu => write!(f, "i32.gtu"),
+            Op::I32Leu => write!(f, "i32.leu"),
+            Op::I32Les => write!(f, "i32.les"),
+            Op::I32Ges => write!(f, "i32.ges"),
+            Op::I32Geu => write!(f, "i32.geu"),
+            Op::I64Eqz => write!(f, "i64.eqz"),
+            Op::I64Eq => write!(f, "i64.eq"),
+            Op::I64Ne => write!(f, "i64.ne"),
+            Op::I64Lts => write!(f, "i64.lts"),
+            Op::I64Ltu => write!(f, "i64.ltu"),
+            Op::I64Gts => write!(f, "i64.gts"),
+            Op::I64Gtu => write!(f, "i64.gtu"),
+            Op::I64Les => write!(f, "i64.les"),
+            Op::I64Leu => write!(f, "i64.leu"),
+            Op::I64Ges => write!(f, "i64.ges"),
+            Op::I64Geu => write!(f, "i64.geu"),
+            Op::MemoryCopy => write!(f, "memory.copy"),
+            Op::MemoryFill => write!(f, "memory.fill"),
+            Op::I32Add => write!(f, "i32.add"),
+            Op::I32Sub => write!(f, "i32.sub"),
+            Op::I32Mul => write!(f, "i32.mul"),
+            Op::I32Divs => write!(f, "i32.div_s"),
+            Op::I32Divu => write!(f, "i32.div_u"),
+            Op::I32Rems => write!(f, "i32.rem_s"),
+            Op::I32Remu => write!(f, "i32.rem_u"),
+            Op::I32And => write!(f, "i32.and"),
+            Op::I32Or => write!(f, "i32.or"),
+            Op::I32Xor => write!(f, "i32.xor"),
+            Op::I32Shl => write!(f, "i32.shl"),
+            Op::I32Shrs => write!(f, "i32.shrs"),
+            Op::I32Shru => write!(f, "i32.shru"),
+            Op::I32Rotl => write!(f, "i32.rotl"),
+            Op::I32Rotr => write!(f, "i32.rotr"),
+            Op::I64Add => write!(f, "i64.add"),
+            Op::I64Sub => write!(f, "i64.sub"),
+            Op::I64Mul => write!(f, "i64.mul"),
+            Op::I64Divs => write!(f, "i64.div_s"),
+            Op::I64Divu => write!(f, "i64.div_u"),
+            Op::I64Rems => write!(f, "i64.rem_s"),
+            Op::I64Remu => write!(f, "i64.rem_u"),
+            Op::I64And => write!(f, "i64.and"),
+            Op::I64Or => write!(f, " i64.or"),
+            Op::I64Xor => write!(f, "i64.xor"),
+            Op::I64Shl => write!(f, "i64.shl"),
+            Op::I64Shrs => write!(f, "i64.shrs"),
+            Op::I64Shru => write!(f, "i64.shru"),
+            Op::I64Rotl => write!(f, "i64.rotl"),
+            Op::I64Rotr => write!(f, "i64.rotr"),
+        }
     }
 }
