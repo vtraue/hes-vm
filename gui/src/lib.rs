@@ -13,6 +13,7 @@ pub struct HesApp {
     show_left_panel: bool,
     show_center_panel: bool,
     show_right_panel: bool,
+    picked_path: Option<String>,
     bytecode: Vec<u8>,
     code_text: Vec<String>,
     bytecode_option: BytecodeDisplayOptions,
@@ -26,6 +27,7 @@ impl<'src, 'b> Default for HesApp {
             show_left_panel: true,
             show_center_panel: true,
             show_right_panel: true,
+            picked_path: None,
             code_text: vec![],
             bytecode: vec![],
             bytecode_option: BytecodeDisplayOptions::default(),
@@ -35,7 +37,7 @@ impl<'src, 'b> Default for HesApp {
 }
 
 impl<'src, 'b> HesApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>, path: &str) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>, path: Option<&str>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -48,7 +50,13 @@ impl<'src, 'b> HesApp {
             ..Default::default()
         };
 
-        app.bytecode = fs::read(path).unwrap();
+        match path {
+            Some(path) => {
+                app.bytecode = fs::read(path).unwrap();
+            }
+            None => (),
+        }
+
         app.code_text = vec![
             "local.get 0".to_string(),
             "local.get 1".to_string(),
@@ -69,6 +77,13 @@ impl<'src> App for HesApp {
                     ui.menu_button("File", |ui| {
                         if ui.button("Quit").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("Open file...").clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                self.picked_path = Some(path.display().to_string());
+                                self.bytecode = fs::read(path).unwrap();
+                            }
+                            ui.close_menu();
                         }
                     });
                     ui.add_space(16.0);

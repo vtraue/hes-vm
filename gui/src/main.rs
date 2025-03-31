@@ -17,6 +17,6 @@ fn main() -> eframe::Result {
     run_native(
         "hes-vm",
         native_options,
-        Box::new(|cc| Ok(Box::new(HesApp::new(cc, path)))),
+        Box::new(|cc| Ok(Box::new(HesApp::new(cc, Some(path))))),
     )
 }
