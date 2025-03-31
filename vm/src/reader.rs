@@ -1,7 +1,8 @@
-use crate::{op::Op, parser::ValidationError};
 use core::fmt::{self};
 use itertools::Itertools;
 use std::{ffi::os_str::Display, io::Read, marker::PhantomData};
+
+use crate::op::Op;
 
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
@@ -16,7 +17,7 @@ pub enum ReaderError {
     InvalidValueTypeId(u8),
     InvalidHeaderMagicNumber,
     InvalidWasmVersion,
-    InvalidFunctionTypeEncoding,
+    InvalidFunctionTypeEncoding(u8),
     InvalidImportDesc(u8),
     UnimplementedOpcode(u8),
     ExpectedConstExpression(Op),
@@ -45,7 +46,7 @@ impl fmt::Display for ReaderError {
             }
             ReaderError::InvalidHeaderMagicNumber => todo!(),
             ReaderError::InvalidWasmVersion => todo!(),
-            ReaderError::InvalidFunctionTypeEncoding => todo!(),
+            ReaderError::InvalidFunctionTypeEncoding(_) => todo!(),
             ReaderError::InvalidImportDesc(id) => {
                 write!(f, "Invalid import desc id: {}", id)
             }
@@ -121,8 +122,18 @@ impl<'src> FromReader<'src> for &'src str {
     }
 }
 
+pub trait FixedBinarySize<'src>: Sized {
+    fn size_from_reader(reader: &mut Reader) -> Result<usize>;
+}
+impl FixedBinarySize<'_> for u8 {
+    fn size_from_reader(_: &'_ mut Reader) -> Result<usize> {
+        Ok(size_of::<u8>())
+    }
+}
+
+
 #[derive(Debug, Clone)]
-pub struct Offset {
+pub struct Position {
     offset: usize,
     len: usize,
 }
@@ -130,17 +141,20 @@ pub struct Offset {
 pub struct Reader<'src> {
     buffer: &'src [u8],
     current_position: usize,
-    //TODO: (joh): Erlaube generische Allokatoren
+    start_position: usize,
 }
 
 impl<'src> Reader<'src> {
-    pub fn new(buffer: &'src [u8]) -> Self {
+    pub fn new(buffer: &'src [u8], start_position: usize) -> Self {
         Self {
             buffer,
             current_position: 0,
+            start_position,
         }
     }
-
+    pub fn from_reader(reader: &Reader<'src>) -> Self {
+        Reader {buffer: reader.buffer, current_position: reader.current_position, start_position: reader.current_position}
+    }
     pub fn current_buffer(&self) -> &'src [u8] {
         &self.buffer[self.current_position..]
     }
@@ -357,16 +371,7 @@ impl<'src> Reader<'src> {
         T::from_reader(self)
     }
 
-    pub fn read_with_slice<T>(&mut self) -> Result<(T, &'src [u8])>
-    where
-        T: FromReader<'src>,
-    {
-        let start = self.current_position;
-        let elem = T::from_reader(self);
-        Ok((elem?, &self.buffer[start..self.current_position]))
-    }
-
-    pub fn read_with_offset<T>(&mut self) -> Result<(Offset, T)>
+    pub fn read_with_position<T>(&mut self) -> Result<(T, Position)>
     where
         T: FromReader<'src>,
     {
@@ -374,12 +379,21 @@ impl<'src> Reader<'src> {
         let elem = T::from_reader(self)?;
         let bytes_read = self.current_position - start;
         Ok((
-            Offset {
-                offset: start,
+            elem,
+            Position {
+                offset: start + self.start_position,
                 len: bytes_read,
             },
-            elem,
         ))
+    }
+
+    pub fn read_with_slice<T>(&mut self) -> Result<(T, &'src [u8])>
+    where
+        T: FromReader<'src>,
+    {
+        let start = self.current_position;
+        let elem = T::from_reader(self);
+        Ok((elem?, &self.buffer[start..self.current_position]))
     }
 
     pub fn read_vec_iter<'me, T>(&'me mut self) -> Result<VecIter<'src, 'me, T>>
@@ -418,17 +432,11 @@ impl<'src> Reader<'src> {
         T: FromReader<'src>,
     {
         let slice: &'src [u8] = &self.buffer[self.current_position..self.current_position + size];
-        let mut reader = Reader::new(slice);
+        let mut reader = Reader::new(slice, self.current_position);
         let count = reader.read_var_u32()? as usize;
 
         self.skip_bytes(size)?;
-
-        Ok(SubReader {
-            reader,
-            count,
-            read: 0,
-            _marker: PhantomData,
-        })
+        Ok(SubReader::from_reader(reader, count))
     }
 
     pub fn read_const_expr_iter<'me>(&'me mut self) -> ConstantExprIter<'src, 'me> {
@@ -442,11 +450,13 @@ impl<'src> Reader<'src> {
     pub fn sections_iter<'me>(&'me mut self) -> SectionsIter<'src, 'me> {
         SectionsIter { reader: self }
     }
+
 }
 
 pub struct SectionsIter<'src, 'me> {
     reader: &'me mut Reader<'src>,
 }
+
 impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
     type Item = Result<(Section<'src>, &'src [u8])>;
 
@@ -528,14 +538,41 @@ pub struct SubReader<'src, T: FromReader<'src>> {
 }
 
 impl<'src, T: FromReader<'src>> SubReader<'src, T> {
+    pub fn from_reader(reader: Reader<'src>, count: usize) -> Self {
+        SubReader {
+            reader,
+            count,
+            read: 0,
+            _marker: PhantomData,
+        }
+    }
+}
+impl<'src, T: FromReader<'src> + FixedBinarySize<'src>> SubReader<'src, T> {
+    pub fn from_vec(reader: &mut Reader<'src>) -> Result<Self> {
+        let count = reader.read_var_u32()? as usize;
+        let mut new_reader = Reader::from_reader(reader); 
+        let size_bytes = T::size_from_reader(&mut new_reader)? * count;
+        reader.skip_bytes(size_bytes)?;
+        Ok(Self::from_reader(new_reader, count))
+    }
+}
+
+impl<'src, T: FromReader<'src>> SubReader<'src, T> {
     pub fn read_with_slice(&mut self) -> Option<Result<(T, &'src [u8])>> {
         if self.read < self.count {
             let elem = self.reader.read_with_slice::<T>();
             self.read += 1;
             Some(elem)
         } else {
-            println!("No more elements");
-
+            None
+        }
+    }
+    pub fn read_with_position(&mut self) -> Option<Result<(T, Position)>> {
+        if self.read < self.count {
+            let elem = self.reader.read_with_position::<T>();
+            self.read += 1;
+            Some(elem)
+        } else {
             None
         }
     }
@@ -546,6 +583,10 @@ impl<'src, T: FromReader<'src>> SubReader<'src, T> {
     pub fn iter_with_slice<'me>(&'me mut self) -> SubReaderSliceIter<'src, 'me, T> {
         SubReaderSliceIter(self)
     }
+
+    pub fn iter_with_position<'me>(&'me mut self) -> SubReaderPositionIter<'src, 'me, T> {
+        SubReaderPositionIter(self)
+    }
 }
 
 impl<'src, T: FromReader<'src>> Iterator for SubReader<'src, T> {
@@ -553,6 +594,9 @@ impl<'src, T: FromReader<'src>> Iterator for SubReader<'src, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.read()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        return (self.count - self.read, Some(self.count - self.read));
     }
 }
 
@@ -565,6 +609,15 @@ impl<'src, 'me, T: FromReader<'src>> Iterator for SubReaderSliceIter<'src, 'me, 
     }
 }
 
+pub struct SubReaderPositionIter<'src, 'me, T: FromReader<'src>>(&'me mut SubReader<'src, T>);
+impl<'src, 'me, T: FromReader<'src>> Iterator for SubReaderPositionIter<'src, 'me, T> {
+    type Item = Result<(T, Position)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.read_with_position()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CodeReader<'src> {
     reader: Reader<'src>,
@@ -574,9 +627,9 @@ pub struct CodeReader<'src> {
 }
 
 impl<'src> CodeReader<'src> {
-    pub fn new(buffer: &'src [u8]) -> Self {
+    pub fn new(buffer: &'src [u8], start: usize) -> Self {
         CodeReader {
-            reader: Reader::new(buffer),
+            reader: Reader::new(buffer, start),
             depth: 0,
             instructions_read: 0,
             done: false,
@@ -585,13 +638,13 @@ impl<'src> CodeReader<'src> {
 }
 
 impl<'src> Iterator for CodeReader<'src> {
-    type Item = Result<(Op, &'src [u8])>;
+    type Item = Result<(Op, Position)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             None
         } else {
-            let op = self.reader.read_with_slice::<Op>();
+            let op = self.reader.read_with_position::<Op>();
             match op {
                 Err(e) => {
                     self.done = true;
@@ -740,52 +793,50 @@ impl<'src> FromReader<'src> for ValueType {
     }
 }
 
-#[derive(Debug)]
-pub struct FunctionType {
-    params: Box<[ValueType]>,
-    results: Box<[ValueType]>,
-}
-
-impl FunctionType {
-    pub fn new<P, R>(params: P, results: R) -> Self
-    where
-        P: IntoIterator<Item = ValueType>,
-        R: IntoIterator<Item = ValueType>,
-    {
-        Self {
-            params: params.into_iter().collect::<Vec<_>>().into(),
-            results: results.into_iter().collect::<Vec<_>>().into(),
-        }
+impl FixedBinarySize<'_> for ValueType {
+    fn size_from_reader(_: &'_ mut Reader) -> Result<usize> {
+        Ok(size_of::<u8>())
     }
 }
 
-impl<'src> FromReader<'src> for FunctionType {
+#[derive(Debug)]
+pub struct FunctionType<'src> {
+    params: SubReader<'src, ValueType>,
+    results: SubReader<'src, ValueType>,
+}
+
+impl<'src> FromReader<'src> for FunctionType<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let magic = reader.read_u8()?;
         if magic != 0x60 {
-            return Err(ReaderError::InvalidFunctionTypeEncoding);
+            return Err(ReaderError::InvalidFunctionTypeEncoding(magic));
         }
-        let params = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
-        let results = reader.read_vec_iter()?.collect::<Result<Vec<_>>>()?;
-
+        
+        let params =  SubReader::from_vec(reader)?;
+        let results = SubReader::from_vec(reader)?;
+        
         Ok(Self {
-            params: params.into_boxed_slice(),
-            results: results.into_boxed_slice(),
+            params, results
         })
     }
 }
-impl fmt::Display for FunctionType {
+
+impl<'src> fmt::Display for FunctionType<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        //NOTE: (joh): Checke ob das allokiert
-        write!(
-            f,
-            "({}) -> ({})",
-            self.params.iter().format(", "),
-            self.results.iter().format(",")
-        )
+        //NOTE: (joh): Definitv unnoetige Allokationen hier
+        let p = self
+            .params
+            .clone()
+            .map(|r| r.map_or_else(|e| e.to_string(), |f| f.to_string()));
+        let r = self
+            .results
+            .clone()
+            .map(|r| r.map_or_else(|e| e.to_string(), |f| f.to_string()));
+
+        write!(f, "({}) -> ({})", p.format(", "), r.format(","))
     }
 }
-impl FixedBinarySize for 
+
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct Limits {
     min: u32,
@@ -902,7 +953,7 @@ pub enum Reftype {
     Funcref,
     Externref,
 }
-pub type TypeReader<'src> = SubReader<'src, FunctionType>;
+pub type TypeReader<'src> = SubReader<'src, FunctionType<'src>>;
 pub type ImportReader<'src> = SubReader<'src, Import<'src>>;
 pub type FunctionReader<'src> = SubReader<'src, TypeId>;
 pub type LimitsReader<'src> = SubReader<'src, Limits>;
@@ -991,10 +1042,8 @@ pub struct Locals {
 impl<'src> FromReader<'src> for Locals {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let n: u32 = reader.read()?;
-        println!("count: {n}");
 
         let t: ValueType = reader.read()?;
-        println!("t: {t}");
         Ok(Self { n, t })
     }
 }
@@ -1035,18 +1084,14 @@ pub struct Function<'src> {
 }
 impl<'src> FromReader<'src> for Function<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
-        println!("Reading function");
         let full_code_size = reader.read_var_u32()?;
-        println!("Code size: {full_code_size}");
 
         let start_position = reader.current_position;
-        println!("Reading locals");
         let locals = reader.read_vec_boxed_slice::<Locals>()?;
-        println!("Done!");
         let locals_size = reader.current_position - start_position;
         let code_size = full_code_size as usize - locals_size;
 
-        let code_reader = CodeReader::new(&reader.current_buffer()[..code_size]);
+        let code_reader = CodeReader::new(&reader.current_buffer()[..code_size], start_position);
         reader.skip_bytes(code_size)?;
         Ok(Function {
             locals,
@@ -1195,13 +1240,15 @@ mod tests {
 
     fn get_wasm_gen() -> Box<[u8]> {
         let source = include_str!("wat/gen.wat");
-        wat::parse_str(source).unwrap().into_boxed_slice()
+        let source = wat::parse_str(source).unwrap().into_boxed_slice();
+        fs::write("gen2.wasm", &source).unwrap();
+        source
     }
 
     #[test]
     fn wasm_check_section_iter() -> Result<(), ReaderError> {
         let wasm = get_wasm_gen();
-        let mut reader = Reader::new(&wasm);
+        let mut reader = Reader::new(&wasm, 0);
         reader.check_header()?;
         reader.sections_iter().collect::<Result<Vec<_>>>()?;
         Ok(())
@@ -1212,17 +1259,15 @@ mod tests {
         let path = env::current_dir().unwrap();
         println!("Dir: {}", path.display());
         let wasm = get_wasm_gen();
-        let mut reader = Reader::new(&wasm);
+        let mut reader = Reader::new(&wasm, 0);
         reader.check_header()?;
 
         for s in reader.sections_iter() {
             match s?.0.data {
                 SectionData::Type(sub_reader) => {
-                    let types = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
-                    assert!(types[0].params.len() == 2);
-                    assert!(types[1].params.len() == 1);
-                    assert!(types[2].params.len() == 1 && types[2].results.len() == 1);
-                    println!("Found function types: ");
+                    let types = sub_reader.collect::<Result<Vec<_>>>()?;
+                    assert!(types[0].params.count == 2);
+                    assert!(types[1].params.count == 1);
                     println!("{}", types.iter().format("\n"))
                 }
                 SectionData::Import(mut sub_reader) => {
@@ -1294,7 +1339,7 @@ mod tests {
     #[test]
     fn print_raw_bytecode() -> Result<()> {
         let wasm = get_wasm_gen();
-        let mut reader = Reader::new(&wasm);
+        let mut reader = Reader::new(&wasm, 0);
         reader.check_header()?;
         for s in reader.sections_iter() {
             let section = s?;
