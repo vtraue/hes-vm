@@ -84,13 +84,13 @@ impl<'src> From<crate::reader::Data<'src>> for Data {
 #[derive(Debug, Default)]
 pub struct CustomSection {
     name: (String, Position),
-    data: Vec<u8> 
+    data: (Vec<u8>, Position) 
 }
 
 impl<'src> From<crate::reader::CustomSectionData<'src>> for CustomSection {
     fn from(value: crate::reader::CustomSectionData<'src>) -> Self {
-        let name = (value.name.0.to_string(), value.name.0); 
-        let data = (value.data.0.into::<Vec<u8>>(), value.data.1); 
+        let name = (value.name.0.to_string(), value.name.1); 
+        let data = (value.data.0.into(), value.data.1); 
         Self {name, data} 
     }
 }
@@ -110,7 +110,7 @@ pub struct BytecodeInfo {
     data_count_section: Option<(u32, Position)>,
     code_section: Option<(Box<[(Function, Position)]>, Position)>,
     data_section: Option<(Box<[(Data, Position)]>, Position)>,
-    custom_sections: Vec<(CustomSectionData, Position)>
+    custom_sections: Vec<CustomSection>
 }
 
 impl BytecodeInfo {
@@ -126,7 +126,7 @@ impl BytecodeInfo {
             //TODO: (joh): Das geht bestimmt hübscher
             match data{
                 crate::reader::SectionData::Custom(custom_section_data) => {
-                    info.custom_sections.append(custom_section_data.into());
+                    info.custom_sections.push(custom_section_data.into());
                 }
                 crate::reader::SectionData::Type(mut sub_reader) => {
                     info.type_section = Some((sub_reader.iter_with_position().map_ok(|(e, p)| (e.into(), p)).collect::<Result<Vec<_>, _>>()?.into_boxed_slice(), pos))
@@ -173,9 +173,8 @@ impl BytecodeInfo {
 mod tests{
     use std::fs;
 
-    use crate::reader::{Reader, ReaderError};
+    use crate::{bytecode_info::BytecodeInfo, reader::{Reader, ReaderError}};
 
-    use super::BytecodeInfo;<
 
     fn get_wasm_gen() -> Box<[u8]> {
         let source = include_str!("wat/gen.wat");
