@@ -132,11 +132,12 @@ impl FixedBinarySize<'_> for u8 {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Eq, PartialEq, PartialOrd)]
 pub struct Position {
     offset: usize,
     len: usize,
 }
+
 #[derive(Debug, Clone)]
 pub struct Reader<'src> {
     buffer: &'src [u8],
@@ -177,18 +178,19 @@ impl<'src> Reader<'src> {
         Ok(res)
     }
 
-    pub fn read_bytes(&mut self, size: usize) -> Result<&'src [u8]> {
+    pub fn read_bytes(&mut self, size: usize) -> Result<(&'src [u8], Position)> {
         self.can_read_bytes(size)?;
+        let position = Position { offset: self.current_position, len: size };
         let new_pos = self.current_position + size;
         let res = &self.buffer[self.current_position..new_pos];
 
         self.current_position = new_pos;
-        Ok(res)
+        Ok((res, position))
     }
 
     pub fn read_u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(
-            self.read_bytes(size_of::<u32>())?.try_into().unwrap(),
+            self.read_bytes(size_of::<u32>())?.0.try_into().unwrap(),
         ))
     }
 
@@ -343,7 +345,7 @@ impl<'src> Reader<'src> {
     }
 
     pub fn read_sized_name(&mut self, size: usize) -> Result<&'src str> {
-        Ok(str::from_utf8(self.read_bytes(size)?)?)
+        Ok(str::from_utf8(self.read_bytes(size)?.0)?)
     }
 
     pub fn read_name(&mut self) -> Result<&'src str> {
@@ -351,17 +353,17 @@ impl<'src> Reader<'src> {
         self.read_sized_name(len)
     }
 
-    pub fn check_header(&mut self) -> Result<()> {
-        let header = self.read_bytes(4)?;
+    pub fn check_header(&mut self) -> Result<(Position, Position)> {
+        let (header, header_pos) = self.read_bytes(4)?;
         if header != WASM_HEADER_MAGIC {
             return Err(ReaderError::InvalidHeaderMagicNumber);
         }
-        let version = self.read_bytes(4)?;
+        let (version, version_pos) = self.read_bytes(4)?;
         if version[0] != 1 {
             return Err(ReaderError::InvalidWasmVersion);
         }
 
-        Ok(())
+        Ok((header_pos, version_pos))
     }
 
     pub fn read<T>(&mut self) -> Result<T>
@@ -410,7 +412,7 @@ impl<'src> Reader<'src> {
         })
     }
 
-    pub fn read_vec_boxed_slice<T>(&mut self) -> Result<Box<[T]>>
+    pub fn read_vec_boxed_slice<T>(&mut self) -> Result<Box<[(T, Position)]>>
     where
         T: FromReader<'src>,
     {
@@ -420,7 +422,7 @@ impl<'src> Reader<'src> {
             .into_boxed_slice())
     }
 
-    pub fn read_vec_bytes(&mut self) -> Result<&'src [u8]> {
+    pub fn read_vec_bytes(&mut self) -> Result<(&'src [u8], Position)> {
         let size = self.read_var_u32()? as usize;
         self.read_bytes(size)
     }
@@ -458,11 +460,11 @@ pub struct SectionsIter<'src, 'me> {
 }
 
 impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
-    type Item = Result<(Section<'src>, &'src [u8])>;
+    type Item = Result<(Section<'src>, Position)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.can_read_bytes(1).ok()?;
-        Some(self.reader.read_with_slice::<Section>())
+        Some(self.reader.read_with_position::<Section>())
     }
 }
 
@@ -475,13 +477,13 @@ pub struct VecIter<'src, 'me, T: FromReader<'src>> {
 }
 
 impl<'src, 'me, T: FromReader<'src>> Iterator for VecIter<'src, 'me, T> {
-    type Item = Result<T>;
+    type Item = Result<(T, Position)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_position >= self.count || self.done {
             None
         } else {
-            let res = self.reader.read::<T>();
+            let res = self.reader.read_with_position::<T>();
             if res.is_err() {
                 self.done = true;
             } else {
@@ -498,26 +500,26 @@ pub struct ConstantExprIter<'src, 'me> {
     reader: &'me mut Reader<'src>,
 }
 impl<'src, 'me> Iterator for ConstantExprIter<'src, 'me> {
-    type Item = Result<Op>;
+    type Item = Result<(Op, Position)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             None
         } else {
-            match self.reader.read::<Op>() {
+            match self.reader.read_with_position::<Op>() {
                 Err(e) => {
                     self.done = true;
                     Some(Err(e))
                 }
-                Ok(Op::End) => {
+                Ok((Op::End, p)) => {
                     self.done = true;
-                    Some(Ok(Op::End))
+                    Some(Ok((Op::End, p)))
                 }
 
-                Ok(op) => {
+                Ok((op, p)) => {
                     if op.is_const() {
                         self.current_position += 1;
-                        Some(Ok(op))
+                        Some(Ok((op, p)))
                     } else {
                         self.done = true;
                         Some(Err(ReaderError::ExpectedConstExpression(op)))
@@ -627,9 +629,10 @@ pub struct CodeReader<'src> {
 }
 
 impl<'src> CodeReader<'src> {
-    pub fn new(buffer: &'src [u8], start: usize) -> Self {
+    pub fn new(reader: Reader<'src>) -> Self {
+
         CodeReader {
-            reader: Reader::new(buffer, start),
+            reader,
             depth: 0,
             instructions_read: 0,
             done: false,
@@ -801,8 +804,8 @@ impl FixedBinarySize<'_> for ValueType {
 
 #[derive(Debug)]
 pub struct FunctionType<'src> {
-    params: SubReader<'src, ValueType>,
-    results: SubReader<'src, ValueType>,
+    pub params: SubReader<'src, ValueType>,
+    pub results: SubReader<'src, ValueType>,
 }
 
 impl<'src> FromReader<'src> for FunctionType<'src> {
@@ -820,6 +823,7 @@ impl<'src> FromReader<'src> for FunctionType<'src> {
         })
     }
 }
+
 
 impl<'src> fmt::Display for FunctionType<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -839,20 +843,20 @@ impl<'src> fmt::Display for FunctionType<'src> {
 
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct Limits {
-    min: u32,
-    max: Option<u32>,
+    min: (u32, Position),
+    max: Option<(u32, Position)>,
 }
 
 impl<'src> FromReader<'src> for Limits {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         match reader.read_u8()? {
             0x00 => Ok(Self {
-                min: reader.read()?,
+                min: reader.read_with_position()?,
                 max: None,
             }),
             0x01 => Ok(Self {
-                min: reader.read()?,
-                max: Some(reader.read()?),
+                min: reader.read_with_position()?,
+                max: Some(reader.read_with_position()?),
             }),
             _ => Err(ReaderError::InvalidLimits),
         }
@@ -862,31 +866,31 @@ impl<'src> FromReader<'src> for Limits {
 impl<'src> fmt::Display for Limits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.max {
-            Some(m) => write!(f, "({}..{})", self.min, m),
-            None => write!(f, "({}..)", self.min),
+            Some((m, _)) => write!(f, "({}..{})", self.min.0, m),
+            None => write!(f, "({}..)", self.min.0),
         }
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct GlobalType {
-    t: ValueType,
-    mutable: bool,
+    t: (ValueType, Position),
+    mutable: (bool, Position),
 }
 
 impl<'src> FromReader<'src> for GlobalType {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
-            t: reader.read()?,
-            mutable: reader.read()?,
+            t: reader.read_with_position()?,
+            mutable: reader.read_with_position()?,
         })
     }
 }
 
 impl fmt::Display for GlobalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut_str = if self.mutable { "mut" } else { "" };
-        write!(f, "{} {}", mut_str, self.t)
+        let mut_str = if self.mutable.0 { "mut" } else { "" };
+        write!(f, "{} {}", mut_str, self.t.0)
     }
 }
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
@@ -921,23 +925,23 @@ impl fmt::Display for ImportDesc {
 
 #[derive(Debug)]
 pub struct Import<'src> {
-    module: &'src str,
-    name: &'src str,
-    desc: ImportDesc,
+    pub module: (&'src str, Position),
+    pub name: (&'src str, Position),
+    pub desc: (ImportDesc, Position),
 }
 
 impl<'src> FromReader<'src> for Import<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
-            module: reader.read()?,
-            name: reader.read()?,
-            desc: reader.read()?,
+            module: reader.read_with_position()?,
+            name: reader.read_with_position()?,
+            desc: reader.read_with_position()?,
         })
     }
 }
 impl<'src> fmt::Display for Import<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}: {} {})", self.module, self.name, self.desc)
+        write!(f, "({}: {} {})", self.module.0, self.name.0, self.desc.0)
     }
 }
 
@@ -964,13 +968,13 @@ pub type DataReader<'src> = SubReader<'src, Data<'src>>;
 
 #[derive(Debug)]
 pub struct Global {
-    t: GlobalType,
-    init_expr: Box<[Op]>,
+    t: (GlobalType, Position),
+    init_expr: Box<[(Op, Position)]>
 }
 
 impl<'src> FromReader<'src> for Global {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
-        let t = reader.read::<GlobalType>()?;
+        let t = reader.read_with_position::<GlobalType>()?;
         let init_expr = reader
             .read_const_expr_iter()
             .collect::<Result<Vec<_>>>()?
@@ -980,10 +984,10 @@ impl<'src> FromReader<'src> for Global {
 }
 impl<'src> fmt::Display for Global {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} = {}", self.t, self.init_expr.iter().format(" ,"))
+        write!(f, "{} = {}", self.t.0, self.init_expr.iter().map(|v| v.0).format(" ,"))
     }
 }
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExportDesc {
     FuncId(FuncId),
     TableId(TableId),
@@ -1015,22 +1019,22 @@ impl fmt::Display for ExportDesc {
 
 #[derive(Debug)]
 pub struct Export<'src> {
-    name: &'src str,
-    desc: ExportDesc,
+    pub name: (&'src str, Position),
+    pub desc: (ExportDesc, Position),
 }
 
 impl<'src> FromReader<'src> for Export<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         Ok(Self {
-            name: reader.read()?,
-            desc: reader.read()?,
+            name: reader.read_with_position()?,
+            desc: reader.read_with_position()?,
         })
     }
 }
 
 impl fmt::Display for Export<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.desc)
+        write!(f, "{}: {}", self.name.0, self.desc.0)
     }
 }
 #[derive(Debug, Clone)]
@@ -1079,8 +1083,8 @@ impl Iterator for LocalsIterator {
 
 #[derive(Debug)]
 pub struct Function<'src> {
-    locals: Box<[Locals]>,
-    code: CodeReader<'src>,
+    pub locals: Box<[(Locals, Position)]>,
+    pub code: CodeReader<'src>,
 }
 impl<'src> FromReader<'src> for Function<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
@@ -1090,8 +1094,11 @@ impl<'src> FromReader<'src> for Function<'src> {
         let locals = reader.read_vec_boxed_slice::<Locals>()?;
         let locals_size = reader.current_position - start_position;
         let code_size = full_code_size as usize - locals_size;
+        let buffer = &reader.current_buffer()[..code_size];
+        let start_position = reader.start_position;
+        let new_reader = Reader::new(buffer, start_position);
+        let code_reader = CodeReader::new(new_reader);
 
-        let code_reader = CodeReader::new(&reader.current_buffer()[..code_size], start_position);
         reader.skip_bytes(code_size)?;
         Ok(Function {
             locals,
@@ -1101,7 +1108,7 @@ impl<'src> FromReader<'src> for Function<'src> {
 }
 impl fmt::Display for Function<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for locals in self.locals.iter() {
+        for locals in self.locals.iter().map(|l| l.0.clone()) {
             write!(f, "Locals: ({})\n", locals.clone().into_iter().format(" ,"))?;
         }
         for res in self.code.clone() {
@@ -1116,10 +1123,10 @@ impl fmt::Display for Function<'_> {
 pub enum Data<'src> {
     Active {
         mem_id: MemId,
-        expr: Box<[Op]>,
-        data: &'src [u8],
+        expr: Box<[(Op, Position)]>,
+        data: (&'src [u8], Position),
     },
-    Passive(&'src [u8]),
+    Passive((&'src [u8], Position)),
 }
 
 impl<'src> FromReader<'src> for Data<'src> {
@@ -1159,12 +1166,12 @@ impl<'src> TryFrom<&'src Data<'src>> for &'src str {
             }
             | Data::Passive(data) => {
                 let size = u32::from_le_bytes(
-                    data[0..4]
+                    data.0[0..4]
                         .try_into()
                         .map_err(|_| ReaderError::DataIsNotStringLiteral)?,
                 );
                 println!("size {size}, bin: {:#x}", size);
-                str::from_utf8(&data[4..4 + size as usize])
+                str::from_utf8(&data.0[4..4 + size as usize])
                     .map_err(ReaderError::StringLiteralIsNotValidUtf)
             }
         }
@@ -1173,8 +1180,8 @@ impl<'src> TryFrom<&'src Data<'src>> for &'src str {
 
 #[derive(Debug)]
 pub struct CustomSectionData<'src> {
-    name: &'src str,
-    data: &'src [u8],
+    pub name: (&'src str, Position),
+    pub data: (&'src [u8], Position),
 }
 
 #[derive(Debug)]
@@ -1187,16 +1194,16 @@ pub enum SectionData<'src> {
     Memory(LimitsReader<'src>),
     Global(GlobalsReader<'src>),
     Export(ExportsReader<'src>),
-    Start(FuncId),
-    DataCount(u32),
+    Start((FuncId, Position)),
+    DataCount((u32, Position)),
     Code(FunctionBodyReader<'src>),
     Data(DataReader<'src>),
 }
 
 #[derive(Debug)]
 pub struct Section<'src> {
-    size_bytes: usize,
-    data: SectionData<'src>,
+    pub size_bytes: usize,
+    pub data: SectionData<'src>,
 }
 
 impl<'src> FromReader<'src> for Section<'src> {
@@ -1207,7 +1214,7 @@ impl<'src> FromReader<'src> for Section<'src> {
         let data: SectionData = match section_id {
             0 => {
                 let start = reader.current_position;
-                let name = reader.read::<&str>()?;
+                let name = reader.read_with_position::<&str>()?;
                 let size_bytes = reader.current_position - start;
                 SectionData::Custom(CustomSectionData {
                     name,
@@ -1221,10 +1228,10 @@ impl<'src> FromReader<'src> for Section<'src> {
             5 => SectionData::Memory(reader.get_section_reader(size_bytes)?),
             6 => SectionData::Global(reader.get_section_reader(size_bytes)?),
             7 => SectionData::Export(reader.get_section_reader(size_bytes)?),
-            8 => SectionData::Start(reader.read()?),
+            8 => SectionData::Start(reader.read_with_position()?),
             10 => SectionData::Code(reader.get_section_reader(size_bytes)?),
             11 => SectionData::Data(reader.get_section_reader(size_bytes)?),
-            12 => SectionData::DataCount(reader.read()?),
+            12 => SectionData::DataCount(reader.read_with_position()?),
             _ => panic!("Unknown section id {}", section_id),
         };
 
@@ -1272,12 +1279,12 @@ mod tests {
                 }
                 SectionData::Import(mut sub_reader) => {
                     let i = sub_reader.next().unwrap()?;
-                    assert!(i.module == "env");
-                    assert!(i.name == "print");
+                    assert!(i.module.0 == "env");
+                    assert!(i.name.0 == "print");
 
                     let i = sub_reader.next().unwrap()?;
-                    assert!(i.module == "env");
-                    assert!(i.name == "printNum");
+                    assert!(i.module.0 == "env");
+                    assert!(i.name.0 == "printNum");
                 }
                 SectionData::Function(sub_reader) => {
                     let functions = sub_reader.collect::<Result<Vec<_>>>()?.into_boxed_slice();
@@ -1288,33 +1295,32 @@ mod tests {
                 SectionData::Table(sub_reader) => todo!(),
                 SectionData::Memory(mut sub_reader) => {
                     let mem = sub_reader.next().unwrap()?;
-                    assert!(mem.min == 1);
+                    assert!(mem.min.0 == 1);
                 }
                 SectionData::Global(mut sub_reader) => {
                     let global = sub_reader.next().unwrap()?;
-                    assert!(global.init_expr[0] == Op::I32Const(0));
-                    assert!(global.t.mutable);
+                    assert!(global.init_expr[0].0 == Op::I32Const(0));
                 }
                 SectionData::Export(mut sub_reader) => {
                     let export = sub_reader.next().unwrap()?;
-                    assert!(export.name == "should_work");
-                    assert!(export.desc == ExportDesc::FuncId(2));
+                    assert!(export.name.0 == "should_work");
+                    assert!(export.desc.0 == ExportDesc::FuncId(2));
                     let export = sub_reader.next().unwrap()?;
 
-                    assert!(export.name == "should_work1");
-                    assert!(export.desc == ExportDesc::FuncId(3));
+                    assert!(export.name.0 == "should_work1");
+                    assert!(export.desc.0 == ExportDesc::FuncId(3));
                     let export = sub_reader.next().unwrap()?;
 
-                    assert!(export.name == "should_work2");
-                    assert!(export.desc == ExportDesc::FuncId(4));
+                    assert!(export.name.0 == "should_work2");
+                    assert!(export.desc.0 == ExportDesc::FuncId(4));
                 }
                 SectionData::Start(start) => {
-                    assert!(start == 6);
+                    assert!(start.0 == 6);
                 }
                 SectionData::DataCount(_) => todo!(),
                 SectionData::Code(mut sub_reader) => {
                     let mut code = sub_reader.next().unwrap()?;
-                    assert!(code.locals[0].n == 1);
+                    assert!(code.locals[0].0.n == 1);
                     assert!(code.code.next().unwrap().unwrap().0 == (Op::I32Const(1)));
                 }
                 SectionData::Data(mut sub_reader) => {
@@ -1326,7 +1332,7 @@ mod tests {
                     } = &data
                     {
                         assert!(*mem_id == 0);
-                        assert!(expr[0] == Op::I32Const(0));
+                        assert!(expr[0].0 == Op::I32Const(0));
                         let str: &str = (&data).try_into()?;
                         assert!(str == "blubbi");
                     }
@@ -1348,7 +1354,7 @@ mod tests {
                 SectionData::Custom(custom_section_data) => todo!(),
                 SectionData::Type(mut sub_reader) => {
                     println!("Type section: {:0x?}", slice);
-                    for res in sub_reader.iter_with_slice() {
+                    for res in sub_reader.iter_with_position() {
                         if let Ok((t, data)) = res {
                             println!("{}:\n{:#04x?}", t, data)
                         }
@@ -1358,7 +1364,7 @@ mod tests {
                 }
                 SectionData::Import(mut sub_reader) => {
                     println!("Import section: {:0x?}", slice);
-                    for res in sub_reader.iter_with_slice() {
+                    for res in sub_reader.iter_with_position() {
                         if let Ok((t, data)) = res {
                             println!("{}:\n{:#04x?}", t, data);
                         }
@@ -1366,7 +1372,7 @@ mod tests {
                 }
                 SectionData::Function(mut sub_reader) => {
                     println!("Function section: {:0x?}", slice);
-                    for res in sub_reader.iter_with_slice() {
+                    for res in sub_reader.iter_with_position() {
                         if let Ok((t, data)) = res {
                             println!("Function {}:\n{:#04x?}", t, data);
                         }
@@ -1374,7 +1380,7 @@ mod tests {
                 }
                 SectionData::Table(mut sub_reader) => {
                     println!("Table section: {:0x?}", slice);
-                    for res in sub_reader.iter_with_slice() {
+                    for res in sub_reader.iter_with_position() {
                         if let Ok((t, data)) = res {
                             println!("Table {}:\n{:#04x?}", t, data);
                         }
@@ -1382,7 +1388,7 @@ mod tests {
                 }
                 SectionData::Memory(mut sub_reader) => {
                     println!("Memory section: {:0x?}", slice);
-                    for res in sub_reader.iter_with_slice() {
+                    for res in sub_reader.iter_with_position() {
                         if let Ok((t, data)) = res {
                             println!("Memory {}:\n{:#04x?}", t, data);
                         }
@@ -1390,7 +1396,7 @@ mod tests {
                 }
                 SectionData::Global(mut sub_reader) => {
                     println!("Global section: {:0x?}", slice);
-                    for res in sub_reader.iter_with_slice() {
+                    for res in sub_reader.iter_with_position() {
                         if let Ok((t, data)) = res {
                             println!("Global {}:\n{:#04x?}", t, data);
                         }
@@ -1398,7 +1404,7 @@ mod tests {
                 }
                 SectionData::Export(mut sub_reader) => {
                     println!("Export section: {:0x?}", slice);
-                    for res in sub_reader.iter_with_slice() {
+                    for res in sub_reader.iter_with_position() {
                         if let Ok((t, data)) = res {
                             println!("Export {}:\n{:#04x?}", t, data);
                         }
@@ -1410,7 +1416,7 @@ mod tests {
                 SectionData::DataCount(_) => todo!(),
                 SectionData::Code(mut sub_reader) => {
                     println!("Code section: {:0x?}", slice);
-                    for code in sub_reader.iter_with_slice() {
+                    for code in sub_reader.iter_with_position() {
                         if let Ok((func, slice)) = code {
                             println!("Function: {func}");
                         }

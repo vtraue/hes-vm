@@ -8,7 +8,7 @@ use crate::reader::{
     ValueType,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {
     Empty,
     Value(ValueType),
@@ -36,7 +36,7 @@ impl fmt::Display for Blocktype {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Memarg {
     offset: u32,
     align: u32,
@@ -56,7 +56,7 @@ impl fmt::Display for Memarg {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Unreachable,
     Nop,
