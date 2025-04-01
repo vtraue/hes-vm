@@ -131,13 +131,17 @@ impl FixedBinarySize<'_> for u8 {
     }
 }
 
-
-#[derive(Debug, Default, Clone, Eq, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, PartialOrd)]
 pub struct Position {
     offset: usize,
     len: usize,
 }
 
+impl fmt::Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "offset: {}, len: {}", self.offset, self.len) 
+    }
+}
 #[derive(Debug, Clone)]
 pub struct Reader<'src> {
     buffer: &'src [u8],
@@ -154,7 +158,11 @@ impl<'src> Reader<'src> {
         }
     }
     pub fn from_reader(reader: &Reader<'src>) -> Self {
-        Reader {buffer: reader.buffer, current_position: reader.current_position, start_position: reader.current_position}
+        Reader {
+            buffer: reader.buffer,
+            current_position: reader.current_position,
+            start_position: reader.current_position,
+        }
     }
     pub fn current_buffer(&self) -> &'src [u8] {
         &self.buffer[self.current_position..]
@@ -180,7 +188,10 @@ impl<'src> Reader<'src> {
 
     pub fn read_bytes(&mut self, size: usize) -> Result<(&'src [u8], Position)> {
         self.can_read_bytes(size)?;
-        let position = Position { offset: self.current_position, len: size };
+        let position = Position {
+            offset: self.current_position,
+            len: size,
+        };
         let new_pos = self.current_position + size;
         let res = &self.buffer[self.current_position..new_pos];
 
@@ -453,6 +464,9 @@ impl<'src> Reader<'src> {
         SectionsIter { reader: self }
     }
 
+    pub fn data_at(&self, position: Position) -> &'src [u8] {
+        return &self.buffer[position.offset..position.offset + position.len];
+    }
 }
 
 pub struct SectionsIter<'src, 'me> {
@@ -552,7 +566,7 @@ impl<'src, T: FromReader<'src>> SubReader<'src, T> {
 impl<'src, T: FromReader<'src> + FixedBinarySize<'src>> SubReader<'src, T> {
     pub fn from_vec(reader: &mut Reader<'src>) -> Result<Self> {
         let count = reader.read_var_u32()? as usize;
-        let mut new_reader = Reader::from_reader(reader); 
+        let mut new_reader = Reader::from_reader(reader);
         let size_bytes = T::size_from_reader(&mut new_reader)? * count;
         reader.skip_bytes(size_bytes)?;
         Ok(Self::from_reader(new_reader, count))
@@ -630,7 +644,6 @@ pub struct CodeReader<'src> {
 
 impl<'src> CodeReader<'src> {
     pub fn new(reader: Reader<'src>) -> Self {
-
         CodeReader {
             reader,
             depth: 0,
@@ -814,16 +827,13 @@ impl<'src> FromReader<'src> for FunctionType<'src> {
         if magic != 0x60 {
             return Err(ReaderError::InvalidFunctionTypeEncoding(magic));
         }
-        
-        let params =  SubReader::from_vec(reader)?;
+
+        let params = SubReader::from_vec(reader)?;
         let results = SubReader::from_vec(reader)?;
-        
-        Ok(Self {
-            params, results
-        })
+
+        Ok(Self { params, results })
     }
 }
-
 
 impl<'src> fmt::Display for FunctionType<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -969,7 +979,7 @@ pub type DataReader<'src> = SubReader<'src, Data<'src>>;
 #[derive(Debug)]
 pub struct Global {
     t: (GlobalType, Position),
-    init_expr: Box<[(Op, Position)]>
+    init_expr: Box<[(Op, Position)]>,
 }
 
 impl<'src> FromReader<'src> for Global {
@@ -984,7 +994,12 @@ impl<'src> FromReader<'src> for Global {
 }
 impl<'src> fmt::Display for Global {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} = {}", self.t.0, self.init_expr.iter().map(|v| v.0).format(" ,"))
+        write!(
+            f,
+            "{} = {}",
+            self.t.0,
+            self.init_expr.iter().map(|v| v.0).format(" ,")
+        )
     }
 }
 #[derive(Clone, Debug, PartialEq)]
