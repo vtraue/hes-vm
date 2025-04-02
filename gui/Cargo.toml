@@ -6,5 +6,6 @@ edition = "2024"
 [dependencies]
 vm = {path = "../vm/"}
 eframe = "0.31.1"
+egui_dock = "0.16"
 wat = "1.227.1"
 rfd = "0.15.3"
