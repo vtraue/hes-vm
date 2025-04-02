@@ -70,8 +70,8 @@ impl<'src> From<crate::reader::Export<'src>> for Export {
 
 #[derive(Debug)]
 pub struct Function {
-    locals: Box<[(Locals, Position)]>,
-    code: Box<[Result<(Op, Position), ReaderError>]>,
+    pub locals: Box<[(Locals, Position)]>,
+    pub code: Box<[Result<(Op, Position), ReaderError>]>,
 }
 
 impl<'src> From<crate::reader::Function<'src>> for Function {

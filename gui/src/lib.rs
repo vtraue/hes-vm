@@ -1,14 +1,17 @@
-use std::fs;
-
 use eframe::{
     App,
     egui::{
-        self, CentralPanel, Color32, ComboBox, Frame, Label, RichText, ScrollArea, Sense, Slider,
-        TextBuffer, TextStyle, TextWrapMode, Ui, Vec2, Widget,
+        self, Color32, ComboBox, Label, RichText, ScrollArea, Sense, Spacing, TextStyle,
+        TextWrapMode, Ui, Vec2, Widget,
         ahash::{HashSet, HashSetExt},
     },
 };
 use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex, TabViewer};
+use std::fs;
+use vm::{
+    bytecode_info::{BytecodeInfo, Function},
+    reader::Reader,
+};
 
 pub mod data;
 
@@ -18,7 +21,7 @@ struct MyContext {
 
     picked_path: Option<String>,
     bytecode: Vec<u8>,
-    code_text: Vec<String>,
+    bytecode_info: BytecodeInfo,
     bytecode_option: BytecodeDisplayOptions,
     frame_data: BetweenFrameData,
 
@@ -55,7 +58,7 @@ impl TabViewer for MyContext {
             "Simple Demo" => self.simple_demo(ui),
             "Style Editor" => self.style_editor(ui),
             "Bytecode" => self.bytecode(ui),
-            // "WAT" => self.wat_code(ui),
+            "Instructions" => self.instructions(ui),
             _ => {
                 ui.label(tab.as_str());
             }
@@ -96,6 +99,10 @@ impl MyContext {
             &self.bytecode_option,
             &mut self.frame_data,
         );
+    }
+
+    fn instructions(&mut self, ui: &mut egui::Ui) {
+        draw_code_text(ui, &self.bytecode_info, &mut self.frame_data);
     }
     fn simple_demo_menu(&mut self, ui: &mut Ui) {
         ui.label("Egui widget example");
@@ -172,7 +179,7 @@ impl<'src, 'b> Default for HesApp {
         let [a, b] = tree.main_surface_mut().split_left(
             NodeIndex::root(),
             0.3,
-            vec!["Inspector".to_owned()],
+            vec!["Instructions".to_owned()],
         );
         let [_, _] = tree.main_surface_mut().split_below(
             a,
@@ -197,7 +204,7 @@ impl<'src, 'b> Default for HesApp {
             title: "HES-VM".to_string(),
             style: None,
             picked_path: None,
-            code_text: vec![],
+            bytecode_info: BytecodeInfo::default(),
             bytecode: vec![],
             bytecode_option: BytecodeDisplayOptions::default(),
             frame_data: Default::default(),
@@ -245,12 +252,12 @@ impl<'src, 'b> HesApp {
             None => (),
         }
 
-        app.context.code_text = vec![
-            "local.get 0".to_string(),
-            "local.get 1".to_string(),
-            "i32.add".to_string(),
-            "local.set 0".to_string(),
-        ];
+        let reader = Reader::new(&app.context.bytecode, 0);
+
+        match BytecodeInfo::from_reader(&reader) {
+            Ok(info) => app.context.bytecode_info = info,
+            Err(_) => todo!(),
+        };
 
         app
     }
@@ -270,6 +277,9 @@ impl<'src> App for HesApp {
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
                                 self.context.picked_path = Some(path.display().to_string());
                                 self.context.bytecode = fs::read(path).unwrap();
+                                let reader = Reader::new(&self.context.bytecode, 0);
+                                self.context.bytecode_info =
+                                    BytecodeInfo::from_reader(&reader).unwrap();
                             }
                             ui.close_menu();
                         }
@@ -355,13 +365,36 @@ impl<'src> App for HesApp {
     }
 }
 
-fn draw_code_text(ui: &mut egui::Ui, code_text: &Vec<String>) {
-    for line in code_text {
-        let text = RichText::new(line).text_style(TextStyle::Monospace);
-        let _response = Label::new(text).sense(Sense::click()).ui(ui);
+fn draw_code_text(
+    ui: &mut egui::Ui,
+    bytecode_info: &BytecodeInfo,
+    frame_data: &mut BetweenFrameData,
+) {
+    let code = bytecode_info.code_section.as_ref().unwrap();
+    for (i, function) in code.0.iter().enumerate() {
+        Label::new(format!("Function {}", i)).ui(ui);
+        ui.indent("Instrctions", |ui| {
+            draw_function_instructions(ui, &function.0, frame_data);
+        });
     }
 }
 
+fn draw_function_instructions(
+    ui: &mut egui::Ui,
+    function: &Function,
+    frame_data: &mut BetweenFrameData,
+) {
+    for instruction in &function.code {
+        match instruction {
+            Ok((op, _)) => {
+                ui.spacing_mut().indent = 200.0;
+                let text = RichText::new(op.to_string()).text_style(TextStyle::Monospace);
+                let _response = Label::new(text).sense(Sense::click()).ui(ui);
+            }
+            Err(_) => todo!(),
+        }
+    }
+}
 // inspired by: https://github.com/Hirtol/egui_memory_editor
 fn draw_bytecode(
     ui: &mut egui::Ui,
