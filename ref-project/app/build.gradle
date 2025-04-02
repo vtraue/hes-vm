@@ -22,7 +22,6 @@ repositories {
 dependencies {
 	// This dependency is used by the application.
 	antlr 'org.antlr:antlr4:4.13.2'
-	implementation libs.guava
 		implementation project(':lib')
 }
 

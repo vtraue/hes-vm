@@ -1,6 +1,9 @@
-use core::fmt::{self};
+use core::{
+    fmt::{self},
+    str,
+};
 use itertools::Itertools;
-use std::{ffi::os_str::Display, io::Read, marker::PhantomData};
+use std::{io::Read, marker::PhantomData};
 
 use crate::op::Op;
 
@@ -139,7 +142,7 @@ pub struct Position {
 
 impl fmt::Display for Position {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "offset: {}, len: {}", self.offset, self.len) 
+        write!(f, "offset: {}, len: {}", self.offset, self.len)
     }
 }
 #[derive(Debug, Clone)]

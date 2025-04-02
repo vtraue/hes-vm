@@ -1,7 +1,4 @@
-use std::{
-    ffi::os_str::Display,
-    fmt::{self, write},
-};
+use std::fmt::{self, write};
 
 use crate::reader::{
     self, FromReader, FuncId, FunctionType, GlobalId, LabelId, LocalId, Reader, TableId, TypeId,

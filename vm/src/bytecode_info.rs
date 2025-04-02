@@ -1,5 +1,4 @@
 use core::fmt;
-use std::ffi::os_str::Display;
 
 use itertools::Itertools;
 
@@ -275,28 +274,41 @@ mod tests {
         let reader = Reader::new(&wasm, 0);
         let info = BytecodeInfo::from_reader(&reader)?;
         let types = info.type_section.as_ref().unwrap();
-        println!("Type section position: {}\ndata:{:04x?}", types.1, reader.data_at(types.1));
-        
-        println!("Type section count: {}",  types.0.len());    
+        println!(
+            "Type section position: {}\ndata:{:04x?}",
+            types.1,
+            reader.data_at(types.1)
+        );
+
+        println!("Type section count: {}", types.0.len());
         for t in types.0.iter() {
-            println!("{:?}: {:0x?}", t.0, reader.data_at(t.1));    
+            println!("{:?}: {:0x?}", t.0, reader.data_at(t.1));
         }
         let imports = info.import_section.as_ref().unwrap();
-        println!("Import section position: {}\ndata:{:04x?}", imports.1, reader.data_at(imports.1));
+        println!(
+            "Import section position: {}\ndata:{:04x?}",
+            imports.1,
+            reader.data_at(imports.1)
+        );
 
         for i in imports.0.iter() {
             println!("{:?}: {:0x?}", i.0, reader.data_at(i.1));
         }
-        
+
         let function_ids = info.function_section.as_ref().unwrap();
-        println!("function section position: {}\ndata:{:04x?}", function_ids.1, reader.data_at(function_ids.1));
+        println!(
+            "function section position: {}\ndata:{:04x?}",
+            function_ids.1,
+            reader.data_at(function_ids.1)
+        );
         for id in function_ids.0.iter() {
             println!("id: {}", id.0);
         }
 
-        let functions_with_types  = info.function_section
+        let functions_with_types = info
+            .function_section
             .as_ref()
-            .unwrap()  
+            .unwrap()
             .0
             .iter()
             .map(|f| &types.0[f.0 as usize])
@@ -304,21 +316,35 @@ mod tests {
 
         for t in &functions_with_types {
             println!("fn type: {:?}", t.0);
-        };
-          
+        }
+
         let memories = info.memory_section.unwrap();
-        println!("memory section position: {}\ndata:{:0x?}", memories.1, reader.data_at(memories.1));
-       
+        println!(
+            "memory section position: {}\ndata:{:0x?}",
+            memories.1,
+            reader.data_at(memories.1)
+        );
+
         for t in memories.0.iter() {
             println!("memory {:?}, pos: {}", t.0, t.1)
         }
-        
+
         let code = info.code_section.unwrap();
-        println!("code section pos: {}\ndata:{:0x?}", code.1, reader.data_at(code.1));
+        println!(
+            "code section pos: {}\ndata:{:0x?}",
+            code.1,
+            reader.data_at(code.1)
+        );
 
         for (i, func) in code.0.iter().enumerate() {
             let func_t = functions_with_types.get(i).unwrap();
-            println!("func {}, t: {:?}, pos: {}, data: {:0x?}", i, func_t.0, func.1, reader.data_at(func.1));
+            println!(
+                "func {}, t: {:?}, pos: {}, data: {:0x?}",
+                i,
+                func_t.0,
+                func.1,
+                reader.data_at(func.1)
+            );
         }
 
         Ok(())
