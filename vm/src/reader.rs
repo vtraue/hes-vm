@@ -136,8 +136,8 @@ impl FixedBinarySize<'_> for u8 {
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, PartialOrd)]
 pub struct Position {
-    offset: usize,
-    len: usize,
+    pub offset: usize,
+    pub len: usize,
 }
 
 impl fmt::Display for Position {

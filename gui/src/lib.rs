@@ -7,10 +7,10 @@ use eframe::{
     },
 };
 use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex, TabViewer};
-use std::fs;
+use std::{fs, ops::Range};
 use vm::{
     bytecode_info::{BytecodeInfo, Function},
-    reader::Reader,
+    reader::{self, Reader},
 };
 
 pub mod data;
@@ -374,7 +374,7 @@ fn draw_code_text(
     for (i, function) in code.0.iter().enumerate() {
         Label::new(format!("Function {}", i)).ui(ui);
         ui.indent("Instrctions", |ui| {
-            draw_function_instructions(ui, &function.0, frame_data);
+            draw_function_instructions(ui, &function.0, i, frame_data);
         });
     }
 }
@@ -382,14 +382,31 @@ fn draw_code_text(
 fn draw_function_instructions(
     ui: &mut egui::Ui,
     function: &Function,
+    func_id: usize,
     frame_data: &mut BetweenFrameData,
 ) {
-    for instruction in &function.code {
+    for (i, instruction) in function.code.iter().enumerate() {
         match instruction {
-            Ok((op, _)) => {
+            Ok((op, pos)) => {
                 ui.spacing_mut().indent = 200.0;
-                let text = RichText::new(op.to_string()).text_style(TextStyle::Monospace);
-                let _response = Label::new(text).sense(Sense::click()).ui(ui);
+                let mut text = RichText::new(op.to_string()).text_style(TextStyle::Monospace);
+
+                if frame_data.should_highlight_wat(func_id, i) {
+                    text = text.background_color(Color32::YELLOW);
+                }
+
+                let response = Label::new(text).sense(Sense::click()).ui(ui);
+
+                if response.clicked() {
+                    let highlight = BytecodeHighlight {
+                        position_bytecode: *pos,
+                        selected_token_wat: Some(PositionWat {
+                            function: func_id,
+                            instruction: i,
+                        }),
+                    };
+                    frame_data.toggle_bytecode_highlight(highlight);
+                }
             }
             Err(_) => todo!(),
         }
@@ -457,6 +474,10 @@ fn draw_bytecode_values(
                     text = text.background_color(ui.style().visuals.code_bg_color);
                 }
 
+                if frame_data.should_highlight_bytecode(memory_adress) {
+                    text = text.background_color(Color32::YELLOW);
+                }
+
                 let response = Label::new(text).sense(Sense::click()).ui(ui);
 
                 if response.secondary_clicked() {
@@ -471,8 +492,23 @@ fn draw_bytecode_values(
     }
 }
 
+// TODO: jedes Highlight eine eigene Farbe (enum mit Farben gebunden am index?)
+// Später sollen die Farben über ein Kontextmenü ausgewählt werden können
+#[derive(Debug, Clone, Default, PartialEq)]
+struct BytecodeHighlight {
+    position_bytecode: reader::Position,
+    selected_token_wat: Option<PositionWat>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct PositionWat {
+    function: usize,
+    instruction: usize,
+}
+
 #[derive(Debug, Default, Clone)]
 pub(crate) struct BetweenFrameData {
+    pub highlight_bytecode: Vec<BytecodeHighlight>,
     pub selected_highlight_address: Option<usize>,
     pub goto_address_string: String,
 }
@@ -488,6 +524,46 @@ impl BetweenFrameData {
             Some(address)
         };
     }
+
+    pub fn toggle_bytecode_highlight(&mut self, highlight: BytecodeHighlight) {
+        let index = self.highlight_bytecode.iter().position(|r| *r == highlight);
+        match index {
+            Some(index) => {
+                self.highlight_bytecode.swap_remove(index);
+            }
+            None => {
+                self.highlight_bytecode.push(highlight);
+            }
+        }
+    }
+
+    pub fn should_highlight_wat(&self, function: usize, instruction: usize) -> bool {
+        let mut should_highlight = false;
+        self.highlight_bytecode
+            .iter()
+            .for_each(|highlight| match &highlight.selected_token_wat {
+                Some(pos_wat) => {
+                    if pos_wat.function == function && pos_wat.instruction == instruction {
+                        should_highlight = true;
+                    }
+                }
+                None => (),
+            });
+        should_highlight
+    }
+
+    pub fn should_highlight_bytecode(&self, address: usize) -> bool {
+        let mut should_highlight = false;
+        for highlight in &self.highlight_bytecode {
+            let offset = highlight.position_bytecode.offset;
+            let len = highlight.position_bytecode.len;
+            if address >= offset && address <= (offset + len) {
+                should_highlight = true;
+            }
+        }
+        should_highlight
+    }
+
     #[inline]
     pub fn should_highlight(&self, address: usize) -> bool {
         self.selected_highlight_address
