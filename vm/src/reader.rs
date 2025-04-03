@@ -5,7 +5,8 @@ use core::{
 use itertools::Itertools;
 use std::{io::Read, marker::PhantomData};
 
-use crate::op::Op;
+use crate::{op::Op, types::{Limits, Locals}};
+use crate::types::GlobalType;
 
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
@@ -122,6 +123,30 @@ impl<'src> FromReader<'src> for i64 {
 impl<'src> FromReader<'src> for &'src str {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         reader.read_name()
+    }
+}
+
+impl<'src> FromReader<'src> for Limits {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
+        match reader.read_u8()? {
+            0x00 => Ok(Self {
+                min: reader.read_with_position()?,
+                max: None,
+            }),
+            0x01 => Ok(Self {
+                min: reader.read_with_position()?,
+               max: Some(reader.read_with_position()?),
+            }),
+            _ => Err(ReaderError::InvalidLimits),
+        }
+    }
+}
+impl<'src> FromReader<'src> for GlobalType {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
+        Ok(Self {
+            t: reader.read_with_position()?,
+            mutable: reader.read_with_position()?,
+        })
     }
 }
 
@@ -447,12 +472,16 @@ impl<'src> Reader<'src> {
     where
         T: FromReader<'src>,
     {
-        let slice: &'src [u8] = &self.buffer[self.current_position..self.current_position + size];
-        let mut reader = Reader::new(slice, self.current_position);
-        let count = reader.read_var_u32()? as usize;
+        if self.current_position + size > self.buffer.len() {
+            Err(ReaderError::EndOfBuffer)
+        } else {
+            let slice: &'src [u8] = &self.buffer[self.current_position..self.current_position + size];
+            let mut reader = Reader::new(slice, self.current_position);
+            let count = reader.read_var_u32()? as usize;
+            self.skip_bytes(size)?;
+            Ok(SubReader::from_reader(reader, count))
+        }
 
-        self.skip_bytes(size)?;
-        Ok(SubReader::from_reader(reader, count))
     }
 
     pub fn read_const_expr_iter<'me>(&'me mut self) -> ConstantExprIter<'src, 'me> {
@@ -774,7 +803,41 @@ pub enum ValueType {
     Externref = 0x6F,
     Vectype = 0x7B,
 }
+impl ValueType {
+    pub fn is_num(&self) -> bool {
+        match self {
+            ValueType::I32 | 
+            ValueType::I64 | 
+            ValueType::F32 |
+            ValueType::F64 => true,
+            _ => false,
+        }
+    }
+    pub fn is_vec(&self) -> bool {
+        match self {
+            ValueType::Vectype => true,
+            _ => false
+        }
+    }
+    pub fn is_ref(&self) -> bool {
+        match self {
+            ValueType::Funcref | ValueType::Externref => true,
+            _ => false
+        }
+    }
+    pub fn bit_width(&self) -> Option<usize> {
+        match self {
+            ValueType::I32 => Some(32),
+            ValueType::I64 => Some(64),
+            ValueType::F32 => Some(32),
+            ValueType::F64 => Some(64),
+            ValueType::Funcref => None,
+            ValueType::Externref => None,
+            ValueType::Vectype => Some(128),
+        }
+    }
 
+}
 impl fmt::Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match self {
@@ -854,58 +917,7 @@ impl<'src> fmt::Display for FunctionType<'src> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
-pub struct Limits {
-    min: (u32, Position),
-    max: Option<(u32, Position)>,
-}
 
-impl<'src> FromReader<'src> for Limits {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
-        match reader.read_u8()? {
-            0x00 => Ok(Self {
-                min: reader.read_with_position()?,
-                max: None,
-            }),
-            0x01 => Ok(Self {
-                min: reader.read_with_position()?,
-                max: Some(reader.read_with_position()?),
-            }),
-            _ => Err(ReaderError::InvalidLimits),
-        }
-    }
-}
-
-impl<'src> fmt::Display for Limits {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.max {
-            Some((m, _)) => write!(f, "({}..{})", self.min.0, m),
-            None => write!(f, "({}..)", self.min.0),
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
-pub struct GlobalType {
-    t: (ValueType, Position),
-    mutable: (bool, Position),
-}
-
-impl<'src> FromReader<'src> for GlobalType {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
-        Ok(Self {
-            t: reader.read_with_position()?,
-            mutable: reader.read_with_position()?,
-        })
-    }
-}
-
-impl fmt::Display for GlobalType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut_str = if self.mutable.0 { "mut" } else { "" };
-        write!(f, "{} {}", mut_str, self.t.0)
-    }
-}
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub enum ImportDesc {
     TypeIdx(TypeId),
@@ -929,9 +941,9 @@ impl fmt::Display for ImportDesc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ImportDesc::TypeIdx(i) => write!(f, "{i}"),
-            ImportDesc::TableType(limits) => write!(f, "{limits}"),
-            ImportDesc::MemType(limits) => todo!(),
-            ImportDesc::GlobalType(global_type) => todo!(),
+            ImportDesc::TableType(limits) => write!(f, "table {limits}"),
+            ImportDesc::MemType(limits) => write!(f, "mem {limits}"),
+            ImportDesc::GlobalType(global_type) => write!(f, "{global_type}"),
         }
     }
 }
@@ -1055,11 +1067,6 @@ impl fmt::Display for Export<'_> {
         write!(f, "{}: {}", self.name.0, self.desc.0)
     }
 }
-#[derive(Debug, Clone)]
-pub struct Locals {
-    n: u32,
-    t: ValueType,
-}
 
 impl<'src> FromReader<'src> for Locals {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
@@ -1070,34 +1077,6 @@ impl<'src> FromReader<'src> for Locals {
     }
 }
 
-impl IntoIterator for Locals {
-    type Item = ValueType;
-    type IntoIter = LocalsIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        LocalsIterator {
-            locals: self,
-            current_position: 0,
-        }
-    }
-}
-
-pub struct LocalsIterator {
-    locals: Locals,
-    current_position: u32,
-}
-impl Iterator for LocalsIterator {
-    type Item = ValueType;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current_position >= self.locals.n {
-            None
-        } else {
-            self.current_position += 1;
-            Some(self.locals.t)
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct Function<'src> {
@@ -1113,8 +1092,7 @@ impl<'src> FromReader<'src> for Function<'src> {
         let locals_size = reader.current_position - start_position;
         let code_size = full_code_size as usize - locals_size;
         let buffer = &reader.current_buffer()[..code_size];
-        let start_position = reader.start_position;
-        let new_reader = Reader::new(buffer, start_position);
+        let new_reader = Reader::new(buffer, reader.start_position + reader.current_position);
         let code_reader = CodeReader::new(new_reader);
 
         reader.skip_bytes(code_size)?;
@@ -1256,6 +1234,23 @@ impl<'src> FromReader<'src> for Section<'src> {
         Ok(Section { size_bytes, data })
     }
 }
+
+/*
+pub struct Module<'src> {
+    pub header: Position,
+    pub version: Position,
+    pub type_section: Option<TypeReader<'src>>,  
+    pub import_section: Option<ImportReader<'src>>,
+    pub function_section: Option<FunctionReader<'src>>,
+    pub table_section: Option<LimitsReader<'src>>,
+    pub memory_section: Option<LimitsReader<'src>>,
+    pub global_section: Option<GlobalsReader<'src>>,
+    pub export_section: Option<ExportsReader<'src>>,
+    pub start_section: Option<u32>,
+    pub code_section: Option<FunctionBodyReader<'src>>,
+    pub data_section: Option<DataReader<'src>>
+}
+*/
 
 #[cfg(test)]
 mod tests {

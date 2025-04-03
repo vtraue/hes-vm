@@ -5,37 +5,14 @@ use itertools::Itertools;
 use crate::{
     op::Op,
     reader::{
-        ExportDesc, FuncId, FunctionType, Global, ImportDesc, Limits, Locals, MemId, Position,
+        ExportDesc, FuncId, Global, ImportDesc, MemId, Position,
         Reader, ReaderError, ValueType,
-    },
+    }, types::{Limits, Locals, Type},
 };
 pub enum InfoError {
     EndOfBuffer,
 }
 
-#[derive(Debug)]
-pub struct Type {
-    params: Box<[Result<(ValueType, Position), ReaderError>]>,
-    results: Box<[Result<(ValueType, Position), ReaderError>]>,
-}
-
-impl<'src> From<FunctionType<'src>> for Type {
-    fn from(mut value: FunctionType<'src>) -> Self {
-        //TODO: (joh): Falls der Buffer vorzeitig leer ist, wird das hier ein Problem sein
-        let params = value
-            .params
-            .iter_with_position()
-            .collect::<Vec<Result<_, _>>>()
-            .into_boxed_slice();
-        let results = value
-            .results
-            .iter_with_position()
-            .collect::<Vec<Result<_, _>>>()
-            .into_boxed_slice();
-
-        Self { params, results }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Import {
@@ -43,6 +20,7 @@ pub struct Import {
     name: (String, Position),
     desc: (ImportDesc, Position),
 }
+
 impl<'src> From<crate::reader::Import<'src>> for Import {
     fn from(value: crate::reader::Import<'src>) -> Self {
         Import {
@@ -158,8 +136,8 @@ impl BytecodeInfo {
                     info.type_section = Some((
                         sub_reader
                             .iter_with_position()
-                            .map_ok(|(e, p)| (e.into(), p))
-                            .collect::<Result<Vec<_>, _>>()?
+                            .map(|e| {let (t, p) = e?; Ok((t.try_into()?, p))})
+                            .collect::<Result<Vec<_>, ReaderError>>()?
                             .into_boxed_slice(),
                         pos,
                     ))
@@ -338,15 +316,12 @@ mod tests {
 
         for (i, func) in code.0.iter().enumerate() {
             let func_t = functions_with_types.get(i).unwrap();
-            println!(
-                "func {}, t: {:?}, pos: {}, data: {:0x?}",
-                i,
-                func_t.0,
-                func.1,
-                reader.data_at(func.1)
-            );
+            println!("func {}, t: {:?}, pos: {}, data: {:0x?}", i, func_t.0, func.1, reader.data_at(func.1));
+            for o in func.0.code.iter() {
+                let (op, pos) = o.as_ref().unwrap();
+                println!("op: {op}, pos: {pos}, data: {:0x?}", reader.data_at(pos.clone()));
+            }
         }
-
         Ok(())
     }
 }
