@@ -38,8 +38,8 @@ impl fmt::Display for Blocktype {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Memarg {
-    offset: u32,
-    align: u32,
+    pub offset: u32,
+    pub align: u32,
 }
 
 impl<'src> FromReader<'src> for Memarg {
