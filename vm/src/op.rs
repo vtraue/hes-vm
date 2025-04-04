@@ -9,7 +9,7 @@ use crate::reader::{
 pub enum Blocktype {
     Empty,
     Value(ValueType),
-    TypeIndex(i32),
+    TypeIndex(u32),
 }
 
 impl<'src> FromReader<'src> for Blocktype {
@@ -19,7 +19,7 @@ impl<'src> FromReader<'src> for Blocktype {
         match desc {
             0x40 => Ok(Self::Empty),
             n if n < 0 => Ok(Self::Value((n as u8).try_into()?)),
-            _ => Ok(Self::TypeIndex(desc as i32)),
+            _ => Ok(Self::TypeIndex(desc as u32)),
         }
     }
 }
@@ -53,6 +53,7 @@ impl fmt::Display for Memarg {
     }
 }
 
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Unreachable,
@@ -68,7 +69,7 @@ pub enum Op {
     Call(FuncId),
     CallIndirect(TableId, TypeId),
     Drop,
-    Select, //TODO: Select mit args?
+    Select(Option<ValueType>), 
     LocalGet(LocalId),
     LocalSet(LocalId),
     LocalTee(LocalId),
@@ -192,7 +193,8 @@ impl<'src> FromReader<'src> for Op {
             0x10 => Self::Call(reader.read()?),
             0x11 => Self::CallIndirect(reader.read()?, reader.read()?),
             0x1A => Self::Drop,
-            0x1B => Self::Select,
+            0x1B => Self::Select(None)
+            0x1C => Self::Select(Some(reader.read()?)),
             0x20 => Self::LocalGet(reader.read()?),
             0x21 => Self::LocalSet(reader.read()?),
             0x22 => Self::LocalTee(reader.read()?),

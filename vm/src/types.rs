@@ -4,8 +4,8 @@ use crate::reader::{FromReader, FunctionType, Position, Reader, ReaderError, Val
 
 #[derive(Debug)]
 pub struct Type {
-    params: Box<[(ValueType, Position)]>,
-    results: Box<[(ValueType, Position)]>,
+    pub params: Box<[(ValueType, Position)]>,
+    pub results: Box<[(ValueType, Position)]>,
 }
 
 impl<'src> TryFrom<FunctionType<'src>> for Type {
