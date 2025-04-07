@@ -1,16 +1,17 @@
+use data::SectionType;
 use eframe::{
     App,
     egui::{
-        self, Color32, ComboBox, Label, RichText, ScrollArea, Sense, Spacing, TextStyle,
-        TextWrapMode, Ui, Vec2, Widget,
+        self, Color32, ComboBox, Label, RichText, ScrollArea, Sense, TextStyle, TextWrapMode, Ui,
+        Vec2, Widget,
         ahash::{HashSet, HashSetExt},
     },
 };
 use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex, TabViewer};
-use std::{fs, ops::Range};
+use std::fs;
 use vm::{
-    bytecode_info::{BytecodeInfo, Function, Import},
-    reader::{self, Reader},
+    bytecode_info::{BytecodeInfo, Function},
+    reader::{self, Position, Reader},
 };
 
 pub mod data;
@@ -55,7 +56,7 @@ impl TabViewer for MyContext {
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         match tab.as_str() {
-            "Simple Demo" => self.simple_demo(ui),
+            "HES-VM" => self.simple_demo(ui),
             "Style Editor" => self.style_editor(ui),
             "Bytecode" => self.bytecode(ui),
             "Instructions" => self.instructions(ui),
@@ -74,7 +75,7 @@ impl TabViewer for MyContext {
         _node: NodeIndex,
     ) {
         match tab.as_str() {
-            "Simple Demo" => self.simple_demo_menu(ui),
+            "HES-VM" => self.simple_demo_menu(ui),
             _ => {
                 ui.label(tab.to_string());
                 ui.label("This is a context menu");
@@ -115,13 +116,11 @@ impl MyContext {
     }
 
     fn simple_demo(&mut self, ui: &mut Ui) {
-        ui.heading("My egui Application");
+        ui.heading("HES-VM");
 
         ui.horizontal(|ui| {
-            ui.label("Your name: ");
-            ui.text_edit_singleline(&mut self.title);
+            ui.label("Hier wird (bald) das eigene Programm ausgeführt");
         });
-        ui.label(format!("Hello {}", &self.title));
     }
 
     fn style_editor(&mut self, ui: &mut Ui) {
@@ -176,22 +175,18 @@ impl MyContext {
 
 impl<'src, 'b> Default for HesApp {
     fn default() -> Self {
-        let mut tree = DockState::new(vec!["Simple Demo".to_owned(), "Style Editor".to_owned()]);
+        let mut tree = DockState::new(vec!["HES-VM".to_owned(), "Style Editor".to_owned()]);
         "Undock".clone_into(&mut tree.translations.tab_context_menu.eject_button);
         // modify tree before constructing the dock:
-        let [a, b] = tree.main_surface_mut().split_left(
+        let [_, b] = tree.main_surface_mut().split_left(
             NodeIndex::root(),
-            0.3,
-            vec!["Instructions".to_owned()],
+            0.2,
+            vec!["Bytecode Infos".to_owned()],
         );
-        let [_, _] = tree.main_surface_mut().split_below(
-            a,
-            0.7,
-            vec![
-                "Bytecode Infos".to_owned(),
-                "File Browser".to_owned(),
-                "Asset Manager".to_owned(),
-            ],
+        let [_, _] = tree.main_surface_mut().split_left(
+            NodeIndex::root(),
+            0.2,
+            vec!["Instructions".to_owned()],
         );
         let [_, _] = tree
             .main_surface_mut()
@@ -401,17 +396,86 @@ fn draw_bytecode_info(
     });
 }
 
+fn draw_highlightable_info_label(
+    ui: &mut Ui,
+    text: RichText,
+    position_info: PositionInfo,
+    position_bytecode: Position,
+    frame_data: &mut BetweenFrameData,
+) {
+    let mut text = text;
+    if frame_data.should_highlight_info(&position_info) {
+        text = text.background_color(Color32::GOLD);
+    }
+    let response = Label::new(text).ui(ui);
+
+    if response.clicked() {
+        let highlight = BytecodeHighlight {
+            position_bytecode,
+            selected_token_wat: None,
+            position_info: Some(position_info),
+        };
+        frame_data.toggle_bytecode_highlight(highlight);
+    }
+}
+
 fn draw_types(ui: &mut Ui, bytecode_info: &BytecodeInfo, frame_data: &mut BetweenFrameData) {
     let types = bytecode_info.type_section.as_ref().unwrap();
     for (i, t) in types.0.iter().enumerate() {
-        Label::new(format!("Funktionstyp {}", i)).ui(ui);
+        let mut text = RichText::new(format!("Funktionstyp {}", i));
+        let pos_func_type = PositionInfo {
+            section: SectionType::Type,
+            idx: i,
+        };
+        draw_highlightable_info_label(ui, text, pos_func_type, t.1, frame_data);
+
         ui.indent("Functiontype", |ui| {
-            Label::new(format!("Params: ",)).ui(ui);
+            let mut text = RichText::new(format!("Params: ",));
+            let pos_info_params = PositionInfo {
+                section: SectionType::Type,
+                idx: i,
+            };
+
+            if frame_data.should_highlight_info(&pos_info_params) {
+                text = text.background_color(Color32::PURPLE);
+            }
+
+            let response = Label::new(text).ui(ui);
+
+            if response.clicked() {
+                let highlight = BytecodeHighlight {
+                    position_bytecode: t.1,
+                    selected_token_wat: None,
+                    position_info: Some(pos_info_params),
+                };
+                frame_data.toggle_bytecode_highlight(highlight);
+            }
+
             ui.indent("Params", |ui| {
-                for param in &t.0.params {
-                    Label::new(format!("{}", param.0)).ui(ui);
+                for (j, param) in t.0.params.iter().enumerate() {
+                    let mut text = RichText::new(format!("{}", param.0));
+
+                    let pos_info = PositionInfo {
+                        section: SectionType::Type,
+                        idx: j,
+                    };
+
+                    if frame_data.should_highlight_info(&pos_info) {
+                        text = text.background_color(Color32::GREEN);
+                    }
+
+                    let response = Label::new(text).ui(ui);
+
+                    if response.clicked() {
+                        let highlight = BytecodeHighlight {
+                            position_bytecode: param.1,
+                            selected_token_wat: None,
+                            position_info: Some(pos_info),
+                        };
+                        frame_data.toggle_bytecode_highlight(highlight);
+                    }
                 }
-            })
+            });
         });
     }
 }
@@ -423,9 +487,9 @@ fn draw_function_headers(
 ) {
     let functions = bytecode_info.function_section.as_ref().unwrap();
     for (i, function) in functions.0.iter().enumerate() {
-        Label::new(format!("Functions {}", i)).ui(ui);
+        Label::new(format!("Function {}", i)).ui(ui);
         ui.indent("Function", |ui| {
-            Label::new(format!("{}", function.0)).ui(ui);
+            Label::new(format!("Funktionstyp: {}", function.0)).ui(ui);
         });
     }
 }
@@ -436,7 +500,7 @@ fn draw_start_section(
     frame_data: &mut BetweenFrameData,
 ) {
     let start = bytecode_info.start_section.as_ref().unwrap();
-    Label::new(format!("{}", start.0)).ui(ui);
+    Label::new(format!("FuncId: {}", start.0)).ui(ui);
 }
 
 fn draw_imports(
@@ -493,7 +557,10 @@ fn draw_function_instructions(
                 ui.spacing_mut().indent = 200.0;
                 let mut text = RichText::new(op.to_string()).text_style(TextStyle::Monospace);
 
-                if frame_data.should_highlight_wat(func_id, i) {
+                if frame_data.should_highlight_wat(PositionWat {
+                    function: func_id,
+                    instruction: i,
+                }) {
                     text = text.background_color(Color32::from_hex("#ff9933").unwrap());
                     text = text.color(Color32::BLACK);
                 }
@@ -507,6 +574,7 @@ fn draw_function_instructions(
                             function: func_id,
                             instruction: i,
                         }),
+                        position_info: None,
                     };
                     frame_data.toggle_bytecode_highlight(highlight);
                 }
@@ -598,13 +666,20 @@ fn draw_bytecode_values(
 
 // TODO: jedes Highlight eine eigene Farbe (enum mit Farben gebunden am index?)
 // Später sollen die Farben über ein Kontextmenü ausgewählt werden können
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct BytecodeHighlight {
     position_bytecode: reader::Position,
     selected_token_wat: Option<PositionWat>,
+    position_info: Option<PositionInfo>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+struct PositionInfo {
+    section: SectionType,
+    idx: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct PositionWat {
     function: usize,
     instruction: usize,
@@ -641,13 +716,31 @@ impl BetweenFrameData {
         }
     }
 
-    pub fn should_highlight_wat(&self, function: usize, instruction: usize) -> bool {
+    // TODO: Farbe des Highlight als Returnwert?
+    pub fn should_highlight_info(&mut self, position_info: &PositionInfo) -> bool {
+        let mut should_highlight = false;
+        self.highlight_bytecode
+            .iter()
+            .for_each(|highlight| match &highlight.position_info {
+                Some(info) => {
+                    if info.section == position_info.section && info.idx == position_info.idx {
+                        should_highlight = true;
+                    }
+                }
+                None => (),
+            });
+        should_highlight
+    }
+
+    pub fn should_highlight_wat(&self, position_wat: PositionWat) -> bool {
         let mut should_highlight = false;
         self.highlight_bytecode
             .iter()
             .for_each(|highlight| match &highlight.selected_token_wat {
                 Some(pos_wat) => {
-                    if pos_wat.function == function && pos_wat.instruction == instruction {
+                    if pos_wat.function == position_wat.function
+                        && pos_wat.instruction == position_wat.instruction
+                    {
                         should_highlight = true;
                     }
                 }

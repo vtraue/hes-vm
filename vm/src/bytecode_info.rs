@@ -252,13 +252,13 @@ mod tests {
         fs::write("gen2.wasm", &source).unwrap();
         source
     }
-
     #[test]
     fn check_and_create_info() -> Result<(), ReaderError> {
         let wasm = get_wasm_gen();
         let reader = Reader::new(&wasm, 0);
         let info = BytecodeInfo::from_reader(&reader)?;
         let types = info.type_section.as_ref().unwrap();
+
         println!(
             "Type section position: {}\ndata:{:04x?}",
             types.1,
@@ -268,6 +268,9 @@ mod tests {
         println!("Type section count: {}", types.0.len());
         for t in types.0.iter() {
             println!("{:?}: {:0x?}", t.0, reader.data_at(t.1));
+            for p in &t.0.params {
+                println!("  data: {:0x?}", reader.data_at(p.1));
+            }
         }
         let imports = info.import_section.as_ref().unwrap();
         println!(
