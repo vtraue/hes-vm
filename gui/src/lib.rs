@@ -399,22 +399,20 @@ fn draw_bytecode_info(
 fn draw_highlightable_info_label(
     ui: &mut Ui,
     text: RichText,
-    position_info: PositionInfo,
-    position_bytecode: Position,
+    highlight: BytecodeHighlight,
     frame_data: &mut BetweenFrameData,
 ) {
     let mut text = text;
-    if frame_data.should_highlight_info(&position_info) {
-        text = text.background_color(Color32::GOLD);
-    }
+    match &highlight.position_info {
+        Some(pos) if frame_data.should_highlight_info(pos) => {
+            text = text.background_color(Color32::GOLD)
+        }
+        _ => {}
+    };
+
     let response = Label::new(text).ui(ui);
 
     if response.clicked() {
-        let highlight = BytecodeHighlight {
-            position_bytecode,
-            selected_token_wat: None,
-            position_info: Some(position_info),
-        };
         frame_data.toggle_bytecode_highlight(highlight);
     }
 }
@@ -422,34 +420,48 @@ fn draw_highlightable_info_label(
 fn draw_types(ui: &mut Ui, bytecode_info: &BytecodeInfo, frame_data: &mut BetweenFrameData) {
     let types = bytecode_info.type_section.as_ref().unwrap();
     for (i, t) in types.0.iter().enumerate() {
-        let mut text = RichText::new(format!("Funktionstyp {}", i));
         let pos_func_type = PositionInfo {
             section: SectionType::Type,
             idx: i,
         };
-        draw_highlightable_info_label(ui, text, pos_func_type, t.1, frame_data);
+        let highlight = BytecodeHighlight {
+            position_bytecode: t.1,
+            selected_token_wat: None,
+            position_info: Some(pos_func_type),
+            highlight_type: HighlightType::Background,
+            highlight_color: Color32::ORANGE,
+        };
+
+        draw_highlightable_info_label(
+            ui,
+            RichText::new(format!("Funktionstype {}", i)),
+            highlight,
+            frame_data,
+        );
 
         ui.indent("Functiontype", |ui| {
-            let mut text = RichText::new(format!("Params: ",));
+            // TODO: Das ist noch nicht ganz richtig, hier sollten nur die Parameter gehighlightet
+            // werden, nicht der ganze Funktionstyp
+            // vorher die Position des letzten Parameter nehmen und eine neue Position
+            // zusammenbasteln?
             let pos_info_params = PositionInfo {
                 section: SectionType::Type,
                 idx: i,
             };
+            let highlight = BytecodeHighlight {
+                position_bytecode: t.1,
+                selected_token_wat: None,
+                position_info: Some(pos_info_params),
+                highlight_type: HighlightType::Border,
+                highlight_color: Color32::GREEN,
+            };
 
-            if frame_data.should_highlight_info(&pos_info_params) {
-                text = text.background_color(Color32::PURPLE);
-            }
-
-            let response = Label::new(text).ui(ui);
-
-            if response.clicked() {
-                let highlight = BytecodeHighlight {
-                    position_bytecode: t.1,
-                    selected_token_wat: None,
-                    position_info: Some(pos_info_params),
-                };
-                frame_data.toggle_bytecode_highlight(highlight);
-            }
+            draw_highlightable_info_label(
+                ui,
+                RichText::new(format!("Params: ",)),
+                highlight,
+                frame_data,
+            );
 
             ui.indent("Params", |ui| {
                 for (j, param) in t.0.params.iter().enumerate() {
@@ -471,6 +483,8 @@ fn draw_types(ui: &mut Ui, bytecode_info: &BytecodeInfo, frame_data: &mut Betwee
                             position_bytecode: param.1,
                             selected_token_wat: None,
                             position_info: Some(pos_info),
+                            highlight_type: HighlightType::Bold,
+                            highlight_color: Color32::LIGHT_RED,
                         };
                         frame_data.toggle_bytecode_highlight(highlight);
                     }
@@ -575,6 +589,8 @@ fn draw_function_instructions(
                             instruction: i,
                         }),
                         position_info: None,
+                        highlight_type: HighlightType::Background,
+                        highlight_color: Color32::DARK_GREEN,
                     };
                     frame_data.toggle_bytecode_highlight(highlight);
                 }
@@ -671,6 +687,15 @@ struct BytecodeHighlight {
     position_bytecode: reader::Position,
     selected_token_wat: Option<PositionWat>,
     position_info: Option<PositionInfo>,
+    highlight_type: HighlightType,
+    highlight_color: Color32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum HighlightType {
+    Background,
+    Border,
+    Bold,
 }
 
 #[derive(Debug, Clone, PartialEq)]
