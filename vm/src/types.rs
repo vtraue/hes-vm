@@ -1,8 +1,8 @@
 use core::fmt;
 
-use crate::reader::{FromReader, FunctionType, Position, Reader, ReaderError, ValueType};
+use crate::{op::Op, reader::{FromReader, FunctionType, Position, Reader, ReaderError, ValueType}};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Type {
     pub params: Box<[(ValueType, Position)]>,
     pub results: Box<[(ValueType, Position)]>,
@@ -54,7 +54,22 @@ impl<'src> fmt::Display for Limits {
         }
     }
 }
+#[derive(Debug)]
+pub struct Global {
+    pub t: (GlobalType, Position),
+    pub init_expr: Box<[(Op, Position)]>,
+}
 
+impl<'src> fmt::Display for Global {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} = {}",
+            self.t.0,
+            self.init_expr.iter().map(|v| v.0).format(" ,")
+        )
+    }
+}
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub struct GlobalType {
     pub t: (ValueType, Position),
@@ -100,6 +115,39 @@ impl Iterator for LocalsIterator {
         } else {
             self.current_position += 1;
             Some(self.locals.t)
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
+pub enum ImportDesc {
+    TypeIdx(TypeId),
+    TableType(Limits),
+    MemType(Limits),
+    GlobalType(GlobalType),
+}
+
+pub type LabelId = u32;
+pub type FuncId = u32;
+pub type TypeId = u32;
+pub type TableId = u32;
+pub type LocalId = u32;
+pub type GlobalId = u32;
+pub type MemId = u32;
+
+#[derive(Debug, Clone)]
+pub struct Import {
+    module: (String, Position),
+    name: (String, Position),
+    desc: (ImportDesc, Position),
+}
+
+impl<'src> From<crate::reader::Import<'src>> for Import {
+    fn from(value: crate::reader::Import<'src>) -> Self {
+        Import {
+            module: (value.module.0.to_string(), value.module.1),
+            name: (value.name.0.to_string(), value.name.1),
+            desc: value.desc,
         }
     }
 }

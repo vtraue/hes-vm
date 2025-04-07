@@ -1,9 +1,12 @@
+use std::result;
+
 use itertools::Itertools;
 
-use crate::{bytecode_info::BytecodeInfo, op::{self, Blocktype, Op}, reader::ValueType, types::{GlobalType, Limits, Type}};
+use crate::{bytecode_info::{Function, Import}, op::{self, Blocktype, Op}, reader::{self, Position, Reader, ReaderError, SectionData, ValueType}, types::{FuncId, GlobalId, GlobalType, Limits, Type, TypeId}};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
+    ReaderError(ReaderError),
     ValueStackUnderflow,
     UnexpectedValueType {got: ValueStackType, expected: ValueStackType},
     UnexpectedEmptyControlStack,
@@ -18,10 +21,17 @@ pub enum ValidationError {
     InvalidTypeId(u32),
     ElseWithoutIf,
     LabelIndexOutOfScope(u32),
+    InvalidFuncId(u32),
+    InvalidMemId(u32),
 }
 
 pub type Result<T> = std::result::Result<T, ValidationError>;
 
+impl From<ReaderError> for ValidationError {
+    fn from(value: ReaderError) -> Self {
+        Self::ReaderError(value)
+    }
+}
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ValueStackType {
     T(ValueType),
@@ -61,19 +71,19 @@ impl From<ValueType> for ValueStackType {
     }
 }
 pub struct CtrlFrame {
-    opcode: Op,
+    opcode: (Op, Position),
     in_types: Vec<ValueType>,
     out_types: Vec<ValueType>,
     start_height: usize,
     is_unreachable: bool, 
 }
 impl CtrlFrame {
-    pub fn new(context: &Context, opcode: Op, in_types: Vec<ValueType>, out_types: Vec<ValueType>) -> Self {
+    pub fn new(context: &Validator, opcode: (Op, Position), in_types: Vec<ValueType>, out_types: Vec<ValueType>) -> Self {
         let start_height = context.value_stack.len(); 
         CtrlFrame {opcode, in_types, out_types, start_height, is_unreachable: false}
     }
     pub fn label_types<'me>(&'me self) -> &'me[ValueType] {
-        if let Op::Loop(_) = self.opcode {
+        if let (Op::Loop(_), _) = self.opcode {
             self.in_types.as_slice()
         } else {
             self.out_types.as_slice()
@@ -81,24 +91,135 @@ impl CtrlFrame {
     }
 }
 
-pub struct Context {
-    return_type: Vec<ValueType>, 
+pub struct NamedType {
+    name: Option<String>,
+    t: TypeId  
+}
 
-    ctrl_stack: Vec<CtrlFrame>,
-    value_stack: Vec<ValueStackType>,
+#[derive(Default)]
+pub struct Context {
     types: Vec<Type>, 
-    funcs: Vec<Type>,
+    funcs: Vec<NamedType>,
     //TODO: Tables
     mems: Vec<Limits>,
     globals: Vec<GlobalType>,
+    
     //TODO: Elems
-    locals: Vec<Vec<ValueType>>,
+    //locals: Vec<Vec<ValueType>>,
+    start: FuncId,
+    data_count: u32,
+    code: Vec<Function>,
+}
+impl Context {
+    pub fn from_reader(mut reader: Reader) -> Result<Self> {
+        let mut context: Context = Default::default();
+        _ = reader.check_header(); 
+        for s in reader.sections_iter() {
+            let s = s?;
+            let data = s.0.data;               
+            let pos = s.1; 
+            
+            match data {
+                crate::reader::SectionData::Custom(custom_section_data) => Ok(()), 
+                crate::reader::SectionData::Type(sub_reader) => {
+                    Ok(context.types = 
+                        sub_reader.map(|e| e?.try_into())
+                        .collect::<result::Result<Vec<_>, _>>()?)
+                },
+                crate::reader::SectionData::Import(mut sub_reader) => {
+                    sub_reader.try_for_each(|i| context.add_import(i?))
+                },
+                crate::reader::SectionData::Function(mut sub_reader) => {
+                    sub_reader.try_for_each(|t| Ok(context.funcs.push(NamedType {t: t?, name: None})))
+                },
+
+                crate::reader::SectionData::Table(sub_reader) => todo!(),
+                crate::reader::SectionData::Memory(mut sub_reader) => {
+                    sub_reader.try_for_each(|l| Ok(context.mems.push(l?)))
+                },
+                crate::reader::SectionData::Global(mut sub_reader) => {
+                    sub_reader.try_for_each(|g| Ok(context.globals.push(g?.t.0)))
+                },
+                crate::reader::SectionData::Export(mut sub_reader) => {
+                    sub_reader.try_for_each(|e| context.validate_export(e?))
+                },
+                crate::reader::SectionData::Start(start) => {
+                    _ = context.get_func(start.0)?;
+                    context.start = start.0;
+                    Ok(()) 
+                },
+                crate::reader::SectionData::DataCount(count) => {
+                    context.data_count = count.0;
+                    Ok(())
+                },
+                crate::reader::SectionData::Code(sub_reader) => {
+                    context.code = sub_reader
+                        .map(|r| r?.try_into())
+                        .collect::<result::Result<Vec<Function>, ReaderError>>()?;
+        
+                    Ok(())
+                },
+                //TODO: (joh) Wo klonen wir die Daten?
+                crate::reader::SectionData::Data(sub_reader) => Ok(()),
+            }?;
+        }
+        Ok(context)
+    }
+
+    pub fn get_type(&self, id: TypeId) -> Result<&Type> {
+        self.types.get(id as usize).ok_or(ValidationError::InvalidTypeId(id))
+    }
+
+    pub fn get_func(&self, id: FuncId) -> Result<(Option<&str>, &Type)> {
+        let func = self.funcs.get(id as usize).ok_or(ValidationError::InvalidFuncId(id))?;
+        Ok((func.name.as_deref(), &self.types[func.t as usize]))
+    }
+
+    pub fn get_mem(&self, id: FuncId) -> Result<Limits> {
+        self.mems.get(id as usize).ok_or(ValidationError::InvalidMemId(id)).cloned() 
+    }
+     
+    pub fn get_global(&self, id: GlobalId) -> Result<&GlobalType> {
+        self.globals.get(id as usize).ok_or(ValidationError::InvalidGlobalID(id))
+    }
+    pub fn add_import(&mut self, import: reader::Import) -> Result<()> {
+        match import.desc.0 {
+            crate::types::ImportDesc::TypeIdx(id) => {
+                _ = self.get_type(id)?;
+                let name = Some(String::from(import.name.0)); 
+                self.funcs.push(NamedType {t: id, name});  
+                Ok(())
+            },
+            crate::types::ImportDesc::TableType(_) => todo!(),
+            crate::types::ImportDesc::MemType(limits) => {
+                self.mems.push(limits);
+                Ok(())
+            },
+            crate::types::ImportDesc::GlobalType(global_type) => {
+                self.globals.push(global_type);                 
+                Ok(())
+            },
+        }
+    }
+    pub fn validate_export(&mut self, export: reader::Export) -> Result<()> {
+        match export.desc.0 {
+            reader::ExportDesc::FuncId(id) => Ok(_ = self.get_func(id)?),
+            reader::ExportDesc::TableId(_) => todo!(),
+            reader::ExportDesc::MemId(id) => Ok(_ = self.get_mem(id)?),
+            reader::ExportDesc::GlobalId(id) => Ok(_ = self.get_global(id)?),
+        }
+    }
+}
+#[derive(Default)]
+pub struct Validator {
+    context: Context,
+    ctrl_stack: Vec<CtrlFrame>,
+    value_stack: Vec<ValueStackType>,
+    
     current_func_id: usize,
-    return_types: Option<Vec<ValueType>> 
-    //TODO: Refs
 }
 
-impl Context {
+impl Validator {
     pub fn pop_val(&mut self) -> Result<ValueStackType> {
         let current_ctrl = &self.ctrl_stack.last().ok_or(ValidationError::ValueStackUnderflow)?;
         if current_ctrl.start_height == self.value_stack.len() {
@@ -122,7 +243,7 @@ impl Context {
         self.pop_val_expect(expected.into())
     }
 
-    pub fn push_new_ctrl(&mut self, opcode: Op, in_types: Vec<ValueType>, out_types: Vec<ValueType>) 
+    pub fn push_new_ctrl(&mut self, opcode: (Op, Position), in_types: Vec<ValueType>, out_types: Vec<ValueType>) 
     {
         //TODO: (joh): Das ist nicht sehr eleggant
         self.value_stack.extend(in_types.iter().cloned().map_into::<ValueStackType>());
@@ -163,7 +284,7 @@ impl Context {
     }
 
     pub fn check_memarg(&mut self, memarg: op::Memarg, n: u32) -> Result<()> {
-        if self.mems.len() <= 0 {
+        if self.context.mems.len() <= 0 {
             return Err(ValidationError::UnexpectedNoMemories);
         };
         let align = 2_i32.pow(memarg.align);
@@ -328,6 +449,22 @@ impl Context {
         Ok(())
     }
 
+    pub fn validate_return(&mut self) -> Result<()> {
+        let funcs = self.funcs[self.current_func_id].results.clone();
+            funcs
+            .iter()
+            .cloned()
+            .try_for_each(|t| {_ = self.pop_val_expect_val(t.0)?; Ok(())})?;
+        self.set_unreachable() 
+    }
+        
+    pub fn validate_call(&mut self, call_id: u32) -> Result<()> {
+        let func = self.funcs.get(call_id as usize).ok_or(ValidationError::InvalidFuncId)?;    
+        func.params.into_iter().try_for_each(|(t, _)| {_ = self.pop_val_expect_val(t)?; Ok(())});
+        func.results.into_iter().for_each(|(t, _)| {_ = self.push_val_t(t);});
+        Ok(()) 
+    }
+
     pub fn validate_op(&mut self, op: Op) -> Result<()> {
         use ValueType::*;
         match op {
@@ -343,9 +480,8 @@ impl Context {
             Op::End => self.validate_end()?,
             Op::Br(n) => self.validate_br(n)?,
             Op::BrIf(n) => self.validate_br_if(n)?,
-                
-            Op::Return => todo!(),
-            Op::Call(_) => todo!(),
+            Op::Return => self.validate_return()?,
+            Op::Call(call_id) => self.validate_call(call_id)?,
             Op::CallIndirect(_, _) => todo!(),
             Op::Drop => _ = self.pop_val()?,
             Op::Select(t) => self.validate_select(t)?,

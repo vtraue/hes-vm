@@ -7,29 +7,14 @@ use crate::{
     reader::{
         ExportDesc, FuncId, Global, ImportDesc, MemId, Position,
         Reader, ReaderError, ValueType,
-    }, types::{Limits, Locals, Type},
+    }, types::{Import, Limits, Locals, Type},
 };
 pub enum InfoError {
     EndOfBuffer,
 }
 
 
-#[derive(Debug, Clone)]
-pub struct Import {
-    module: (String, Position),
-    name: (String, Position),
-    desc: (ImportDesc, Position),
-}
 
-impl<'src> From<crate::reader::Import<'src>> for Import {
-    fn from(value: crate::reader::Import<'src>) -> Self {
-        Import {
-            module: (value.module.0.to_string(), value.module.1),
-            name: (value.name.0.to_string(), value.name.1),
-            desc: value.desc,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Export {
@@ -49,17 +34,23 @@ impl<'src> From<crate::reader::Export<'src>> for Export {
 #[derive(Debug)]
 pub struct Function {
     pub locals: Box<[(Locals, Position)]>,
-    pub code: Box<[Result<(Op, Position), ReaderError>]>,
+    pub code: Box<[(Op, Position)]>,
 }
 
-impl<'src> From<crate::reader::Function<'src>> for Function {
-    fn from(value: crate::reader::Function) -> Self {
-        let code = value.code.collect::<Vec<Result<_, _>>>().into_boxed_slice();
-        Function {
+impl Function {
+    pub fn get_local(&self, id: u32) -> Option<ValueType> {
+
+    }
+}
+impl<'src> TryFrom<crate::reader::Function<'src>> for Function {
+    fn try_from(value: crate::reader::Function) -> Result<Self, Self::Error> {
+        let code = value.code.collect::<Result<Vec<_>, _>>()?.into_boxed_slice();
+        Ok(Function {
             locals: value.locals,
             code,
-        }
+        })
     }
+    type Error = ReaderError;
 }
 
 #[derive(Debug)]
@@ -208,7 +199,7 @@ impl BytecodeInfo {
                     info.code_section = Some((
                         sub_reader
                             .iter_with_position()
-                            .map_ok(|(e, p)| (e.into(), p))
+                            .map(|r| Ok((r?.0.try_into()?, r?.1)))
                             .collect::<Result<Vec<_>, _>>()?
                             .into_boxed_slice(),
                         pos,
