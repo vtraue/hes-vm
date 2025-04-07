@@ -252,13 +252,13 @@ mod tests {
         fs::write("gen2.wasm", &source).unwrap();
         source
     }
-
     #[test]
     fn check_and_create_info() -> Result<(), ReaderError> {
         let wasm = get_wasm_gen();
         let reader = Reader::new(&wasm, 0);
         let info = BytecodeInfo::from_reader(&reader)?;
         let types = info.type_section.as_ref().unwrap();
+
         println!(
             "Type section position: {}\ndata:{:04x?}",
             types.1,
