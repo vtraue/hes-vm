@@ -189,7 +189,7 @@ impl<'src> Reader<'src> {
         Reader {
             buffer: reader.buffer,
             current_position: reader.current_position,
-            start_position: reader.current_position,
+            start_position: reader.start_position,
         }
     }
     pub fn current_buffer(&self) -> &'src [u8] {

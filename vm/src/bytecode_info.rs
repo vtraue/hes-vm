@@ -268,8 +268,8 @@ mod tests {
         println!("Type section count: {}", types.0.len());
         for t in types.0.iter() {
             println!("{:?}: {:0x?}", t.0, reader.data_at(t.1));
-            for p in &t.0.params {
-                println!("  data: {:0x?}", reader.data_at(p.1));
+            for param in &t.0.params {
+            println!("param: {}: {:0x?}", param.0, reader.data_at(param.1));
             }
         }
         let imports = info.import_section.as_ref().unwrap();
