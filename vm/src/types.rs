@@ -1,11 +1,12 @@
 use core::fmt;
+use std::fmt::{Display, write};
 
 use crate::reader::{FromReader, FunctionType, Position, Reader, ReaderError, ValueType};
 
 #[derive(Debug)]
 pub struct Type {
-    params: Box<[(ValueType, Position)]>,
-    results: Box<[(ValueType, Position)]>,
+    pub params: Box<[(ValueType, Position)]>,
+    pub results: Box<[(ValueType, Position)]>,
 }
 
 impl<'src> TryFrom<FunctionType<'src>> for Type {
@@ -38,8 +39,8 @@ impl Limits {
             return false;
         }
         if let Some(max) = self.max {
-            if i > max.0 as i32 || max.0 < self.min.0  {
-                return false
+            if i > max.0 as i32 || max.0 < self.min.0 {
+                return false;
             }
         }
         true
@@ -60,7 +61,6 @@ pub struct GlobalType {
     pub t: (ValueType, Position),
     pub mutable: (bool, Position),
 }
-
 
 impl fmt::Display for GlobalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -103,4 +103,3 @@ impl Iterator for LocalsIterator {
         }
     }
 }
-

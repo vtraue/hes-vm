@@ -9,7 +9,7 @@ use eframe::{
 use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex, TabViewer};
 use std::{fs, ops::Range};
 use vm::{
-    bytecode_info::{BytecodeInfo, Function},
+    bytecode_info::{BytecodeInfo, Function, Import},
     reader::{self, Reader},
 };
 
@@ -59,6 +59,7 @@ impl TabViewer for MyContext {
             "Style Editor" => self.style_editor(ui),
             "Bytecode" => self.bytecode(ui),
             "Instructions" => self.instructions(ui),
+            "Bytecode Infos" => self.bytecode_information(ui),
             _ => {
                 ui.label(tab.as_str());
             }
@@ -100,7 +101,9 @@ impl MyContext {
             &mut self.frame_data,
         );
     }
-
+    fn bytecode_information(&mut self, ui: &mut egui::Ui) {
+        draw_bytecode_info(ui, &self.bytecode_info, &mut self.frame_data);
+    }
     fn instructions(&mut self, ui: &mut egui::Ui) {
         draw_code_text(ui, &self.bytecode_info, &mut self.frame_data);
     }
@@ -184,7 +187,11 @@ impl<'src, 'b> Default for HesApp {
         let [_, _] = tree.main_surface_mut().split_below(
             a,
             0.7,
-            vec!["File Browser".to_owned(), "Asset Manager".to_owned()],
+            vec![
+                "Bytecode Infos".to_owned(),
+                "File Browser".to_owned(),
+                "Asset Manager".to_owned(),
+            ],
         );
         let [_, _] = tree
             .main_surface_mut()
@@ -365,6 +372,101 @@ impl<'src> App for HesApp {
     }
 }
 
+fn draw_bytecode_info(
+    ui: &mut egui::Ui,
+    bytecode_info: &BytecodeInfo,
+    frame_data: &mut BetweenFrameData,
+) {
+    // ausklappbar:
+    // - Imports
+    // - Globals
+    // - Types
+    // - Funktionen mit Parametern
+    // - Start Section
+    // - Speicher, Stack
+    ui.collapsing("Imports", |ui| {
+        draw_imports(ui, bytecode_info, frame_data);
+    });
+    ui.collapsing("Globals", |ui| {
+        draw_globals(ui, bytecode_info, frame_data);
+    });
+    ui.collapsing("Funktionstypen", |ui| {
+        draw_types(ui, bytecode_info, frame_data);
+    });
+    ui.collapsing("Funktionen", |ui| {
+        draw_function_headers(ui, bytecode_info, frame_data);
+    });
+    ui.collapsing("Start", |ui| {
+        draw_start_section(ui, bytecode_info, frame_data);
+    });
+}
+
+fn draw_types(ui: &mut Ui, bytecode_info: &BytecodeInfo, frame_data: &mut BetweenFrameData) {
+    let types = bytecode_info.type_section.as_ref().unwrap();
+    for (i, t) in types.0.iter().enumerate() {
+        Label::new(format!("Funktionstyp {}", i)).ui(ui);
+        ui.indent("Functiontype", |ui| {
+            Label::new(format!("Params: ",)).ui(ui);
+            ui.indent("Params", |ui| {
+                for param in &t.0.params {
+                    Label::new(format!("{}", param.0)).ui(ui);
+                }
+            })
+        });
+    }
+}
+
+fn draw_function_headers(
+    ui: &mut Ui,
+    bytecode_info: &BytecodeInfo,
+    frame_data: &mut BetweenFrameData,
+) {
+    let functions = bytecode_info.function_section.as_ref().unwrap();
+    for (i, function) in functions.0.iter().enumerate() {
+        Label::new(format!("Functions {}", i)).ui(ui);
+        ui.indent("Function", |ui| {
+            Label::new(format!("{}", function.0)).ui(ui);
+        });
+    }
+}
+
+fn draw_start_section(
+    ui: &mut Ui,
+    bytecode_info: &BytecodeInfo,
+    frame_data: &mut BetweenFrameData,
+) {
+    let start = bytecode_info.start_section.as_ref().unwrap();
+    Label::new(format!("{}", start.0)).ui(ui);
+}
+
+fn draw_imports(
+    ui: &mut egui::Ui,
+    bytecode_info: &BytecodeInfo,
+    frame_data: &mut BetweenFrameData,
+) {
+    let import_section = bytecode_info.import_section.as_ref().unwrap();
+    for (i, import) in import_section.0.iter().enumerate() {
+        Label::new(format!("Import {}", i)).ui(ui);
+        ui.indent("Import", |ui| {
+            Label::new(format!("{}", import.0)).ui(ui);
+        });
+    }
+}
+
+fn draw_globals(
+    ui: &mut egui::Ui,
+    bytecode_info: &BytecodeInfo,
+    frame_data: &mut BetweenFrameData,
+) {
+    let global_section = bytecode_info.global_section.as_ref().unwrap();
+    for (i, global) in global_section.0.iter().enumerate() {
+        Label::new(format!("Global {}", i)).ui(ui);
+        ui.indent("Global", |ui| {
+            Label::new(format!("{}", global.0)).ui(ui);
+        });
+    }
+}
+
 fn draw_code_text(
     ui: &mut egui::Ui,
     bytecode_info: &BytecodeInfo,
@@ -373,7 +475,7 @@ fn draw_code_text(
     let code = bytecode_info.code_section.as_ref().unwrap();
     for (i, function) in code.0.iter().enumerate() {
         Label::new(format!("Function {}", i)).ui(ui);
-        ui.indent("Instrctions", |ui| {
+        ui.indent("Instructions", |ui| {
             draw_function_instructions(ui, &function.0, i, frame_data);
         });
     }
@@ -392,7 +494,8 @@ fn draw_function_instructions(
                 let mut text = RichText::new(op.to_string()).text_style(TextStyle::Monospace);
 
                 if frame_data.should_highlight_wat(func_id, i) {
-                    text = text.background_color(Color32::YELLOW);
+                    text = text.background_color(Color32::from_hex("#ff9933").unwrap());
+                    text = text.color(Color32::BLACK);
                 }
 
                 let response = Label::new(text).sense(Sense::click()).ui(ui);
@@ -475,7 +578,8 @@ fn draw_bytecode_values(
                 }
 
                 if frame_data.should_highlight_bytecode(memory_adress) {
-                    text = text.background_color(Color32::YELLOW);
+                    text = text.background_color(Color32::from_hex("#ff9933").unwrap());
+                    text = text.color(Color32::BLACK);
                 }
 
                 let response = Label::new(text).sense(Sense::click()).ui(ui);
@@ -557,7 +661,7 @@ impl BetweenFrameData {
         for highlight in &self.highlight_bytecode {
             let offset = highlight.position_bytecode.offset;
             let len = highlight.position_bytecode.len;
-            if address >= offset && address <= (offset + len) {
+            if address >= offset && address <= (offset + len - 1) {
                 should_highlight = true;
             }
         }
