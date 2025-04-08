@@ -1,5 +1,7 @@
 use core::fmt;
 
+use itertools::Itertools;
+
 use crate::{op::Op, reader::{FromReader, FunctionType, Position, Reader, ReaderError, ValueType}};
 
 #[derive(Debug, Clone)]

@@ -1,8 +1,7 @@
-use std::result;
 
 use itertools::Itertools;
 
-use crate::{bytecode_info::{Function, Import}, op::{self, Blocktype, Op}, reader::{self, Position, Reader, ReaderError, SectionData, ValueType}, types::{FuncId, GlobalId, GlobalType, Limits, Type, TypeId}};
+use crate::{bytecode_info::{Function}, op::{self, Blocktype, Op}, reader::{self, Position, Reader, ReaderError, SectionData, ValueType}, types::{FuncId, GlobalId, GlobalType, Limits, LocalId, Type, TypeId}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
@@ -23,6 +22,7 @@ pub enum ValidationError {
     LabelIndexOutOfScope(u32),
     InvalidFuncId(u32),
     InvalidMemId(u32),
+    InvalidLocalId(u32),
 }
 
 pub type Result<T> = std::result::Result<T, ValidationError>;
@@ -124,7 +124,7 @@ impl Context {
                 crate::reader::SectionData::Type(sub_reader) => {
                     Ok(context.types = 
                         sub_reader.map(|e| e?.try_into())
-                        .collect::<result::Result<Vec<_>, _>>()?)
+                        .collect::<std::result::Result<Vec<_>, _>>()?)
                 },
                 crate::reader::SectionData::Import(mut sub_reader) => {
                     sub_reader.try_for_each(|i| context.add_import(i?))
@@ -155,7 +155,7 @@ impl Context {
                 crate::reader::SectionData::Code(sub_reader) => {
                     context.code = sub_reader
                         .map(|r| r?.try_into())
-                        .collect::<result::Result<Vec<Function>, ReaderError>>()?;
+                        .collect::<std::result::Result<Vec<Function>, ReaderError>>()?;
         
                     Ok(())
                 },
@@ -182,6 +182,14 @@ impl Context {
     pub fn get_global(&self, id: GlobalId) -> Result<&GlobalType> {
         self.globals.get(id as usize).ok_or(ValidationError::InvalidGlobalID(id))
     }
+
+    pub fn get_local(&self, func_id: FuncId, local_id: LocalId) -> Result<ValueType> {
+        self.code.get(func_id as usize)
+            .ok_or(ValidationError::InvalidFuncId(func_id))?
+            .get_local(local_id)
+            .ok_or(ValidationError::InvalidLocalID(local_id))
+    }
+
     pub fn add_import(&mut self, import: reader::Import) -> Result<()> {
         match import.desc.0 {
             crate::types::ImportDesc::TypeIdx(id) => {
@@ -325,10 +333,10 @@ impl Validator {
         Ok(())
     }
     pub fn get_local_type(&self, id: u32) -> Result<ValueType> {
-        self.locals[self.current_func_id].get(id as usize).ok_or(ValidationError::InvalidLocalID(id)).copied()
+        self.context.get_local(self.current_func_id as u32, id)
     }
     pub fn get_global_type(&self, id: u32) -> Result<GlobalType> {
-        self.globals.get(id as usize).ok_or(ValidationError::InvalidLocalID(id)).cloned()
+        self.context.globals.get(id as usize).ok_or(ValidationError::InvalidLocalID(id)).cloned()
     }
 
     pub fn validate_local_get(&mut self, id: u32) -> Result<()> {
@@ -391,7 +399,7 @@ impl Validator {
             Blocktype::Empty => Ok((vec![], vec![])),
             Blocktype::Value(value_type) => Ok((vec![], vec![value_type])),
             Blocktype::TypeIndex(index) => {
-                let t = self.types.get(index as usize).ok_or(ValidationError::InvalidTypeId(index))?;
+                let t = self.context.types.get(index as usize).ok_or(ValidationError::InvalidTypeId(index))?;
                 let in_t = t.params.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
                 let out_t = t.params.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
                 Ok((in_t, out_t))
@@ -399,16 +407,16 @@ impl Validator {
         }
     }
 
-    pub fn validate_block(&mut self, op: Op, blocktype: Blocktype) -> Result<()> {
+    pub fn validate_block(&mut self, op: (Op, Position), blocktype: Blocktype) -> Result<()> {
         let (in_types, out_types) = self.get_block_types(blocktype)?;
         in_types.iter().cloned().for_each(|f| self.push_val_t(f));     
         self.push_new_ctrl(op, in_types, out_types); 
         Ok(())
     }
 
-    pub fn validate_else(&mut self, op: Op) -> Result<()> {
+    pub fn validate_else(&mut self, op: (Op, Position)) -> Result<()> {
         let ctrl = self.pop_ctrl()?;
-        if let Op::If(_) = ctrl.opcode {
+        if let (Op::If(_), _) = ctrl.opcode {
             return Err(ValidationError::ElseWithoutIf);
         }
         self.push_new_ctrl(op, ctrl.in_types, ctrl.out_types);      
@@ -430,7 +438,7 @@ impl Validator {
             .collect::<Vec<_>>();
 
         //TODO: (joh): Das ist schreklich
-        vals.iter().try_for_each(|t| {_ = self.pop_val_expect_val(t.clone())?; Ok(())})?;
+        vals.iter().try_for_each(|t| {_ = self.pop_val_expect_val(t.clone())?; Ok::<_, ValidationError>(())})?;
         self.set_unreachable()?;
 
         Ok(())
@@ -444,30 +452,31 @@ impl Validator {
             .iter()
             .cloned()
             .collect::<Vec<_>>();
-        vals.iter().try_for_each(|t| {_ = self.pop_val_expect_val(t.clone())?; Ok(())})?;
+        vals.iter().try_for_each(|t| {_ = self.pop_val_expect_val(t.clone())?; Ok::<_, ValidationError>(())})?;
         self.value_stack.extend(vals.iter().cloned().map_into::<ValueStackType>());
         Ok(())
     }
 
     pub fn validate_return(&mut self) -> Result<()> {
-        let funcs = self.funcs[self.current_func_id].results.clone();
+        let funcs = self.context.get_func(self.current_func_id as u32).unwrap().1.results.clone();
             funcs
             .iter()
             .cloned()
-            .try_for_each(|t| {_ = self.pop_val_expect_val(t.0)?; Ok(())})?;
+            .try_for_each(|t| -> Result<()> {_ = self.pop_val_expect_val(t.0)?; Ok(())})?;
         self.set_unreachable() 
     }
         
     pub fn validate_call(&mut self, call_id: u32) -> Result<()> {
-        let func = self.funcs.get(call_id as usize).ok_or(ValidationError::InvalidFuncId)?;    
-        func.params.into_iter().try_for_each(|(t, _)| {_ = self.pop_val_expect_val(t)?; Ok(())});
-        func.results.into_iter().for_each(|(t, _)| {_ = self.push_val_t(t);});
+        let params = self.context.get_func(call_id)?.1.params.clone(); 
+        let results = self.context.get_func(call_id)?.1.results.clone();
+        params.iter().cloned().try_for_each(|(t, _)| -> Result<()> {_ = self.pop_val_expect_val(t)?; Ok(())});
+        results.iter().cloned().for_each(|(t, _)| {_ = self.push_val_t(t);});
         Ok(()) 
     }
 
-    pub fn validate_op(&mut self, op: Op) -> Result<()> {
+    pub fn validate_op(&mut self, op: (Op, Position)) -> Result<()> {
         use ValueType::*;
-        match op {
+        match op.0 {
             Op::Unreachable => self.set_unreachable()?,
             Op::Nop => {},
             Op::Block(blocktype) => self.validate_block(op, blocktype)?,

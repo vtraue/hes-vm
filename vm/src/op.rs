@@ -1,9 +1,9 @@
 use std::fmt::{self, write};
 
-use crate::reader::{
-    self, FromReader, FuncId, FunctionType, GlobalId, LabelId, LocalId, Reader, TableId, TypeId,
+use crate::{reader::{
+    self, FromReader,Reader, 
     ValueType,
-};
+}, types::{FuncId, GlobalId, LabelId, LocalId, TableId, TypeId}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {
@@ -193,7 +193,7 @@ impl<'src> FromReader<'src> for Op {
             0x10 => Self::Call(reader.read()?),
             0x11 => Self::CallIndirect(reader.read()?, reader.read()?),
             0x1A => Self::Drop,
-            0x1B => Self::Select(None)
+            0x1B => Self::Select(None),
             0x1C => Self::Select(Some(reader.read()?)),
             0x20 => Self::LocalGet(reader.read()?),
             0x21 => Self::LocalSet(reader.read()?),
@@ -308,7 +308,7 @@ impl fmt::Display for Op {
             Op::Call(func_id) => write!(f, "call {func_id}"),
             Op::CallIndirect(table_id, type_id) => write!(f, "call_indirect {table_id} {type_id}"),
             Op::Drop => write!(f, "drop"),
-            Op::Select => write!(f, "select"),
+            Op::Select(_) => write!(f, "select"), //TODO: (joh): Argumente fuer Select
             Op::LocalGet(id) => write!(f, "local.get {id}"),
             Op::LocalSet(id) => write!(f, "local.set {id}"),
             Op::LocalTee(id) => write!(f, "local.tee {id}"),

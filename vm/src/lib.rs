@@ -1,6 +1,5 @@
 pub mod bytecode_info;
 pub mod op;
-pub mod parser;
 pub mod reader;
 pub mod context;
 pub mod types;

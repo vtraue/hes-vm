@@ -5,9 +5,9 @@ use itertools::Itertools;
 use crate::{
     op::Op,
     reader::{
-        ExportDesc, FuncId, Global, ImportDesc, MemId, Position,
+        ExportDesc,Position,
         Reader, ReaderError, ValueType,
-    }, types::{Import, Limits, Locals, Type},
+    }, types::{FuncId, Global, Import, Limits, Locals, MemId, Type},
 };
 pub enum InfoError {
     EndOfBuffer,
@@ -39,7 +39,7 @@ pub struct Function {
 
 impl Function {
     pub fn get_local(&self, id: u32) -> Option<ValueType> {
-
+        self.locals.iter().find(|l| l.0.n < id).map(|i| i.0.t) 
     }
 }
 impl<'src> TryFrom<crate::reader::Function<'src>> for Function {
@@ -199,7 +199,7 @@ impl BytecodeInfo {
                     info.code_section = Some((
                         sub_reader
                             .iter_with_position()
-                            .map(|r| Ok((r?.0.try_into()?, r?.1)))
+                            .map(|r| -> Result<(Function, Position), ReaderError> {let r = r?; Ok((r.0.try_into()?, r.1))})
                             .collect::<Result<Vec<_>, _>>()?
                             .into_boxed_slice(),
                         pos,
@@ -308,8 +308,7 @@ mod tests {
         for (i, func) in code.0.iter().enumerate() {
             let func_t = functions_with_types.get(i).unwrap();
             println!("func {}, t: {:?}, pos: {}, data: {:0x?}", i, func_t.0, func.1, reader.data_at(func.1));
-            for o in func.0.code.iter() {
-                let (op, pos) = o.as_ref().unwrap();
+            for (op, pos) in func.0.code.iter() {
                 println!("op: {op}, pos: {pos}, data: {:0x?}", reader.data_at(pos.clone()));
             }
         }
