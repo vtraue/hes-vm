@@ -1,4 +1,5 @@
 use core::fmt;
+use std::fmt::write;
 
 use itertools::Itertools;
 
@@ -9,7 +10,14 @@ pub struct Type {
     pub params: Box<[(ValueType, Position)]>,
     pub results: Box<[(ValueType, Position)]>,
 }
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let p = self.params.iter().map(|(v, p)| v);
+        let r = self.results.iter().map(|(v, p)| v);
 
+        write!(f, "({}) -> ({})", p.format(", "), r.format(", "))
+    }
+}
 impl<'src> TryFrom<FunctionType<'src>> for Type {
     type Error = ReaderError;
     fn try_from(mut value: FunctionType<'src>) -> Result<Self, Self::Error> {

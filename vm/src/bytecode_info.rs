@@ -39,7 +39,7 @@ pub struct Function {
 
 impl Function {
     pub fn get_local(&self, id: u32) -> Option<ValueType> {
-        self.locals.iter().find(|l| l.0.n < id).map(|i| i.0.t) 
+        self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t) 
     }
 }
 impl<'src> TryFrom<crate::reader::Function<'src>> for Function {
