@@ -438,6 +438,32 @@ fn draw_highlightable_info_label(
     }
 }
 
+fn draw_highlightable_wat_label(
+    ui: &mut Ui,
+    text: RichText,
+    highlight: BytecodeHighlight,
+    frame_data: &mut BetweenFrameData,
+) {
+    let mut text = text;
+    match &highlight.selected_token_wat {
+        Some(pos) => match frame_data.should_highlight_wat(pos) {
+            Some((color, hl_type)) => match hl_type {
+                HighlightType::Background => text = text.background_color(color),
+                HighlightType::Border => text = text.color(color).underline(),
+                HighlightType::Bold => text = text.color(color).strong(),
+            },
+            None => (),
+        },
+        None => (),
+    };
+
+    let response = Label::new(text).ui(ui);
+
+    if response.clicked() {
+        frame_data.toggle_bytecode_highlight(highlight);
+    }
+}
+
 fn draw_types(ui: &mut Ui, bytecode_info: &BytecodeInfo, frame_data: &mut BetweenFrameData) {
     let types = bytecode_info.type_section.as_ref().unwrap();
     for (i, t) in types.0.iter().enumerate() {
@@ -656,31 +682,22 @@ fn draw_function_instructions(
         match instruction {
             Ok((op, pos)) => {
                 ui.spacing_mut().indent = 200.0;
-                let mut text = RichText::new(op.to_string()).text_style(TextStyle::Monospace);
-
-                if frame_data.should_highlight_wat(PositionWat {
-                    function: func_id,
-                    instruction: i,
-                }) {
-                    text = text.background_color(Color32::from_hex("#ff9933").unwrap());
-                    text = text.color(Color32::BLACK);
-                }
-
-                let response = Label::new(text).sense(Sense::click()).ui(ui);
-
-                if response.clicked() {
-                    let highlight = BytecodeHighlight {
-                        position_bytecode: *pos,
-                        selected_token_wat: Some(PositionWat {
-                            function: func_id,
-                            instruction: i,
-                        }),
-                        position_info: None,
-                        highlight_type: HighlightType::Background,
-                        highlight_color: Color32::DARK_GREEN,
-                    };
-                    frame_data.toggle_bytecode_highlight(highlight);
-                }
+                let highlight = BytecodeHighlight {
+                    position_bytecode: *pos,
+                    selected_token_wat: Some(PositionWat {
+                        function: func_id,
+                        instruction: i,
+                    }),
+                    position_info: None,
+                    highlight_type: HighlightType::Background,
+                    highlight_color: Color32::DARK_GREEN,
+                };
+                draw_highlightable_wat_label(
+                    ui,
+                    RichText::new(op.to_string()).text_style(TextStyle::Monospace),
+                    highlight,
+                    frame_data,
+                );
             }
             Err(_) => todo!(),
         }
@@ -865,8 +882,11 @@ impl BetweenFrameData {
         return res;
     }
 
-    pub fn should_highlight_wat(&self, position_wat: PositionWat) -> bool {
-        let mut should_highlight = false;
+    pub fn should_highlight_wat(
+        &self,
+        position_wat: &PositionWat,
+    ) -> Option<(Color32, HighlightType)> {
+        let mut should_highlight = None;
         self.highlight_bytecode
             .iter()
             .for_each(|highlight| match &highlight.selected_token_wat {
@@ -874,7 +894,10 @@ impl BetweenFrameData {
                     if pos_wat.function == position_wat.function
                         && pos_wat.instruction == position_wat.instruction
                     {
-                        should_highlight = true;
+                        should_highlight = Some((
+                            highlight.highlight_color.clone(),
+                            highlight.highlight_type.clone(),
+                        ));
                     }
                 }
                 None => (),
