@@ -46,21 +46,21 @@ enum Type implements AstNode {
         return "";
     }
   }
+
   public WasmValueType toWasmValueType() {
     return WasmValueType.i32;
-}
+  }
 
-@Override
-public Result<TypedAstNode, java.lang.String> getTypedAstNode(TypedAstBuilder builder) {
-  // TODO Auto-generated method stub
-  throw new UnsupportedOperationException("Unimplemented method 'getTypedAstNode'");
-}
+  @Override
+  public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+    // TODO Auto-generated method stub
+    throw new UnsupportedOperationException("Unimplemented method 'getTypedAstNode'");
+  }
 
-@Override
-public java.lang.String toDebugText() {
-  // TODO Auto-generated method stub
-  throw new UnsupportedOperationException("Unimplemented method 'toDebugText'");
-}
+  @Override
+  public String toDebugText() {
+    return this.toString(); 
+  }
 }
 
 enum BinopType {
@@ -136,7 +136,7 @@ record BoolLiteral(boolean lit) implements Literal {
 
 record StringLiteral(String literal, int pointer) implements Literal {
   public String toDebugText() {
-    return String.format("%s", this.literal);
+    return this.toString(); 
   }
 
   public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
@@ -171,7 +171,7 @@ record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression
       return new Err<>(String.format("Error in Binary Operation rhs: %s", message.err())); 
     }
     TypedExpression typedLhsData = (TypedExpression)typedLhs.unwrap();
-    TypedExpression typedRhsData = (TypedExpression)typedLhs.unwrap();
+    TypedExpression typedRhsData = (TypedExpression)typedRhs.unwrap();
     Type lhsT = typedLhsData.getType();
     Type rhsT = typedRhsData.getType();
 

@@ -1,4 +1,5 @@
 package org.example;
+
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -52,7 +53,7 @@ record TypedLiteral(Literal lit, Type t) implements TypedExpression {
 record TypedBinOP(TypedExpression lhs, BinopType op, TypedExpression rhs) implements TypedExpression {
   @Override
   public Type getType() {
-    return lhs.getType();
+    return Type.Bool;
   }
 
   @Override
@@ -92,7 +93,7 @@ record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) imple
     func.emitGlobalGet(0);
     func.emitLocalSet(id.sym().id());
 
-    func.emitGlobalGet(0);
+    func.emitGlobalGet(0);  
     func.emitConst(4);
     func.emitAdd();
     func.emitGlobalSet(0);
@@ -167,7 +168,7 @@ record TypedCond(TypedExpression cond, TypedBlock ifBlock, Optional<TypedBlock> 
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     cond.toWasmCode(func, builder);
-      
+
     func.emitIf();
     func.emitBlockType();
     
