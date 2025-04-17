@@ -1,5 +1,6 @@
 import env fn print(str: string, size: int);
 import env fn printNum(num: int);
+import env fn trap();
 
 export fn should_work(a: int) -> int {
 	return 1;
@@ -22,6 +23,15 @@ export fn test() {
 
 export fn main() {
   printNum(2); 
+  test_num := 5;
+
+  if(test_num == 5) {
+    a := 99;
+    b := 98;
+  }
+  else {
+    c := 100;
+  }
 	return; 
 }
 

@@ -171,7 +171,7 @@ record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression
       return new Err<>(String.format("Error in Binary Operation rhs: %s", message.err())); 
     }
     TypedExpression typedLhsData = (TypedExpression)typedLhs.unwrap();
-    TypedExpression typedRhsData = (TypedExpression)typedLhs.unwrap();
+    TypedExpression typedRhsData = (TypedExpression)typedRhs.unwrap();
     Type lhsT = typedLhsData.getType();
     Type rhsT = typedRhsData.getType();
 

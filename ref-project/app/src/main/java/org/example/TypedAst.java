@@ -52,7 +52,7 @@ record TypedLiteral(Literal lit, Type t) implements TypedExpression {
 record TypedBinOP(TypedExpression lhs, BinopType op, TypedExpression rhs) implements TypedExpression {
   @Override
   public Type getType() {
-    return lhs.getType();
+    return Type.Bool; 
   }
 
   @Override
