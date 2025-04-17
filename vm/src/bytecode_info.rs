@@ -1,4 +1,5 @@
 use core::fmt;
+use std::ffi::os_str::Display;
 
 use itertools::Itertools;
 
@@ -42,9 +43,20 @@ impl Function {
         self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t) 
     }
 }
+
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Locals\n")?; 
+        self.locals.iter().try_for_each(|l| write!(f, "{}\n", l.0))?;
+        write!(f, "Code:\n")?;
+        self.code.iter().try_for_each(|c| write!(f, "{}\n", c.0))
+    }
+}
 impl<'src> TryFrom<crate::reader::Function<'src>> for Function {
     fn try_from(value: crate::reader::Function) -> Result<Self, Self::Error> {
+        println!("Reading code...");
         let code = value.code.collect::<Result<Vec<_>, _>>()?.into_boxed_slice();
+        println!("...done!");
         Ok(Function {
             locals: value.locals,
             code,
@@ -121,9 +133,11 @@ impl BytecodeInfo {
             //TODO: (joh): Das geht bestimmt hübscher
             match data {
                 crate::reader::SectionData::Custom(custom_section_data) => {
+                    println!("Custom Section");
                     info.custom_sections.push(custom_section_data.into());
                 }
                 crate::reader::SectionData::Type(mut sub_reader) => {
+                    println!("Type Section");
                     info.type_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -134,6 +148,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Import(mut sub_reader) => {
+                    println!("Import Section");
                     info.import_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -144,6 +159,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Function(mut sub_reader) => {
+                    println!("Function Section");
                     info.function_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -155,6 +171,7 @@ impl BytecodeInfo {
                 }
 
                 crate::reader::SectionData::Table(mut sub_reader) => {
+                    println!("Table Section");
                     info.table_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -164,6 +181,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Memory(mut sub_reader) => {
+                    println!("Memory Section");
                     info.memory_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -173,6 +191,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Global(mut sub_reader) => {
+                    println!("Global Section");
                     info.global_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -182,6 +201,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Export(mut sub_reader) => {
+                    println!("Export Section");
                     info.export_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -196,6 +216,7 @@ impl BytecodeInfo {
                     info.data_count_section = Some(count)
                 }
                 crate::reader::SectionData::Code(mut sub_reader) => {
+                    println!("Code Section");
                     info.code_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -206,6 +227,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Data(mut sub_reader) => {
+                    println!("Data section");
                     info.data_section = Some((
                         sub_reader
                             .iter_with_position()

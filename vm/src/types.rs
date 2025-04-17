@@ -129,6 +129,11 @@ impl Iterator for LocalsIterator {
     }
 }
 
+impl fmt::Display for Locals {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.clone().into_iter().try_for_each(|v| write!(f, "{}\n", v))
+    }
+}
 #[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
 pub enum ImportDesc {
     TypeIdx(TypeId),

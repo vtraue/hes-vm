@@ -26,6 +26,8 @@ pub enum ValidationError {
     InvalidMemId(u32),
     InvalidLocalId(u32),
     MissingEndOnFunctionExit,
+    InvalidJump,
+    InvalidJumpId,
 }
 
 pub type Result<T> = std::result::Result<T, ValidationError>;
@@ -89,11 +91,12 @@ pub struct CtrlFrame {
     start_height: usize,
     is_unreachable: bool, 
     jump_table_entry: Option<usize>,
+    ip: usize,
 }
 impl CtrlFrame {
-    pub fn new(context: &Validator, opcode: Option<(Op, Position)>, jump_table_entry: Option<usize>, in_types: Vec<ValueType>, out_types: Vec<ValueType>) -> Self {
+    pub fn new(context: &Validator, ip: usize, opcode: Option<(Op, Position)>, jump_table_entry: Option<usize>, in_types: Vec<ValueType>, out_types: Vec<ValueType>) -> Self {
         let start_height = context.value_stack.len(); 
-        CtrlFrame {opcode, jump_table_entry, in_types, out_types, start_height, is_unreachable: false}
+        CtrlFrame {opcode, ip, jump_table_entry, in_types, out_types, start_height, is_unreachable: false}
     }
 
     pub fn label_types<'me>(&'me self) -> &'me[ValueType] {
@@ -137,42 +140,52 @@ impl Context {
             match data {
                 crate::reader::SectionData::Custom(custom_section_data) => Ok(()), 
                 crate::reader::SectionData::Type(sub_reader) => {
+                    println!("Type section");
                     Ok(context.types = 
                         sub_reader.map(|e| e?.try_into())
                         .collect::<std::result::Result<Vec<_>, _>>()?)
                 },
 
                 crate::reader::SectionData::Import(mut sub_reader) => {
+                    println!("Import section");
                     sub_reader.try_for_each(|i| context.add_import(i?))
                 },
                 crate::reader::SectionData::Function(mut sub_reader) => {
+                    println!("Function section");
                     sub_reader.try_for_each(|t| Ok(context.funcs.push(NamedType {t: t?, name: None})))
                 },
 
                 crate::reader::SectionData::Table(sub_reader) => todo!(),
                 crate::reader::SectionData::Memory(mut sub_reader) => {
+                    println!("Memory section");
                     sub_reader.try_for_each(|l| Ok(context.mems.push(l?)))
                 },
                 crate::reader::SectionData::Global(mut sub_reader) => {
+                    println!("Global section");
                     sub_reader.try_for_each(|g| Ok(context.globals.push(g?.t.0)))
                 },
                 crate::reader::SectionData::Export(mut sub_reader) => {
+                    println!("Export section");
                     sub_reader.try_for_each(|e| context.validate_export(e?))
                 },
                 crate::reader::SectionData::Start(start) => {
+                    println!("Start section");
                     _ = context.get_func(start.0)?;
                     context.start = start.0;
                     Ok(()) 
                 },
                 crate::reader::SectionData::DataCount(count) => {
+                    println!("Data count section");
                     context.data_count = count.0;
                     Ok(())
                 },
                 crate::reader::SectionData::Code(sub_reader) => {
+                    println!("Code section");
                     context.code = sub_reader
                         .map(|r| r?.try_into())
                         .collect::<std::result::Result<Vec<Function>, ReaderError>>()?;
         
+                    println!("...done!");
                     Ok(())
                 },
                 //TODO: (joh) Wo klonen wir die Daten?
@@ -212,12 +225,10 @@ impl Context {
             crate::types::ImportDesc::TableType(_) => todo!(),
             crate::types::ImportDesc::MemType(limits) => {
                 self.mems.push(limits);
-                self.internal_func_offset += 1;
                 Ok(())
             },
             crate::types::ImportDesc::GlobalType(global_type) => {
                 self.globals.push(global_type);                 
-                self.internal_func_offset += 1;
                 Ok(())
             },
         }
@@ -237,8 +248,23 @@ impl Context {
 
 #[derive(Default, Debug, Clone)]
 pub struct JumpTableEntry {
-    next_ip: isize,
-    next_jte: usize,
+    ip: isize,
+    delta_ip: isize,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct JumpTable(Vec<JumpTableEntry>);
+
+impl JumpTable {
+    pub fn push_new(&mut self, ip: usize) -> usize {
+        self.0.push(JumpTableEntry {ip: ip as isize, delta_ip: ip as isize});
+        self.0.len() - 1
+    }
+
+    pub fn get_jump_mut(&mut self, id: usize) -> Result<&mut JumpTableEntry> {
+        self.0.get_mut(id).ok_or(ValidationError::InvalidJumpId) 
+    }
+    
 }
 
 #[derive(Default)]
@@ -247,7 +273,7 @@ pub struct Validator {
     ctrl_jump_stack: Vec<Vec<usize>>,
     value_stack: Vec<ValueStackType>,
     locals: Vec<ValueType>,    
-    jump_table: Vec<JumpTableEntry>,
+    jump_table: JumpTable,
     current_func_id: usize,
     instruction_pointer: usize, 
 }
@@ -277,24 +303,21 @@ impl Validator {
         self.pop_val()
             .map(|v| if v == expected {Ok(v)} else {Err(ValidationError::UnexpectedValueType { got: v, expected })})?
     }
+
     pub fn pop_val_expect_val(&mut self, expected: ValueType) -> Result<ValueStackType> {
         self.pop_val_expect(expected.into())
     }
 
-    pub fn push_new_jump(&mut self) -> usize {
-        self.jump_table.push(JumpTableEntry{next_ip: self.instruction_pointer as isize, ..Default::default()});
-        self.jump_table.len() - 1
-    }
 
     pub fn push_new_ctrl(&mut self, opcode: Option<(Op, Position)>, in_types: Vec<ValueType>, out_types: Vec<ValueType>)  {
         //TODO: (joh): Das ist nicht sehr eleggant
         self.value_stack.extend(in_types.iter().cloned().map_into::<ValueStackType>());
         let jte = match opcode {
-            Some((Op::If(_), _)) => Some(self.push_new_jump()),   
+            Some((Op::If(_, _), _)) => Some(self.jump_table.push_new(self.instruction_pointer)),   
             _ => None
         };
 
-        let ctrl = CtrlFrame::new(self, opcode, jte, in_types, out_types); 
+        let ctrl = CtrlFrame::new(self, self.instruction_pointer, opcode, jte, in_types, out_types); 
         self.ctrl_jump_stack.push(Vec::new()); 
         self.ctrl_stack.push(ctrl); 
     }
@@ -310,8 +333,7 @@ impl Validator {
             return Err(ValidationError::UnbalancedStack)
         }
 
-        let frame = self.ctrl_stack.pop().unwrap();
-        let mut jumps = self.ctrl_jump_stack.pop().ok_or(ValidationError::UnexpectedEmptyControlStack);
+        let frame = self.ctrl_stack.pop().unwrap(); 
         Ok(frame)
     }
 
@@ -462,29 +484,56 @@ impl Validator {
     }
 
     pub fn validate_else(&mut self, op: (Op, Position)) -> Result<()> {
-        let jmp = self.push_new_jump();
+        /*
+        let jmp = self.jump_table.push_new(self.instruction_pointer);
         self.ctrl_jump_stack
             .last_mut()
             .ok_or(ValidationError::UnexpectedEmptyControlStack)?
             .push(jmp);
-
+        */
         let ctrl = self.pop_ctrl()?;
-        if let Some((Op::If(_), _)) = ctrl.opcode {
-            return Err(ValidationError::ElseWithoutIf);
+
+        println!("Blibb");
+        if let Some((Op::If(_, _), _)) = ctrl.opcode {
+            println!("Blubb");
+            let if_jmp = self.jump_table.get_jump_mut(ctrl.jump_table_entry.unwrap())?;
+            println!("ctrl: {:?}", ctrl);
+            if_jmp.delta_ip = self.instruction_pointer as isize - ctrl.ip as isize; 
+            self.push_new_ctrl(Some(op), ctrl.in_types, ctrl.out_types);
+            Ok(())
+        } else {
+            Err(ValidationError::ElseWithoutIf)
         }
-        self.push_new_ctrl(Some(op), ctrl.in_types, ctrl.out_types);      
-        Ok(())
     }
 
     pub fn validate_end(&mut self) -> Result<()> {
+        println!("end!");
         let ctrl = self.pop_ctrl()?;
-        let start_ip = ctrl.
         ctrl.out_types.iter().for_each(|t| self.push_val_t(t.clone()));
+        if let Some((ctrl_op, _)) = ctrl.opcode {
+            let jumps_idx = self.ctrl_jump_stack.pop().ok_or(ValidationError::UnexpectedEmptyControlStack)?;
+            for idx in jumps_idx {
+                println!("ctrl op: {ctrl_op}");
+                let jump = self.jump_table.get_jump_mut(idx)?;
+
+                let next_ip = match ctrl_op {
+                    Op::Loop(_) => ctrl.ip as isize - jump.ip,
+                    Op::Block(_) | Op::If(_,_) | Op::Else => self.instruction_pointer as isize - jump.ip,
+                    _ => return Err(ValidationError::InvalidJump)
+                };
+                jump.delta_ip = next_ip;
+            }
+
+            if let Some(jte) = ctrl.jump_table_entry {
+                let jump = self.jump_table.get_jump_mut(jte)?;
+                jump.delta_ip = self.instruction_pointer as isize - jump.ip  
+            }
+        }
         Ok(()) 
     }
 
     pub fn validate_br(&mut self, n: u32) -> Result<()> {
-        let jmp = self.push_new_jump();
+        let jmp = self.jump_table.push_new(self.instruction_pointer);
 
         self.ctrl_jump_stack
             .get_mut(n as usize)
@@ -541,14 +590,14 @@ impl Validator {
             Op::Nop => {},
             Op::Block(blocktype) => self.validate_block(context,op, blocktype)?,
             Op::Loop(blocktype) => self.validate_block(context, op, blocktype)?,
-            Op::If(blocktype) => {
+            Op::If(blocktype, _) => {
                 self.pop_val_expect_val(I32)?;
                 self.validate_block(context, op, blocktype)?;
             },
             Op::Else => self.validate_else(op)?,
             Op::End => self.validate_end()?,
-            Op::Br(n) => self.validate_br(n)?,
-            Op::BrIf(n) => self.validate_br_if(n)?,
+            Op::Br(n, _) => self.validate_br(n)?,
+            Op::BrIf(n, _) => self.validate_br_if(n)?,
             Op::Return => self.validate_return(context)?,
             Op::Call(call_id) => self.validate_call(context,call_id)?,
             Op::CallIndirect(_, _) => todo!(),
@@ -641,12 +690,13 @@ impl Validator {
             Op::MemoryCopy => todo!(),
             Op::MemoryFill => todo!(),
         };
+        self.instruction_pointer += 1;
         Ok(())
     }
-    pub fn validate_func(context: &Context, func_id: usize) -> Result<()> {
+    pub fn validate_func(context: &Context, func_id: usize) -> Result<JumpTable> {
         let code = context.code.get(func_id - context.internal_func_offset).ok_or(ValidationError::InvalidLocalID(func_id as u32))?;
         let func_type = context.get_func(func_id as u32)?.1;
-        println!("Validating function: {} {func_type}", func_id);
+        println!("Validating function: {} {func_type} {}", func_id, func_id - context.internal_func_offset);
         let params = &context.get_func(func_id as u32)?.1.params.iter().cloned().map(|(v,_)| v).collect::<Vec<ValueType>>();
         let results = context.get_func(func_id as u32)?.1.results.iter().cloned().map(|(v, p)| v).collect::<Vec<ValueType>>();
 
@@ -673,19 +723,43 @@ impl Validator {
         validator.push_new_ctrl(None, params.clone().to_vec(), results);
         for op in code.code.iter() {
             println!("Validating {}", op.0);
-
             validator.validate_op(context, op.clone())?;
+        }
+        
+        Ok(validator.jump_table)
+    }
+
+    pub fn validate_all(context: &mut Context) -> Result<()> {
+        println!("validating! offset: {}", context.internal_func_offset);
+        for i in context.internal_func_offset..context.function_count() + context.internal_func_offset {
+            let jump_table = Validator::validate_func(context, i)?;  
+            let func = context.code.get_mut(i - context.internal_func_offset).unwrap();
+            func.patch_jumps(&jump_table)?;
         }
         Ok(())
     }
-    pub fn validate_all(context: &Context) -> Result<()> {
-        println!("validating! offset: {}", context.internal_func_offset);
-        for i in context.internal_func_offset..context.function_count() {
-            Validator::validate_func(context, i)?;  
+
+}
+
+impl Function {
+    pub fn patch_jumps(&mut self, jump_table: &JumpTable) -> Result<()>{
+        for jmp in &jump_table.0 {
+            let op = self.code[jmp.ip as usize].0.clone(); 
+            //...
+            println!("jump op: {op}");
+            let new_op = match op {
+                Op::If(bt, _) => Op::If(bt, jmp.delta_ip),
+                Op::Br(bt, _) => Op::Br(bt, jmp.delta_ip),
+                Op::BrIf(bt, _) => Op::BrIf(bt, jmp.delta_ip),
+                _ => return Err(ValidationError::InvalidJump),
+            };
+
+            self.code[jmp.ip as usize].0 = new_op;
         }
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -703,9 +777,11 @@ mod tests {
     fn validate_simple() -> Result<()> {
         let wasm = get_wasm_gen();
         let reader = Reader::new(&wasm, 0);
-        let context = Context::from_reader(reader)?; 
+        let mut context = Context::from_reader(reader)?; 
         println!("Context {:#?}", context);
-        Validator::validate_all(&context)?;         
+        Validator::validate_all(&mut context)?;         
+        
+        context.code.iter().for_each(|c| println!("{c}"));
         Ok(())
     }
 }

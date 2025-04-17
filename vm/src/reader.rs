@@ -1041,9 +1041,11 @@ impl fmt::Display for Export<'_> {
 
 impl<'src> FromReader<'src> for Locals {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
+        println!("Reading locals");
         let n: u32 = reader.read()?;
-
+        
         let t: ValueType = reader.read()?;
+        println!("...Done");
         Ok(Self { n, t })
     }
 }
@@ -1056,6 +1058,7 @@ pub struct Function<'src> {
 }
 impl<'src> FromReader<'src> for Function<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
+        println!("reading function");
         let full_code_size = reader.read_var_u32()?;
 
         let start_position = reader.current_position;
@@ -1067,6 +1070,7 @@ impl<'src> FromReader<'src> for Function<'src> {
         let code_reader = CodeReader::new(new_reader);
 
         reader.skip_bytes(code_size)?;
+        println!("...done!");
         Ok(Function {
             locals,
             code: code_reader,
