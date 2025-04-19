@@ -15,9 +15,10 @@ pub enum Blocktype {
 impl<'src> FromReader<'src> for Blocktype {
     fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
         let desc_byte = reader.read_u8()?;
+        println!("desc byte: {:0x}", desc_byte);
         match desc_byte {
             0x40 => Ok(Self::Empty),
-            0x6F..0x7F => Ok(Self::Value(desc_byte.try_into()?)),
+            0x6F..=0x7F => Ok(Self::Value(desc_byte.try_into()?)),
             _ => Ok(Self::TypeIndex(reader.read()?))
         }
     }

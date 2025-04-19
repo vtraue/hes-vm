@@ -38,6 +38,14 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
     return new Assign(varname, initExpr);
   }
 
+  public AstNode visitBreak(ReflangParser.BreakContext ctx) {
+      if(ctx.expr() != null) {
+          return new Break(Optional.of((Expression)this.visit(ctx.expr())));
+      } else {
+        return new Break(Optional.empty());
+      }
+  }
+
   @Override
   public AstNode visitImport_fndecl(ReflangParser.Import_fndeclContext ctx) {
     Optional<Params> params = Optional.empty(); 
@@ -123,7 +131,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
     if(ctx.ret_type != null) {
       retType = Optional.of((Type)this.visit(ctx.ret_type));  
     }
-
     Block declBlock = (Block)this.visit(ctx.decl_block);
     return new Fndecl(fnName, params, retType, true, declBlock);
 

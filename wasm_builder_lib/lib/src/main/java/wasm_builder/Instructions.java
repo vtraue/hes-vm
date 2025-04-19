@@ -101,4 +101,13 @@ public record Instructions() {
 	public static void addBlockType(int typeidx, ByteArrayOutputStream os) throws IOException {
 		WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(typeidx), os);
 	}
+  public static void addBr(int jumpIndex, ByteArrayOutputStream os) throws IOException {
+    WasmBuilder.write((byte)WasmInstructionOpCode.BR.code, os);
+    WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(jumpIndex), os);
+  }
+
+  public static void addBrIf(int jumpIndex, ByteArrayOutputStream os) throws IOException {
+    WasmBuilder.write((byte)WasmInstructionOpCode.BR_IF.code, os);
+    WasmBuilder.write(WasmBuilder.encodeI32ToLeb128(jumpIndex), os);
+  }
 }

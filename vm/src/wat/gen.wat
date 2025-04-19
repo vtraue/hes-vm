@@ -37,7 +37,7 @@
     i32.const 3
     call 0)
   (func (;7;) (type 7)
-    (local i32 i32 i32 i32)
+    (local i32 i32 i32 i32 i32 i32 i32 i32 i32)
     i32.const 2
     call 1
     global.get 0
@@ -49,11 +49,7 @@
     local.get 0
     i32.const 5
     i32.store align=1
-    local.get 0
-    i32.load align=1
-    i32.const 5
-    i32.eq
-    if  ;; label = @1
+    block  ;; label = @1
       global.get 0
       local.set 1
       global.get 0
@@ -61,7 +57,7 @@
       i32.add
       global.set 0
       local.get 1
-      i32.const 99
+      i32.const 5
       i32.store align=1
       global.get 0
       local.set 2
@@ -70,9 +66,17 @@
       i32.add
       global.set 0
       local.get 2
-      i32.const 98
+      i32.const 10
       i32.store align=1
-    else
+    end
+    global.get 0
+    local.set 5
+    global.get 0
+    i32.const 4
+    i32.add
+    global.set 0
+    local.get 5
+    block (result i32)  ;; label = @1
       global.get 0
       local.set 3
       global.get 0
@@ -80,6 +84,52 @@
       i32.add
       global.set 0
       local.get 3
+      i32.const 5
+      i32.store align=1
+      global.get 0
+      local.set 4
+      global.get 0
+      i32.const 4
+      i32.add
+      global.set 0
+      local.get 4
+      i32.const 10
+      i32.store align=1
+      i32.const 9
+      br 0 (;@1;)
+    end
+    i32.store align=1
+    local.get 0
+    i32.load align=1
+    i32.const 5
+    i32.eq
+    if  ;; label = @1
+      global.get 0
+      local.set 6
+      global.get 0
+      i32.const 4
+      i32.add
+      global.set 0
+      local.get 6
+      i32.const 99
+      i32.store align=1
+      global.get 0
+      local.set 7
+      global.get 0
+      i32.const 4
+      i32.add
+      global.set 0
+      local.get 7
+      i32.const 98
+      i32.store align=1
+    else
+      global.get 0
+      local.set 8
+      global.get 0
+      i32.const 4
+      i32.add
+      global.set 0
+      local.get 8
       i32.const 100
       i32.store align=1
     end)

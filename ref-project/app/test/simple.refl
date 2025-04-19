@@ -23,8 +23,19 @@ export fn test() {
 
 export fn main() {
   printNum(2); 
-  test_num := 5;
 
+  test_num := 5;
+  {
+    a := 5;
+    b := 10;
+  };
+  
+  test_block := {
+    a := 5;
+    b := 10;
+    break 9;
+  }
+  
   if(test_num == 5) {
     a := 99;
     b := 98;

@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.example.TypedAstBuilder.Function;
 
 import wasm_builder.Func;
+import wasm_builder.WasmValueType;
 
 sealed interface TypedAstNode {
 };
@@ -61,8 +62,8 @@ record TypedBinOP(TypedExpression lhs, BinopType op, TypedExpression rhs) implem
     rhs.toWasmCode(func, builder);
     op.toWasmCode(func);
   }
-    
 };
+
 record TypedFncallArgs(List<TypedExpression> args) implements TypedAstNode {};
 record TypedFncall(String name, Function type, Optional<TypedFncallArgs> params) implements TypedExpression {
   @Override
@@ -85,8 +86,21 @@ record TypedFncall(String name, Function type, Optional<TypedFncallArgs> params)
   }
 };
 
-record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) implements TypedStatement {
+record TypedBreak(Optional<TypedExpression> expr, Type t) implements TypedExpression {
+  @Override
+  public Type getType() {
+    return expr.map(e -> e.getType()).orElse(Type.Void);
+  }
+  @Override 
+  public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
+    if(expr.isPresent()) {
+      expr.get().toWasmCode(func, builder); 
+    }
 
+    func.emitBr(0);
+  }
+}
+record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) implements TypedStatement {
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     func.emitGlobalGet(0);
@@ -115,12 +129,22 @@ record TypedAssign(TypedId id, TypedExpression expr) implements TypedStatement {
   }
 };
 
-record TypedBlock(List<TypedStatement> statements) implements TypedStatement {
+record TypedBlock(List<TypedStatement> statements, Type type) implements TypedExpression {
+  @Override
+  public Type getType() {
+    return type;
+  }
 
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
+    System.out.printf("Block type: %s\n", type.toString());
     func.emitBlock();
-    func.emitBlockType();
+    if(type == Type.Void) {
+      func.emitBlockType();
+    } else {
+      func.emitBlockType(type.toWasmValueType()); 
+    }
+
     for(TypedStatement s : statements) {
       s.toWasmCode(func, builder);
     }

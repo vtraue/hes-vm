@@ -8,12 +8,12 @@ statement:
 				|  vardeclt
         |  assign
         |  stmtExpr 
-				|  export_fndecl
-				|  import_fndecl
-    		|  fndecl
+        |  export_fndecl
+        |  import_fndecl
+    	|  fndecl
         |  cond
-        |  block
         |  while
+        |  break
         |  return
         ;
 
@@ -31,6 +31,7 @@ fndecl 	: FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl
 param 	: name=varname ':' t=type;
 params	: first = param (',' rest+=param)* ;
 
+break   : 'break' expr? ';' ;
 return  : 'return' expr? ';' ;
 fncall  : name=varname '(' args? ')' ;
 args    :  first = expr (',' rest += expr)* ;
@@ -39,10 +40,11 @@ while   :  'while' '(' expr ')' block ;
 cond    :  'if' '(' cond_expr = expr ')' if_block = block ('else' else_block = block)? ;
 
 type    : TYPE_INT #TInt 
-				| TYPE_STRING #TString 
-				| TYPE_BOOL #TBool ;
+		| TYPE_STRING #TString
+		| TYPE_BOOL #TBool ;
 
-expr 		: fncall #fnc
+expr 		:  fncall #fnc
+        |  block #code_block
 				|  lhs = expr '*' rhs = expr # Mult
         |  lhs = expr '/' rhs = expr # Div
         |  lhs = expr '+' rhs = expr # Add

@@ -11,7 +11,7 @@ pub enum ValidationError {
     ValueStackUnderflow,
     UnexpectedValueType {got: ValueStackType, expected: ValueStackType},
     UnexpectedEmptyControlStack,
-    ReturnTypesDoNotMatch,
+    ReturnTypesDoNotMatch{got: ValueStackType, expexted: ValueStackType},
     UnbalancedStack,
     UnexpectedNoMemories,
     InvalidAlignment,
@@ -327,7 +327,10 @@ impl Validator {
         let start_height = self.ctrl_stack.last().unwrap().start_height; 
         println!("pop ctrl count: {}", out_types.len());
         out_types.iter().cloned().map_into::<ValueStackType>()
-            .try_for_each(|t| if self.pop_val()? != t {Err(ValidationError::ReturnTypesDoNotMatch)} else {Ok(())})?;
+            .try_for_each(|t| {
+                let val = self.pop_val()?;
+                if val != t && val != ValueStackType::Unknown {Err(ValidationError::ReturnTypesDoNotMatch {got: val, expexted: t})} else {Ok(())}
+            })?;
 
         if self.value_stack.len() != start_height {
             return Err(ValidationError::UnbalancedStack)
