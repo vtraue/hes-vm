@@ -6,21 +6,51 @@ use itertools::Itertools;
 use crate::{
     op::Op,
     reader::{
+<<<<<<< HEAD
         ExportDesc,Position,
         Reader, ReaderError, ValueType,
     }, types::{FuncId, Global, Import, Limits, Locals, MemId, Type},
+=======
+        ExportDesc, FuncId, Global, ImportDesc, MemId, Position, Reader, ReaderError, ValueType,
+    },
+    types::{Limits, Locals, Type},
+>>>>>>> main
 };
 pub enum InfoError {
     EndOfBuffer,
 }
 
+<<<<<<< HEAD
 
 
+=======
+#[derive(Debug, Clone)]
+pub struct Import {
+    pub module: (String, Position),
+    pub name: (String, Position),
+    pub desc: (ImportDesc, Position),
+}
+
+impl fmt::Display for Import {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}: {} {})", self.module.0, self.name.0, self.desc.0)
+    }
+}
+impl<'src> From<crate::reader::Import<'src>> for Import {
+    fn from(value: crate::reader::Import<'src>) -> Self {
+        Import {
+            module: (value.module.0.to_string(), value.module.1),
+            name: (value.name.0.to_string(), value.name.1),
+            desc: value.desc,
+        }
+    }
+}
+>>>>>>> main
 
 #[derive(Debug, Clone)]
 pub struct Export {
-    name: (String, Position),
-    desc: (ExportDesc, Position),
+    pub name: (String, Position),
+    pub desc: (ExportDesc, Position),
 }
 impl<'src> From<crate::reader::Export<'src>> for Export {
     fn from(value: crate::reader::Export) -> Self {
@@ -90,8 +120,8 @@ impl<'src> From<crate::reader::Data<'src>> for Data {
 
 #[derive(Debug, Default)]
 pub struct CustomSection {
-    name: (String, Position),
-    data: (Vec<u8>, Position),
+    pub name: (String, Position),
+    pub data: (Vec<u8>, Position),
 }
 
 impl<'src> From<crate::reader::CustomSectionData<'src>> for CustomSection {
@@ -141,7 +171,10 @@ impl BytecodeInfo {
                     info.type_section = Some((
                         sub_reader
                             .iter_with_position()
-                            .map(|e| {let (t, p) = e?; Ok((t.try_into()?, p))})
+                            .map(|e| {
+                                let (t, p) = e?;
+                                Ok((t.try_into()?, p))
+                            })
                             .collect::<Result<Vec<_>, ReaderError>>()?
                             .into_boxed_slice(),
                         pos,
@@ -258,13 +291,13 @@ mod tests {
         fs::write("gen2.wasm", &source).unwrap();
         source
     }
-
     #[test]
     fn check_and_create_info() -> Result<(), ReaderError> {
         let wasm = get_wasm_gen();
         let reader = Reader::new(&wasm, 0);
         let info = BytecodeInfo::from_reader(&reader)?;
         let types = info.type_section.as_ref().unwrap();
+
         println!(
             "Type section position: {}\ndata:{:04x?}",
             types.1,
@@ -274,6 +307,9 @@ mod tests {
         println!("Type section count: {}", types.0.len());
         for t in types.0.iter() {
             println!("{:?}: {:0x?}", t.0, reader.data_at(t.1));
+            for param in &t.0.params {
+            println!("param: {}: {:0x?}", param.0, reader.data_at(param.1));
+            }
         }
         let imports = info.import_section.as_ref().unwrap();
         println!(
@@ -329,9 +365,25 @@ mod tests {
 
         for (i, func) in code.0.iter().enumerate() {
             let func_t = functions_with_types.get(i).unwrap();
+<<<<<<< HEAD
             println!("func {}, t: {:?}, pos: {}, data: {:0x?}", i, func_t.0, func.1, reader.data_at(func.1));
             for (op, pos) in func.0.code.iter() {
                 println!("op: {op}, pos: {pos}, data: {:0x?}", reader.data_at(pos.clone()));
+=======
+            println!(
+                "func {}, t: {:?}, pos: {}, data: {:0x?}",
+                i,
+                func_t.0,
+                func.1,
+                reader.data_at(func.1)
+            );
+            for o in func.0.code.iter() {
+                let (op, pos) = o.as_ref().unwrap();
+                println!(
+                    "op: {op}, pos: {pos}, data: {:0x?}",
+                    reader.data_at(pos.clone())
+                );
+>>>>>>> main
             }
         }
         Ok(())

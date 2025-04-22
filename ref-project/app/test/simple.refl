@@ -14,10 +14,26 @@ export fn should_work2(a: int, b: int, c: int) -> int {
 	return 3;
 }
 
+fn assert(cond: bool) {
+  if(cond == false) {
+    trap();
+  }
+
+  return;
+}
+
+
 export fn test() {
   test_string := "blubbi";
   printNum(1); 
   print(test_string, 3);
+  a := 10;  
+
+  printNum(2);
+  printNum(3);
+
+  assert(a == 10);
+
   return;
 }
 

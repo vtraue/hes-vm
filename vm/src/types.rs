@@ -1,5 +1,9 @@
 use core::fmt;
+<<<<<<< HEAD
 use std::fmt::write;
+=======
+use std::fmt::{Display, write};
+>>>>>>> main
 
 use itertools::Itertools;
 
@@ -48,8 +52,8 @@ impl Limits {
             return false;
         }
         if let Some(max) = self.max {
-            if i > max.0 as i32 || max.0 < self.min.0  {
-                return false
+            if i > max.0 as i32 || max.0 < self.min.0 {
+                return false;
             }
         }
         true
@@ -85,7 +89,6 @@ pub struct GlobalType {
     pub t: (ValueType, Position),
     pub mutable: (bool, Position),
 }
-
 
 impl fmt::Display for GlobalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -128,6 +131,7 @@ impl Iterator for LocalsIterator {
         }
     }
 }
+<<<<<<< HEAD
 
 impl fmt::Display for Locals {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -167,3 +171,5 @@ impl<'src> From<crate::reader::Import<'src>> for Import {
     }
 }
 
+=======
+>>>>>>> main
