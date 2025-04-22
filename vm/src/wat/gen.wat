@@ -37,7 +37,7 @@
     i32.const 3
     call 0)
   (func (;7;) (type 7)
-    (local i32 i32 i32 i32 i32 i32 i32 i32 i32)
+    (local i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
     i32.const 2
     call 1
     global.get 0
@@ -70,12 +70,12 @@
       i32.store align=1
     end
     global.get 0
-    local.set 5
+    local.set 6
     global.get 0
     i32.const 4
     i32.add
     global.set 0
-    local.get 5
+    local.get 6
     block (result i32)  ;; label = @1
       global.get 0
       local.set 3
@@ -95,6 +95,26 @@
       local.get 4
       i32.const 10
       i32.store align=1
+      local.get 4
+      i32.load align=1
+      i32.const 40
+      i32.gt_s
+      if  ;; label = @2
+        global.get 0
+        local.set 5
+        global.get 0
+        i32.const 4
+        i32.add
+        global.set 0
+        local.get 5
+        i32.const 100
+        i32.store align=1
+        i32.const 1
+        br 0 (;@2;)
+      else
+        i32.const 2
+        br 0 (;@2;)
+      end
       i32.const 9
       br 0 (;@1;)
     end
@@ -105,24 +125,14 @@
     i32.eq
     if  ;; label = @1
       global.get 0
-      local.set 6
-      global.get 0
-      i32.const 4
-      i32.add
-      global.set 0
-      local.get 6
-      i32.const 99
-      i32.store align=1
-      global.get 0
       local.set 7
       global.get 0
       i32.const 4
       i32.add
       global.set 0
       local.get 7
-      i32.const 98
+      i32.const 99
       i32.store align=1
-    else
       global.get 0
       local.set 8
       global.get 0
@@ -130,6 +140,16 @@
       i32.add
       global.set 0
       local.get 8
+      i32.const 98
+      i32.store align=1
+    else
+      global.get 0
+      local.set 9
+      global.get 0
+      i32.const 4
+      i32.add
+      global.set 0
+      local.get 9
       i32.const 100
       i32.store align=1
     end)
@@ -141,5 +161,5 @@
   (export "test" (func 6))
   (export "main" (func 7))
   (export "memory" (memory 0))
-  (start 7)
-  (data (;0;) (i32.const 0) "\06\00\00\00blubbi\00"))
+  (start 7))
+ 

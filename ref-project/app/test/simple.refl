@@ -29,11 +29,25 @@ export fn main() {
     a := 5;
     b := 10;
   };
-  
+
   test_block := {
     a := 5;
     b := 10;
-    break 9;
+    if(b > 40) {
+      n := 100;
+      
+      break 1;
+    } else {
+      break 2;
+    }
+    if(a > 0) {
+      break 9;
+    }
+    break 4;
+  };
+  test_block2 := {
+    a := 1;
+    break 10;
   }
   
   if(test_num == 5) {

@@ -163,7 +163,7 @@ pub enum Op {
 
 impl Op {
     pub fn needs_end_terminator(&self) -> bool {
-        matches!(self, Op::Block(_) | Op::Loop(_))
+        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If(_,_))
     }
 
     pub fn is_const(&self) -> bool {

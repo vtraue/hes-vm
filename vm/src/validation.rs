@@ -339,6 +339,26 @@ impl Validator {
         let frame = self.ctrl_stack.pop().unwrap(); 
         Ok(frame)
     }
+    
+    pub fn peek_ctrl_at_label(&self, label: u32) -> Result<&CtrlFrame> {
+        let id = (self.ctrl_stack.len() as isize - 1) - (label as isize); 
+        if id < 0 {
+            Err(ValidationError::LabelIndexOutOfScope(label)) 
+        } else {
+            Ok(&self.ctrl_stack[id as usize])
+        }
+    }
+    pub fn push_ctrl_jump(&mut self, label: u32, jump: usize) -> Result<()> {
+        let id = (self.ctrl_jump_stack.len() as isize - 1) - (label as isize); 
+        if id < 0 {
+            Err(ValidationError::LabelIndexOutOfScope(label))
+        }
+        else {
+            self.ctrl_jump_stack[id as usize].push(jump);
+            Ok(())
+        }
+
+    }
 
     pub fn set_unreachable(&mut self) -> Result<()>{
         let frame = self.ctrl_stack.last_mut().ok_or(ValidationError::UnexpectedEmptyControlStack)?;
@@ -535,15 +555,13 @@ impl Validator {
         Ok(()) 
     }
 
+
     pub fn validate_br(&mut self, n: u32) -> Result<()> {
         let jmp = self.jump_table.push_new(self.instruction_pointer);
 
-        self.ctrl_jump_stack
-            .get_mut(n as usize)
-            .ok_or(ValidationError::LabelIndexOutOfScope(n))?
-            .push(jmp);
+        self.push_ctrl_jump(n, jmp)?;
             
-        let vals = self.ctrl_stack[n as usize] 
+        let vals = self.peek_ctrl_at_label(n)? 
             .label_types()
             .iter()
             .cloned()
@@ -557,13 +575,18 @@ impl Validator {
     }
 
     pub fn validate_br_if(&mut self, n: u32) -> Result<()> {
+        let jmp = self.jump_table.push_new(self.instruction_pointer);
+
+        self.push_ctrl_jump(n, jmp)?;
+
         self.pop_val_expect_val(ValueType::I32)?;
-        let vals = self.ctrl_stack.get(n as usize)
-            .ok_or(ValidationError::LabelIndexOutOfScope(n))?
+
+        let vals = self.peek_ctrl_at_label(n)?
             .label_types()
             .iter()
             .cloned()
             .collect::<Vec<_>>();
+        
         vals.iter().try_for_each(|t| {_ = self.pop_val_expect_val(t.clone())?; Ok::<_, ValidationError>(())})?;
         self.value_stack.extend(vals.iter().cloned().map_into::<ValueStackType>());
         Ok(())
@@ -770,7 +793,7 @@ mod tests {
     use super::*;
 
     fn get_wasm_gen() -> Box<[u8]> {
-        let source = include_str!("wat/gen.wat");
+        let source = include_str!("../../ref-project/out/out.wat");
         let source = wat::parse_str(source).unwrap().into_boxed_slice();
         fs::write("gen2.wasm", &source).unwrap();
         source
