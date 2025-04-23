@@ -1,9 +1,5 @@
 use core::fmt;
-<<<<<<< HEAD
-use std::fmt::write;
-=======
 use std::fmt::{Display, write};
->>>>>>> main
 
 use itertools::Itertools;
 
@@ -131,7 +127,6 @@ impl Iterator for LocalsIterator {
         }
     }
 }
-<<<<<<< HEAD
 
 impl fmt::Display for Locals {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -171,5 +166,3 @@ impl<'src> From<crate::reader::Import<'src>> for Import {
     }
 }
 
-=======
->>>>>>> main
