@@ -6,46 +6,13 @@ use itertools::Itertools;
 use crate::{
     op::Op,
     reader::{
-<<<<<<< HEAD
         ExportDesc,Position,
         Reader, ReaderError, ValueType,
     }, types::{FuncId, Global, Import, Limits, Locals, MemId, Type},
-=======
-        ExportDesc, FuncId, Global, ImportDesc, MemId, Position, Reader, ReaderError, ValueType,
-    },
-    types::{Limits, Locals, Type},
->>>>>>> main
 };
 pub enum InfoError {
     EndOfBuffer,
 }
-
-<<<<<<< HEAD
-
-
-=======
-#[derive(Debug, Clone)]
-pub struct Import {
-    pub module: (String, Position),
-    pub name: (String, Position),
-    pub desc: (ImportDesc, Position),
-}
-
-impl fmt::Display for Import {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}: {} {})", self.module.0, self.name.0, self.desc.0)
-    }
-}
-impl<'src> From<crate::reader::Import<'src>> for Import {
-    fn from(value: crate::reader::Import<'src>) -> Self {
-        Import {
-            module: (value.module.0.to_string(), value.module.1),
-            name: (value.name.0.to_string(), value.name.1),
-            desc: value.desc,
-        }
-    }
-}
->>>>>>> main
 
 #[derive(Debug, Clone)]
 pub struct Export {
@@ -365,25 +332,8 @@ mod tests {
 
         for (i, func) in code.0.iter().enumerate() {
             let func_t = functions_with_types.get(i).unwrap();
-<<<<<<< HEAD
-            println!("func {}, t: {:?}, pos: {}, data: {:0x?}", i, func_t.0, func.1, reader.data_at(func.1));
             for (op, pos) in func.0.code.iter() {
                 println!("op: {op}, pos: {pos}, data: {:0x?}", reader.data_at(pos.clone()));
-=======
-            println!(
-                "func {}, t: {:?}, pos: {}, data: {:0x?}",
-                i,
-                func_t.0,
-                func.1,
-                reader.data_at(func.1)
-            );
-            for o in func.0.code.iter() {
-                let (op, pos) = o.as_ref().unwrap();
-                println!(
-                    "op: {op}, pos: {pos}, data: {:0x?}",
-                    reader.data_at(pos.clone())
-                );
->>>>>>> main
             }
         }
         Ok(())
