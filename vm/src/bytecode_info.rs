@@ -1,3 +1,4 @@
+/*
 use core::fmt;
 use std::ffi::os_str::Display;
 
@@ -48,18 +49,6 @@ impl fmt::Display for Function {
         write!(f, "Code:\n")?;
         self.code.iter().try_for_each(|c| write!(f, "{}\n", c.0))
     }
-}
-impl<'src> TryFrom<crate::reader::Function<'src>> for Function {
-    fn try_from(value: crate::reader::Function) -> Result<Self, Self::Error> {
-        println!("Reading code...");
-        let code = value.code.collect::<Result<Vec<_>, _>>()?.into_boxed_slice();
-        println!("...done!");
-        Ok(Function {
-            locals: value.locals,
-            code,
-        })
-    }
-    type Error = ReaderError;
 }
 
 #[derive(Debug)]
@@ -339,3 +328,4 @@ mod tests {
         Ok(())
     }
 }
+*/

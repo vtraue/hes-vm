@@ -1,9 +1,7 @@
 use std::fmt::{self, write};
 
-use crate::{reader::{
-    self, FromReader,Reader, 
-    ValueType,
-}, types::{FuncId, GlobalId, LabelId, LocalId, TableId, TypeId}};
+use crate::parser::{error::ReaderError, reader::{self, FromReader, Reader}, types::*};
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {
@@ -13,7 +11,7 @@ pub enum Blocktype {
 }
 
 impl<'src> FromReader<'src> for Blocktype {
-    fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
         let desc_byte = reader.read_u8()?;
         println!("desc byte: {:0x}", desc_byte);
         match desc_byte {
@@ -40,7 +38,7 @@ pub struct Memarg {
 }
 
 impl<'src> FromReader<'src> for Memarg {
-    fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
         Ok(Memarg {
             offset: reader.read()?,
             align: reader.read()?,
@@ -177,7 +175,7 @@ impl Op {
     }
 }
 impl<'src> FromReader<'src> for Op {
-    fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
         let opcode = reader.read_u8()?;
         let instr = match opcode {
             0x00 => Self::Unreachable,

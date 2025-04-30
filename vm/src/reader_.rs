@@ -141,14 +141,6 @@ impl<'src> FromReader<'src> for Limits {
         }
     }
 }
-impl<'src> FromReader<'src> for GlobalType {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
-        Ok(Self {
-            t: reader.read_with_position()?,
-            mutable: reader.read_with_position()?,
-        })
-    }
-}
 
 pub trait FixedBinarySize<'src>: Sized {
     fn size_from_reader(reader: &mut Reader) -> Result<usize>;
@@ -1039,16 +1031,6 @@ impl fmt::Display for Export<'_> {
     }
 }
 
-impl<'src> FromReader<'src> for Locals {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
-        println!("Reading locals");
-        let n: u32 = reader.read()?;
-        
-        let t: ValueType = reader.read()?;
-        println!("...Done");
-        Ok(Self { n, t })
-    }
-}
 
 
 #[derive(Debug)]
