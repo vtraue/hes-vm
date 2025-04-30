@@ -1,8 +1,6 @@
-import java.io.ByteArrayOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Arrays;
 import wasm_builder.*;
@@ -106,8 +104,8 @@ class TestMain {
 		FuncType emptyFuncType = new FuncType();
 
 		// Listen mit locals der Funktionen erstellen
-		List<Local> mainLocals = (List.of(new Local(WasmValueType.i32)));
-		List<Local> try1Locals = (List.of(new Local(WasmValueType.i32), new Local(WasmValueType.i32)));
+		List<Local> mainLocals = (List.of(new Local(WasmValueType.i32, "Local1")));
+		List<Local> try1Locals = (List.of(new Local(WasmValueType.i32, "Local2"), new Local(WasmValueType.i32, "Local3")));
 
 		// Funktionen erstellen und Instructions hinzufügen
 		Func main = bbuilder.createFunction(emptyFuncType, mainLocals);

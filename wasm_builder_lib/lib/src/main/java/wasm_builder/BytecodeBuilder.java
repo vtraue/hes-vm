@@ -1,9 +1,7 @@
 package wasm_builder;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class BytecodeBuilder {
 	private final WasmBuilder builder;

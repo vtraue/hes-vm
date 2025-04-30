@@ -362,8 +362,10 @@ public class WasmBuilder {
 		ByteArrayOutputStream funcBodiesBytes = new ByteArrayOutputStream();
 		// Anzahl der Funktionen
 		write(encodeU32ToLeb128(funcs.size()), funcBodiesBytes);
+		int funcIdx = importedFuncTypes.size();
 		for (Func func : funcs) {
-			writeFuncBody(func, funcBodiesBytes);
+			writeFuncBody(funcIdx, func, funcBodiesBytes);
+			funcIdx ++;
 		}
 
 		write((byte) SectionId.Code.ordinal(), os);
@@ -373,9 +375,9 @@ public class WasmBuilder {
 
 	}
 
-	private void writeFuncBody(Func f, ByteArrayOutputStream os) throws IOException {
+	private void writeFuncBody(int funcIdx, Func f, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream funcBodyBytes = new ByteArrayOutputStream();
-		writeFuncLocals(f.getLocals(), funcBodyBytes);
+		writeFuncLocals(funcIdx, f.getLocals(), funcBodyBytes);
 		if(f.getBody().size() > 0){
 			funcBodyBytes.write(f.getBody().toByteArray());
 		} else {
@@ -387,21 +389,23 @@ public class WasmBuilder {
 		os.write(funcBodyBytes.toByteArray());
 	}
 
-	private void writeFuncLocals(List<Local> locals, ByteArrayOutputStream os) throws IOException {
+	private void writeFuncLocals(int funcIdx, List<Local> locals, ByteArrayOutputStream os) throws IOException {
 		if (locals.isEmpty()) {
 			write(encodeU32ToLeb128(0), os);
 		} else if (locals.size() == 1) {
 			write(encodeU32ToLeb128(1), os); // Anzahl Deklarationen
 			write(encodeU32ToLeb128(1), os); // Anzahl Typ
-			write((byte) locals.get(0).type().code, os);
+			write((byte) locals.getFirst().type().code, os);
+			nameSection.addLocalName(funcIdx, 0, locals.getFirst().name());
 		} else {
 			int declCount = 0, typeCount = 0;
-			WasmValueType lastType = locals.get(0).type();
+			WasmValueType lastType = locals.getFirst().type();
 			ByteArrayOutputStream declsBytes = new ByteArrayOutputStream();
+
 			// i32 i32 i64 i32 i32 -> 2 i32 1 i64 2 i32
-
+			int localIdx = 0;
 			for (Local l : locals) {
-
+				nameSection.addLocalName(funcIdx, localIdx, l.name());
 				if (l.type() == lastType) {
 					typeCount++;
 				} else {
@@ -411,6 +415,7 @@ public class WasmBuilder {
 					declCount++;
 					lastType = l.type();
 				}
+				localIdx ++;
 			}
 			if (typeCount > 1) {
 				write(encodeU32ToLeb128(typeCount), declsBytes);
@@ -435,17 +440,28 @@ public class WasmBuilder {
 
 		// Function Names Subsection
 		ByteArrayOutputStream functionNames = new ByteArrayOutputStream();
-		ByteArrayOutputStream nameAssoc = new ByteArrayOutputStream();
-		write(encodeU32ToLeb128(nameSection.getFunctionNames().size()), nameAssoc);
+		write(encodeU32ToLeb128(nameSection.getFunctionNames().size()), functionNames);
 		for (NameAssoc m : nameSection.getFunctionNames()) {
-			write(encodeU32ToLeb128(m.idx()), nameAssoc);
-			write(encodeU32ToLeb128(m.name().length()), nameAssoc);
-			nameAssoc.write(m.name().getBytes(StandardCharsets.UTF_8));
+			write(encodeU32ToLeb128(m.idx()), functionNames);
+			write(encodeU32ToLeb128(m.name().length()), functionNames);
+			functionNames.write(m.name().getBytes(StandardCharsets.UTF_8));
 		}
-		nameAssoc.writeTo(functionNames);
 
 		// Local Names Subsection
+		// vec(funcIdx, vec(localIdx, name))
+		// local indices with names grouped by function indices
+
 		ByteArrayOutputStream localNames = new ByteArrayOutputStream();
+		write(encodeU32ToLeb128(nameSection.getLocalNames().size()), localNames); // count indirectnameassocs
+		for (IndirectNameAssoc ina : nameSection.getLocalNames()) {
+			write(encodeU32ToLeb128(ina.funcIdx()), localNames);
+			write(encodeU32ToLeb128(ina.locals().size()), localNames);
+			for (NameAssoc n : ina.locals()) {
+				write(encodeU32ToLeb128(n.idx()), localNames);
+				write(encodeU32ToLeb128(n.name().length()), localNames);
+				localNames.write(n.name().getBytes(StandardCharsets.UTF_8));
+			}
+		}
 
 		// Name Section aus Subsections zusammenbasteln
 

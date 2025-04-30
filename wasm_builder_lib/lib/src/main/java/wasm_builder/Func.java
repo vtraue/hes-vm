@@ -5,13 +5,13 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 public class Func {
 	private final FuncType funcType;
   public WasmBuilder builder;
 	final private ByteArrayOutputStream body;
 	private ArrayList<Local> locals;
+	private int funcIdx;
 
 	public Func(WasmBuilder builder, FuncType funcType, List<Local> locals) {
 		this.builder = builder;

@@ -1,4 +1,6 @@
 package wasm_builder;
 
-public record IndirectNameAssoc(int idx, NameAssoc locals) {
+import java.util.List;
+
+public record IndirectNameAssoc(int funcIdx, List<NameAssoc> locals) {
 }
