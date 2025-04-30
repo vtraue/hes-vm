@@ -17,7 +17,8 @@ import java.util.List;
 public class TypedAstBuilder {
   public record Symbol (
     int id,
-    Type type
+    Type type,
+    boolean local 
   ) {
     WasmValueType toValueType() {
       return this.type.toWasmValueType();
@@ -161,6 +162,7 @@ public class TypedAstBuilder {
   private int functionId = 0;
   private int externalFuncId = 0;
 
+
   Result<Function, Function> enterNewFunction(String name, Optional<Type> returnType, Optional<Params> args, boolean export) {
     if(this.currentFunction.isPresent()) {
       this.leaveFunction();
@@ -202,7 +204,7 @@ public class TypedAstBuilder {
   }
 
   Result<Symbol, Symbol> addVariable(String name, Type t) {
-    Symbol new_sym = new Symbol(functionVariableId, t);
+    Symbol new_sym = new Symbol(functionVariableId, t, true);
       
     var res = this.currentEnv.addSymbol(name, new_sym);
     

@@ -1,8 +1,7 @@
 pub mod bytecode_info;
 pub mod op;
-pub mod parser;
 pub mod reader;
-pub mod context;
+pub mod validation;
 pub mod types;
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

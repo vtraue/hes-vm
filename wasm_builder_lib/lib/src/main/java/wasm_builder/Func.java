@@ -166,9 +166,14 @@ public class Func {
 		Instructions.addBlockType(valtype, body);
 
 	}
-
 	public void emitBlockType(int typeidx) throws IOException {
 		Instructions.addBlockType(typeidx, body);
-
 	}
+  public void emitBr(int jumpIndex) throws IOException {
+    Instructions.addBr(jumpIndex, body);
+  }
+
+  public void emitBrIf(int jumpIndex) throws IOException {
+    Instructions.addBrIf(jumpIndex, body);
+  }
 }

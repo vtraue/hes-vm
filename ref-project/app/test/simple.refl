@@ -1,5 +1,6 @@
 import env fn print(str: string, size: int);
 import env fn printNum(num: int);
+import env fn trap();
 
 export fn should_work(a: int) -> int {
 	return 1;
@@ -13,15 +14,65 @@ export fn should_work2(a: int, b: int, c: int) -> int {
 	return 3;
 }
 
+fn assert(cond: bool) {
+  if(cond == false) {
+    trap();
+  }
+
+  return;
+}
+
+
 export fn test() {
   test_string := "blubbi";
   printNum(1); 
   print(test_string, 3);
+  a := 10;  
+
+  printNum(2);
+  printNum(3);
+
+  assert(a == 10);
+
   return;
 }
 
 export fn main() {
   printNum(2); 
+
+  test_num := 5;
+  {
+    a := 5;
+    b := 10;
+  };
+
+  test_block := {
+    a := 5;
+    b := 10;
+    if(b > 40) {
+      n := 100;
+      
+      break 1;
+    } else {
+      break 2;
+    }
+    if(a > 0) {
+      break 9;
+    }
+    break 4;
+  };
+  test_block2 := {
+    a := 1;
+    break 10;
+  }
+  
+  if(test_num == 5) {
+    a := 99;
+    b := 98;
+  }
+  else {
+    c := 100;
+  }
 	return; 
 }
 

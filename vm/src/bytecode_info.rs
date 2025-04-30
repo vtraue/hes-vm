@@ -1,38 +1,17 @@
 use core::fmt;
+use std::ffi::os_str::Display;
 
 use itertools::Itertools;
 
 use crate::{
     op::Op,
     reader::{
-        ExportDesc, FuncId, Global, ImportDesc, MemId, Position, Reader, ReaderError, ValueType,
-    },
-    types::{Limits, Locals, Type},
+        ExportDesc,Position,
+        Reader, ReaderError, ValueType,
+    }, types::{FuncId, Global, Import, Limits, Locals, MemId, Type},
 };
 pub enum InfoError {
     EndOfBuffer,
-}
-
-#[derive(Debug, Clone)]
-pub struct Import {
-    pub module: (String, Position),
-    pub name: (String, Position),
-    pub desc: (ImportDesc, Position),
-}
-
-impl fmt::Display for Import {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}: {} {})", self.module.0, self.name.0, self.desc.0)
-    }
-}
-impl<'src> From<crate::reader::Import<'src>> for Import {
-    fn from(value: crate::reader::Import<'src>) -> Self {
-        Import {
-            module: (value.module.0.to_string(), value.module.1),
-            name: (value.name.0.to_string(), value.name.1),
-            desc: value.desc,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -53,17 +32,34 @@ impl<'src> From<crate::reader::Export<'src>> for Export {
 #[derive(Debug)]
 pub struct Function {
     pub locals: Box<[(Locals, Position)]>,
-    pub code: Box<[Result<(Op, Position), ReaderError>]>,
+    pub code: Box<[(Op, Position)]>,
 }
 
-impl<'src> From<crate::reader::Function<'src>> for Function {
-    fn from(value: crate::reader::Function) -> Self {
-        let code = value.code.collect::<Vec<Result<_, _>>>().into_boxed_slice();
-        Function {
+impl Function {
+    pub fn get_local(&self, id: u32) -> Option<ValueType> {
+        self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t) 
+    }
+}
+
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Locals\n")?; 
+        self.locals.iter().try_for_each(|l| write!(f, "{}\n", l.0))?;
+        write!(f, "Code:\n")?;
+        self.code.iter().try_for_each(|c| write!(f, "{}\n", c.0))
+    }
+}
+impl<'src> TryFrom<crate::reader::Function<'src>> for Function {
+    fn try_from(value: crate::reader::Function) -> Result<Self, Self::Error> {
+        println!("Reading code...");
+        let code = value.code.collect::<Result<Vec<_>, _>>()?.into_boxed_slice();
+        println!("...done!");
+        Ok(Function {
             locals: value.locals,
             code,
-        }
+        })
     }
+    type Error = ReaderError;
 }
 
 #[derive(Debug)]
@@ -134,9 +130,11 @@ impl BytecodeInfo {
             //TODO: (joh): Das geht bestimmt hübscher
             match data {
                 crate::reader::SectionData::Custom(custom_section_data) => {
+                    println!("Custom Section");
                     info.custom_sections.push(custom_section_data.into());
                 }
                 crate::reader::SectionData::Type(mut sub_reader) => {
+                    println!("Type Section");
                     info.type_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -150,6 +148,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Import(mut sub_reader) => {
+                    println!("Import Section");
                     info.import_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -160,6 +159,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Function(mut sub_reader) => {
+                    println!("Function Section");
                     info.function_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -171,6 +171,7 @@ impl BytecodeInfo {
                 }
 
                 crate::reader::SectionData::Table(mut sub_reader) => {
+                    println!("Table Section");
                     info.table_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -180,6 +181,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Memory(mut sub_reader) => {
+                    println!("Memory Section");
                     info.memory_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -189,6 +191,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Global(mut sub_reader) => {
+                    println!("Global Section");
                     info.global_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -198,6 +201,7 @@ impl BytecodeInfo {
                     ))
                 }
                 crate::reader::SectionData::Export(mut sub_reader) => {
+                    println!("Export Section");
                     info.export_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -212,16 +216,18 @@ impl BytecodeInfo {
                     info.data_count_section = Some(count)
                 }
                 crate::reader::SectionData::Code(mut sub_reader) => {
+                    println!("Code Section");
                     info.code_section = Some((
                         sub_reader
                             .iter_with_position()
-                            .map_ok(|(e, p)| (e.into(), p))
+                            .map(|r| -> Result<(Function, Position), ReaderError> {let r = r?; Ok((r.0.try_into()?, r.1))})
                             .collect::<Result<Vec<_>, _>>()?
                             .into_boxed_slice(),
                         pos,
                     ))
                 }
                 crate::reader::SectionData::Data(mut sub_reader) => {
+                    println!("Data section");
                     info.data_section = Some((
                         sub_reader
                             .iter_with_position()
@@ -326,19 +332,8 @@ mod tests {
 
         for (i, func) in code.0.iter().enumerate() {
             let func_t = functions_with_types.get(i).unwrap();
-            println!(
-                "func {}, t: {:?}, pos: {}, data: {:0x?}",
-                i,
-                func_t.0,
-                func.1,
-                reader.data_at(func.1)
-            );
-            for o in func.0.code.iter() {
-                let (op, pos) = o.as_ref().unwrap();
-                println!(
-                    "op: {op}, pos: {pos}, data: {:0x?}",
-                    reader.data_at(pos.clone())
-                );
+            for (op, pos) in func.0.code.iter() {
+                println!("op: {op}, pos: {pos}, data: {:0x?}", reader.data_at(pos.clone()));
             }
         }
         Ok(())

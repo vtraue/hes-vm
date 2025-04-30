@@ -1,25 +1,25 @@
 use std::fmt::{self, write};
 
-use crate::reader::{
-    self, FromReader, FuncId, FunctionType, GlobalId, LabelId, LocalId, Reader, TableId, TypeId,
+use crate::{reader::{
+    self, FromReader,Reader, 
     ValueType,
-};
+}, types::{FuncId, GlobalId, LabelId, LocalId, TableId, TypeId}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {
     Empty,
     Value(ValueType),
-    TypeIndex(i32),
+    TypeIndex(u32),
 }
 
 impl<'src> FromReader<'src> for Blocktype {
     fn from_reader(reader: &mut Reader<'src>) -> reader::Result<Self> {
-        let desc = reader.read_var_s33()?;
-
-        match desc {
+        let desc_byte = reader.read_u8()?;
+        println!("desc byte: {:0x}", desc_byte);
+        match desc_byte {
             0x40 => Ok(Self::Empty),
-            n if n < 0 => Ok(Self::Value((n as u8).try_into()?)),
-            _ => Ok(Self::TypeIndex(desc as i32)),
+            0x6F..=0x7F => Ok(Self::Value(desc_byte.try_into()?)),
+            _ => Ok(Self::TypeIndex(reader.read()?))
         }
     }
 }
@@ -49,9 +49,10 @@ impl<'src> FromReader<'src> for Memarg {
 }
 impl fmt::Display for Memarg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(offset: {}, align: {}", self.offset, self.align)
+        write!(f, "{} {}", self.offset, self.align)
     }
 }
+
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
@@ -59,16 +60,16 @@ pub enum Op {
     Nop,
     Block(Blocktype),
     Loop(Blocktype),
-    If(Blocktype),
+    If(Blocktype, isize),
     Else,
     End,
-    Br(LabelId),
-    BrIf(LabelId),
+    Br(LabelId, isize),
+    BrIf(LabelId, isize),
     Return,
     Call(FuncId),
     CallIndirect(TableId, TypeId),
     Drop,
-    Select, //TODO: Select mit args?
+    Select(Option<ValueType>), 
     LocalGet(LocalId),
     LocalSet(LocalId),
     LocalTee(LocalId),
@@ -162,7 +163,7 @@ pub enum Op {
 
 impl Op {
     pub fn needs_end_terminator(&self) -> bool {
-        matches!(self, Op::Block(_) | Op::Loop(_))
+        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If(_,_))
     }
 
     pub fn is_const(&self) -> bool {
@@ -183,16 +184,17 @@ impl<'src> FromReader<'src> for Op {
             0x01 => Self::Nop,
             0x02 => Self::Block(reader.read()?),
             0x03 => Self::Loop(reader.read()?),
-            0x04 => Self::If(reader.read()?),
+            0x04 => Self::If(reader.read()?, 0),
             0x05 => Self::Else,
             0x0B => Self::End,
-            0x0C => Self::Br(reader.read()?),
-            0x0D => Self::BrIf(reader.read()?),
+            0x0C => Self::Br(reader.read()?, 0),
+            0x0D => Self::BrIf(reader.read()?, 0),
             0x0F => Self::Return,
             0x10 => Self::Call(reader.read()?),
             0x11 => Self::CallIndirect(reader.read()?, reader.read()?),
             0x1A => Self::Drop,
-            0x1B => Self::Select,
+            0x1B => Self::Select(None),
+            0x1C => Self::Select(Some(reader.read()?)),
             0x20 => Self::LocalGet(reader.read()?),
             0x21 => Self::LocalSet(reader.read()?),
             0x22 => Self::LocalTee(reader.read()?),
@@ -297,16 +299,16 @@ impl fmt::Display for Op {
             Op::Nop => write!(f, "nop"),
             Op::Block(blocktype) => write!(f, "block {blocktype}"),
             Op::Loop(blocktype) => write!(f, "loop {blocktype}"),
-            Op::If(blocktype) => write!(f, "if {blocktype}"),
+            Op::If(blocktype, jmp) => write!(f, "if {blocktype} (jmp: {jmp})"),
             Op::Else => write!(f, "else"),
             Op::End => write!(f, "end"),
-            Op::Br(label_id) => write!(f, "br {label_id}"),
-            Op::BrIf(label_id) => write!(f, "br_if {label_id}"),
+            Op::Br(label_id, jmp) => write!(f, "br {label_id} (jmp: {jmp})"),
+            Op::BrIf(label_id, jmp) => write!(f, "br_if {label_id} (jmp: {jmp})"),
             Op::Return => write!(f, "return"),
             Op::Call(func_id) => write!(f, "call {func_id}"),
             Op::CallIndirect(table_id, type_id) => write!(f, "call_indirect {table_id} {type_id}"),
             Op::Drop => write!(f, "drop"),
-            Op::Select => write!(f, "select"),
+            Op::Select(_) => write!(f, "select"), //TODO: (joh): Argumente fuer Select
             Op::LocalGet(id) => write!(f, "local.get {id}"),
             Op::LocalSet(id) => write!(f, "local.set {id}"),
             Op::LocalTee(id) => write!(f, "local.tee {id}"),

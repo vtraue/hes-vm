@@ -2,10 +2,10 @@ build:
 	./gradlew build
 
 run:
-	./gradlew run && mv app/gen.wasm app/web/gen.wasm
+	./gradlew run && mv app/gen.wasm app/web/gen.wasm 
 
 to-wat:
-	wasm2wat app/web/gen.wasm	
+	wasm2wat app/web/gen.wasm > out/out.wat & bat out/out.wat
 
 webserver: run
   http-server app/web

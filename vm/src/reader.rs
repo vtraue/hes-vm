@@ -5,12 +5,12 @@ use core::{
 use itertools::Itertools;
 use std::{io::Read, marker::PhantomData};
 
-use crate::{op::Op, types::{Limits, Locals}};
+use crate::{op::Op, types::*};
 use crate::types::GlobalType;
 
 //NOTE: (joh) Inspiriert von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ReaderError {
     InvalidLeb,
     EndOfBuffer,
@@ -918,13 +918,6 @@ impl<'src> fmt::Display for FunctionType<'src> {
 }
 
 
-#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
-pub enum ImportDesc {
-    TypeIdx(TypeId),
-    TableType(Limits),
-    MemType(Limits),
-    GlobalType(GlobalType),
-}
 impl<'src> FromReader<'src> for ImportDesc {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
         let id = reader.read_u8()?;
@@ -970,13 +963,6 @@ impl<'src> fmt::Display for Import<'src> {
     }
 }
 
-pub type LabelId = u32;
-pub type FuncId = u32;
-pub type TypeId = u32;
-pub type TableId = u32;
-pub type LocalId = u32;
-pub type GlobalId = u32;
-pub type MemId = u32;
 
 pub enum Reftype {
     Funcref,
@@ -991,11 +977,6 @@ pub type ExportsReader<'src> = SubReader<'src, Export<'src>>;
 pub type FunctionBodyReader<'src> = SubReader<'src, Function<'src>>;
 pub type DataReader<'src> = SubReader<'src, Data<'src>>;
 
-#[derive(Debug)]
-pub struct Global {
-    t: (GlobalType, Position),
-    init_expr: Box<[(Op, Position)]>,
-}
 
 impl<'src> FromReader<'src> for Global {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
@@ -1005,16 +986,6 @@ impl<'src> FromReader<'src> for Global {
             .collect::<Result<Vec<_>>>()?
             .into_boxed_slice();
         Ok(Global { t, init_expr })
-    }
-}
-impl<'src> fmt::Display for Global {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} = {}",
-            self.t.0,
-            self.init_expr.iter().map(|v| v.0).format(" ,")
-        )
     }
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -1060,7 +1031,7 @@ impl<'src> FromReader<'src> for Export<'src> {
             desc: reader.read_with_position()?,
         })
     }
-}
+} 
 
 impl fmt::Display for Export<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1070,9 +1041,11 @@ impl fmt::Display for Export<'_> {
 
 impl<'src> FromReader<'src> for Locals {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
+        println!("Reading locals");
         let n: u32 = reader.read()?;
-
+        
         let t: ValueType = reader.read()?;
+        println!("...Done");
         Ok(Self { n, t })
     }
 }
@@ -1085,6 +1058,7 @@ pub struct Function<'src> {
 }
 impl<'src> FromReader<'src> for Function<'src> {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self> {
+        println!("reading function");
         let full_code_size = reader.read_var_u32()?;
 
         let start_position = reader.current_position;
@@ -1096,6 +1070,7 @@ impl<'src> FromReader<'src> for Function<'src> {
         let code_reader = CodeReader::new(new_reader);
 
         reader.skip_bytes(code_size)?;
+        println!("...done!");
         Ok(Function {
             locals,
             code: code_reader,
@@ -1234,6 +1209,7 @@ impl<'src> FromReader<'src> for Section<'src> {
         Ok(Section { size_bytes, data })
     }
 }
+
 
 /*
 pub struct Module<'src> {

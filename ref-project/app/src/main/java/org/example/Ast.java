@@ -46,21 +46,21 @@ enum Type implements AstNode {
         return "";
     }
   }
+
   public WasmValueType toWasmValueType() {
     return WasmValueType.i32;
-}
+  }
 
-@Override
-public Result<TypedAstNode, java.lang.String> getTypedAstNode(TypedAstBuilder builder) {
-  // TODO Auto-generated method stub
-  throw new UnsupportedOperationException("Unimplemented method 'getTypedAstNode'");
-}
+  @Override
+  public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+    // TODO Auto-generated method stub
+    throw new UnsupportedOperationException("Unimplemented method 'getTypedAstNode'");
+  }
 
-@Override
-public java.lang.String toDebugText() {
-  // TODO Auto-generated method stub
-  throw new UnsupportedOperationException("Unimplemented method 'toDebugText'");
-}
+  @Override
+  public String toDebugText() {
+    return this.toString(); 
+  }
 }
 
 enum BinopType {
@@ -136,7 +136,7 @@ record BoolLiteral(boolean lit) implements Literal {
 
 record StringLiteral(String literal, int pointer) implements Literal {
   public String toDebugText() {
-    return String.format("%s", this.literal);
+    return this.toString(); 
   }
 
   public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
@@ -171,7 +171,7 @@ record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression
       return new Err<>(String.format("Error in Binary Operation rhs: %s", message.err())); 
     }
     TypedExpression typedLhsData = (TypedExpression)typedLhs.unwrap();
-    TypedExpression typedRhsData = (TypedExpression)typedLhs.unwrap();
+    TypedExpression typedRhsData = (TypedExpression)typedRhs.unwrap();
     Type lhsT = typedLhsData.getType();
     Type rhsT = typedRhsData.getType();
 
@@ -186,7 +186,7 @@ record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression
 
 record FncallArgs(List<Expression> args) implements AstNode {
   public String toDebugText() {
-    String str = args.stream().map(e -> e.toDebugText()).collect(Collectors.joining(","));
+    String str = args.stream().map(AstNode::toDebugText).collect(Collectors.joining(","));
 
     return String.format("(%s)", str);
   }
@@ -214,7 +214,7 @@ record Fncall(String name, Optional<FncallArgs> params) implements Expression {
   String fnName = this.name;    
   Optional<Function> functionType = builder.getFunction(fnName);  
 
-  if(!functionType.isPresent()) {
+  if(functionType.isEmpty()) {
       return new Err<>(String.format("Function %s doesnt exists", fnName));
   }
   Optional<TypedFncallArgs> tArgs = Optional.empty(); 
@@ -317,12 +317,34 @@ record Assign(Id id, Expression expr) implements Statement {
   }
 }
 
+record Break(Optional<Expression> expr) implements Expression {
+  public String toDebugText() {
+    return String.format("break %s", expr.map(AstNode::toDebugText).orElse(""));
+  }
+  @Override
+  public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+    Type resType = Type.Void;
+    Optional<TypedExpression> tExpr = Optional.empty();
+    if(expr.isPresent()) {
+      var br_expr = expr.get();
+      Result<TypedAstNode, String> typedExpressionRes = br_expr.getTypedAstNode(builder);
+      if(!typedExpressionRes.isOk()) {
+        return new Err<>(typedExpressionRes.getErr());
+      }
+      var expr = (TypedExpression)typedExpressionRes.unwrap();
+      var exprT = expr.getType();
+      tExpr = Optional.of((TypedExpression)typedExpressionRes.unwrap());
+    }
 
-record Block(List<Statement> statements) implements Statement {
+    return new Ok<>(new TypedBreak(tExpr, resType));
+  }
+}
+
+record Block(List<Statement> statements) implements Expression {
   public String toDebugText() {
     String statementsString = statements
       .stream()
-      .map(s -> s.toDebugText())
+      .map(AstNode::toDebugText)
       .collect(Collectors.joining("  \n  ")); 
     return String.format("{\n  %s\n}", statementsString);
   }
@@ -330,8 +352,10 @@ record Block(List<Statement> statements) implements Statement {
   public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
     StringBuilder errorMessageBuilder = new StringBuilder();
     List<TypedStatement> typedStatements = new ArrayList<>();
+    Optional<Type> resultType = Optional.empty(); 
     boolean hasErrors = false;
     builder.enterNewScope();
+
     for(Statement s : statements) {
       Result<TypedAstNode, String> typedResult = s.getTypedAstNode(builder);
       if(!typedResult.isOk()) {
@@ -340,14 +364,22 @@ record Block(List<Statement> statements) implements Statement {
       } else {
         TypedAstNode typedNode = typedResult.unwrap(); 
         typedStatements.add((TypedStatement)typedNode);
+
+        if(typedNode instanceof TypedBreak b) {
+          if(resultType.isPresent() && !resultType.get().equals(b.getType())) {
+            return new Err<>("Cannot break from block with differing types");
+          }
+          resultType = Optional.of(b.getType());
+        }
       }
-    } 
+    }
     builder.leaveScope();
+
     if(hasErrors) {
       return new Err<>(errorMessageBuilder.toString());
     }
 
-    return new Ok<>(new TypedBlock(typedStatements));
+    return new Ok<>(new TypedBlock(typedStatements, resultType.orElse(Type.Void)));
   }
 }
 
@@ -403,7 +435,7 @@ record Params(List<Param> params) implements AstNode {
   }
 
   public List<Type> toTypes() {
-    return this.params.stream().map(p -> p.type()).toList();
+    return this.params.stream().map(Param::type).toList();
   }
 }
 
@@ -477,7 +509,7 @@ record ExternFndecl(String id, String env, Optional<Params> params, Optional<Typ
 }
 record Return(Optional<Expression> expr) implements Statement {
   public String toDebugText() {
-    return String.format("return %s", expr.map(s -> s.toDebugText()).orElse(""));
+    return String.format("return %s", expr.map(AstNode::toDebugText).orElse(""));
   }
 
   @Override
