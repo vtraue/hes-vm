@@ -3,6 +3,7 @@ package wasm_builder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -10,20 +11,24 @@ public class Func {
 	private final FuncType funcType;
   public WasmBuilder builder;
 	final private ByteArrayOutputStream body;
-	private ArrayList<WasmValueType> locals;
+	private ArrayList<Local> locals;
 
-	public Func(WasmBuilder builder, FuncType funcType, Optional<List<WasmValueType>> locals) {
-    this.builder = builder;
+	public Func(WasmBuilder builder, FuncType funcType, List<Local> locals) {
+		this.builder = builder;
 		this.funcType = funcType;
 		this.body = new ByteArrayOutputStream();
-		this.locals = locals.isPresent() ? new ArrayList<>(locals.get()) : new ArrayList<>();
+		this.locals = new ArrayList<>(locals);
+	}
+
+	public Func(WasmBuilder builder, FuncType funcType) {
+		this(builder, funcType, Collections.emptyList());
 	}
 
 	public ByteArrayOutputStream getBody() {
 		return this.body;
 	}
 
-	public ArrayList<WasmValueType> getLocals() {
+	public ArrayList<Local> getLocals() {
 		return this.locals;
 	}
 
@@ -31,7 +36,7 @@ public class Func {
 		return funcType;
 	}
 
-	public void addLocal(WasmValueType localType) {
+	public void addLocal(Local localType) {
 		this.locals.add(localType);
 	}
 

@@ -11,8 +11,8 @@ class TestMain {
 
 	public static void main(String[] args) {
 		try {
-//			createTestfile1Simple();
-			createTestfile1();
+			createTestfile1Simple();
+//			createTestfile1();
 
 //			int i = 424242;
 //			ArrayList<Integer> result = WasmBuilder.encodeU32ToLeb128(i);
@@ -96,13 +96,18 @@ class TestMain {
 		FuncType funcType3 = new FuncType(
 				new ArrayList<WasmValueType>(
 						Arrays.asList(WasmValueType.i32)),
-				new ArrayList<WasmValueType>());
+				new ArrayList<WasmValueType>(), "tolleFunktion");
+
+		FuncType funcType4 = new FuncType(
+				new ArrayList<WasmValueType>(
+						Arrays.asList(WasmValueType.i32)),
+				new ArrayList<WasmValueType>(), "tolleFunktion2");
 
 		FuncType emptyFuncType = new FuncType();
 
 		// Listen mit locals der Funktionen erstellen
-		List<WasmValueType> mainLocals = (List.of(WasmValueType.i32));
-		List<WasmValueType> try1Locals = (List.of(WasmValueType.i32, WasmValueType.i32));
+		List<Local> mainLocals = (List.of(new Local(WasmValueType.i32)));
+		List<Local> try1Locals = (List.of(new Local(WasmValueType.i32), new Local(WasmValueType.i32)));
 
 		// Funktionen erstellen und Instructions hinzufügen
 		Func main = bbuilder.createFunction(emptyFuncType, mainLocals);
