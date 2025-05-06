@@ -7,25 +7,34 @@ pub enum ValidationError {
     ReaderError(ReaderError),
     ModuleError(ModuleError),
     ValueStackUnderflow,
-    UnexpectedValueType {got: ValueStackType, expected: ValueStackType},
+    UnexpectedValueType {
+        got: ValueStackType,
+        expected: ValueStackType,
+    },
     UnexpectedEmptyControlStack,
-    ReturnTypesDoNotMatch{got: ValueStackType, expexted: ValueStackType},
+    ReturnTypesDoNotMatch {
+        got: ValueStackType,
+        expexted: ValueStackType,
+    },
     UnbalancedStack,
     UnexpectedNoMemories,
     InvalidAlignment,
     InvalidLocalID(u32),
-    InvalidGlobalID(u32),
+    InvalidGlobalID(usize),
     CannotSetToImmutableGlobal(u32),
     ExpectedNumericType,
-    InvalidTypeId(u32),
+    InvalidTypeId(usize),
+    UnexpectedNoTypes,
+    UnexpectedNoCode,
     ElseWithoutIf,
     LabelIndexOutOfScope(u32),
-    InvalidFuncId(u32),
-    InvalidMemId(u32),
+    InvalidFuncId(usize),
+    InvalidMemId(usize),
     InvalidLocalId(u32),
     MissingEndOnFunctionExit,
     InvalidJump,
     InvalidJumpId,
+    InvalidCodeId(usize),
 }
 
 pub type Result<T> = std::result::Result<T, ValidationError>;
@@ -41,4 +50,3 @@ impl From<ModuleError> for ValidationError {
         Self::ModuleError(value)
     }
 }
-

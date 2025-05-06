@@ -1,6 +1,6 @@
 pub mod bytecode_info;
-pub mod validation;
 pub mod parser;
+pub mod validation;
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }

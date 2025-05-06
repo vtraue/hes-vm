@@ -1,10 +1,14 @@
 use core::fmt;
+use std::ops::Range;
 
 use itertools::Itertools;
 
-use crate::op::Op;
+use crate::parser::op::Op;
 
-use super::{error::ReaderError, reader::{FromReader, Position, Reader}};
+use super::{
+    error::ReaderError,
+    reader::{FromReader, Reader},
+};
 
 pub type LabelId = u32;
 pub type FuncId = u32;
@@ -104,23 +108,20 @@ pub enum ValueType {
 impl ValueType {
     pub fn is_num(&self) -> bool {
         match self {
-            ValueType::I32 | 
-            ValueType::I64 | 
-            ValueType::F32 |
-            ValueType::F64 => true,
+            ValueType::I32 | ValueType::I64 | ValueType::F32 | ValueType::F64 => true,
             _ => false,
         }
     }
     pub fn is_vec(&self) -> bool {
         match self {
             ValueType::Vectype => true,
-            _ => false
+            _ => false,
         }
     }
     pub fn is_ref(&self) -> bool {
         match self {
             ValueType::Funcref | ValueType::Externref => true,
-            _ => false
+            _ => false,
         }
     }
     pub fn bit_width(&self) -> Option<usize> {
@@ -174,8 +175,8 @@ impl<'src> FromReader<'src> for ValueType {
 
 #[derive(Debug, Default)]
 pub struct Type {
-    pub params: Box<[(ValueType, Position)]>, 
-    pub results: Box<[(ValueType, Position)]>,
+    pub params: Box<[(ValueType, Range<usize>)]>,
+    pub results: Box<[(ValueType, Range<usize>)]>,
 }
 
 impl<'src> FromReader<'src> for Type {
@@ -185,7 +186,10 @@ impl<'src> FromReader<'src> for Type {
             return Err(ReaderError::InvalidFunctionTypeEncoding(magic));
         }
 
-        Ok(Self { params: reader.read_vec()?, results: reader.read_vec()? })
+        Ok(Self {
+            params: reader.read_vec()?,
+            results: reader.read_vec()?,
+        })
     }
 }
 impl fmt::Display for Type {
@@ -197,10 +201,10 @@ impl fmt::Display for Type {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct GlobalType {
-    pub t: (ValueType, Position),
-    pub mutable: (bool, Position),
+    pub t: (ValueType, Range<usize>),
+    pub mutable: (bool, Range<usize>),
 }
 impl fmt::Display for GlobalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -219,8 +223,8 @@ impl<'src> FromReader<'src> for GlobalType {
 
 #[derive(Debug)]
 pub struct Global {
-    pub t: (GlobalType, Position),
-    pub init_expr: Box<[(Op, Position)]>,
+    pub t: (GlobalType, Range<usize>),
+    pub init_expr: Box<[(Op, Range<usize>)]>,
 }
 
 impl<'src> fmt::Display for Global {
@@ -245,7 +249,7 @@ impl<'src> FromReader<'src> for Global {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum ImportDesc {
     TypeIdx(TypeId),
     TableType(Limits),
@@ -276,17 +280,17 @@ impl fmt::Display for ImportDesc {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Limits {
-    pub min: (u32, Position),
-    pub max: Option<(u32, Position)>,
+    pub min: (u32, Range<usize>),
+    pub max: Option<(u32, Range<usize>)>,
 }
 impl Limits {
     pub fn in_range(&self, i: i32) -> bool {
         if self.min.0 as i32 > i {
             return false;
         }
-        if let Some(max) = self.max {
+        if let Some(max) = &self.max {
             if i > max.0 as i32 || max.0 < self.min.0 {
                 return false;
             }
@@ -312,7 +316,7 @@ impl<'src> FromReader<'src> for Limits {
             }),
             0x01 => Ok(Self {
                 min: reader.read_with_position()?,
-               max: Some(reader.read_with_position()?),
+                max: Some(reader.read_with_position()?),
             }),
             _ => Err(ReaderError::InvalidLimits),
         }
@@ -355,49 +359,67 @@ impl Iterator for LocalsIterator {
 
 impl fmt::Display for Locals {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.clone().into_iter().try_for_each(|v| write!(f, "{}\n", v))
+        self.clone()
+            .into_iter()
+            .try_for_each(|v| write!(f, "{}\n", v))
     }
 }
 
 impl<'src> FromReader<'src> for Locals {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
         let n: u32 = reader.read()?;
-        
+
         let t: ValueType = reader.read()?;
         Ok(Self { n, t })
     }
 }
 
 #[derive(Debug, Clone)]
+pub struct ImportIdent {
+    pub module: (String, Range<usize>),
+    pub name: (String, Range<usize>),
+}
+impl<'src> FromReader<'src> for ImportIdent {
+    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
+        Ok(Self {
+            module: reader.read_with_position()?,
+            name: reader.read_with_position()?,
+        })
+    }
+}
+#[derive(Debug, Clone)]
 pub struct Import {
-    pub module: (String, Position),
-    pub name: (String, Position),
-    pub desc: (ImportDesc, Position),
+    pub ident: ImportIdent,
+    pub desc: (ImportDesc, Range<usize>),
 }
 
 impl<'src> FromReader<'src> for Import {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
         Ok(Self {
-            module: reader.read_with_position()?,
-            name: reader.read_with_position()?,
+            ident: reader.read()?,
             desc: reader.read_with_position()?,
         })
     }
 }
 impl<'src> fmt::Display for Import {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}: {} {})", self.module.0, self.name.0, self.desc.0)
+        write!(
+            f,
+            "({}: {} {})",
+            self.ident.module.0, self.ident.name.0, self.desc.0
+        )
     }
 }
 
 impl<'src> Import {
     pub fn is_function(&'src self) -> Option<(&'src str, TypeId)> {
         match self.desc {
-            (ImportDesc::TypeIdx(id), _) => Some((&self.name.0, id)),
-            _ => None
+            (ImportDesc::TypeIdx(id), _) => Some((&self.ident.name.0, id)),
+            _ => None,
         }
     }
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExportDesc {
     FuncId(FuncId),
@@ -430,21 +452,18 @@ impl fmt::Display for ExportDesc {
 
 #[derive(Debug, Clone)]
 pub struct Export {
-    pub name: (String, Position),
-    pub desc: (ExportDesc, Position),
+    pub name: (String, Range<usize>),
+    pub desc: (ExportDesc, Range<usize>),
 }
 
 impl<'src> FromReader<'src> for Export {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
         let name = reader.read_with_position::<String>()?;
-        let desc = reader.read_with_position::<ExportDesc>()?; 
+        let desc = reader.read_with_position::<ExportDesc>()?;
 
-        Ok(Self {
-            name,
-            desc,
-        })
+        Ok(Self { name, desc })
     }
-} 
+}
 impl fmt::Display for Export {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.name.0, self.desc.0)
@@ -455,10 +474,10 @@ impl fmt::Display for Export {
 pub enum Data {
     Active {
         mem_id: MemId,
-        expr: Box<[(Op, Position)]>,
-        data: Position,
+        expr: Box<[(Op, Range<usize>)]>,
+        data: Range<usize>,
     },
-    Passive(Position),
+    Passive(Range<usize>),
 }
 
 impl<'src> FromReader<'src> for Data {
@@ -487,29 +506,36 @@ impl<'src> FromReader<'src> for Data {
 }
 
 #[derive(Debug, Clone)]
-pub struct Expression(Box<[(Op, Position)]>); 
+pub struct Expression(pub Box<[(Op, Range<usize>)]>);
 
 impl<'src> FromReader<'src> for Expression {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
-        Ok(Expression(reader.read_expr_iter().collect::<Result<Vec<(Op, Position)>, _>>()?.into_boxed_slice()))
+        Ok(Expression(
+            reader
+                .read_expr_iter()
+                .collect::<Result<Vec<(Op, Range<usize>)>, _>>()?
+                .into_boxed_slice(),
+        ))
     }
 }
 #[derive(Debug, Clone)]
 pub struct Function {
     pub size: usize,
-    pub locals: Box<[(Locals, Position)]>,
-    pub code: Expression 
+    pub locals: Box<[(Locals, Range<usize>)]>,
+    pub code: Expression,
 }
 
 impl Function {
     pub fn get_local(&self, id: u32) -> Option<ValueType> {
-        self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t) 
+        self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t)
     }
 }
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Locals\n")?; 
-        self.locals.iter().try_for_each(|l| write!(f, "{}\n", l.0))?;
+        write!(f, "Locals\n")?;
+        self.locals
+            .iter()
+            .try_for_each(|l| write!(f, "{}\n", l.0))?;
         write!(f, "Code:\n")?;
         self.code.0.iter().try_for_each(|c| write!(f, "{}\n", c.0))
     }
@@ -517,74 +543,102 @@ impl fmt::Display for Function {
 
 impl<'src> FromReader<'src> for Function {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
-       let size = reader.read::<usize>()?; 
-       Ok(Self {size, locals: reader.read_vec()?, code: reader.read()?}) 
+        let size = reader.read::<usize>()?;
+        Ok(Self {
+            size,
+            locals: reader.read_vec()?,
+            code: reader.read()?,
+        })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct CustomSection {
-    pub name: (String, Position),
-    pub data: Position
-}
-impl<'src> FromReader<'src> for CustomSection {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
-        let name = reader.read_with_position()?;       
-        let data = reader.read_and_skip_size()?; 
-        Ok(Self {name, data})
-    }
+    pub name: (String, Range<usize>),
+    pub data: Range<usize>,
 }
 
 #[derive(Debug)]
 pub enum SectionData {
-    Type(Box<[(Type, Position)]>), 
-    Import(Box<[(Import, Position)]>),
-    Function(Box<[(TypeId, Position)]>), 
-    Table(Box<[(Limits, Position)]>),
-    Memory(Box<[(Limits, Position)]>),
-    Global(Box<[(Global, Position)]>),
-    Export(Box<[(Export, Position)]>),
+    Type(Box<[(Type, Range<usize>)]>),
+    Import(Box<[(Import, Range<usize>)]>),
+    Function(Box<[(TypeId, Range<usize>)]>),
+    Table(Box<[(Limits, Range<usize>)]>),
+    Memory(Box<[(Limits, Range<usize>)]>),
+    Global(Box<[(Global, Range<usize>)]>),
+    Export(Box<[(Export, Range<usize>)]>),
     Start(u32),
     DataCount(u32),
-    Code(Box<[(Function, Position)]>),
-    Data(Box<[(Data, Position)]>),
+    Code(Box<[(Function, Range<usize>)]>),
+    Data(Box<[(Data, Range<usize>)]>),
 }
 
 #[derive(Debug)]
 pub enum SectionDataOrCustom {
     Section(SectionData),
-    Custom(CustomSection),  
+    Custom(CustomSection),
 }
-
 
 #[derive(Debug)]
 pub struct Section {
     pub id: u8,
     pub size: usize,
     pub data: SectionDataOrCustom,
-} 
+}
 
 impl<'src> FromReader<'src> for Section {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
-        let id = reader.read::<u8>()?;  
+        let id = reader.read::<u8>()?;
         let size = reader.read::<usize>()?;
+        println!("Reading section {id}");
         let data = match id {
-            0x00 => Ok(SectionDataOrCustom::Custom(reader.read()?)),
-            0x01 => Ok(SectionDataOrCustom::Section(SectionData::Type(reader.read_vec()?))),
-            0x02 => Ok(SectionDataOrCustom::Section(SectionData::Import(reader.read_vec()?))),
-            0x03 => Ok(SectionDataOrCustom::Section(SectionData::Function(reader.read_vec()?))),
-            0x04 => Ok(SectionDataOrCustom::Section(SectionData::Table(reader.read_vec()?))),
-            0x05 => Ok(SectionDataOrCustom::Section(SectionData::Memory(reader.read_vec()?))),
-            0x06 => Ok(SectionDataOrCustom::Section(SectionData::Global(reader.read_vec()?))),
-            0x07 => Ok(SectionDataOrCustom::Section(SectionData::Export(reader.read_vec()?))),
-            0x08 => Ok(SectionDataOrCustom::Section(SectionData::Start(reader.read()?))),
-            0x09 => Ok(SectionDataOrCustom::Section(SectionData::DataCount(reader.read()?))),
-            0xa => Ok(SectionDataOrCustom::Section(SectionData::Code(reader.read_vec()?))),
-            0xb => Ok(SectionDataOrCustom::Section(SectionData::Data(reader.read_vec()?))),
-            _ => Err(ReaderError::InvalidSectionId(id))
+            0x00 => {
+                let (name, name_range) = reader.read_with_position::<String>()?;
+                let range = reader.skip_bytes(size - (name_range.end - name_range.start))?;
+                let section = CustomSection {
+                    name: (name, name_range),
+                    data: range,
+                };
+
+                Ok(SectionDataOrCustom::Custom(section))
+            }
+            0x01 => Ok(SectionDataOrCustom::Section(SectionData::Type(
+                reader.read_vec()?,
+            ))),
+            0x02 => Ok(SectionDataOrCustom::Section(SectionData::Import(
+                reader.read_vec()?,
+            ))),
+            0x03 => Ok(SectionDataOrCustom::Section(SectionData::Function(
+                reader.read_vec()?,
+            ))),
+            0x04 => Ok(SectionDataOrCustom::Section(SectionData::Table(
+                reader.read_vec()?,
+            ))),
+            0x05 => Ok(SectionDataOrCustom::Section(SectionData::Memory(
+                reader.read_vec()?,
+            ))),
+            0x06 => Ok(SectionDataOrCustom::Section(SectionData::Global(
+                reader.read_vec()?,
+            ))),
+            0x07 => Ok(SectionDataOrCustom::Section(SectionData::Export(
+                reader.read_vec()?,
+            ))),
+            0x08 => Ok(SectionDataOrCustom::Section(SectionData::Start(
+                reader.read()?,
+            ))),
+            0x09 => Ok(SectionDataOrCustom::Section(SectionData::DataCount(
+                reader.read()?,
+            ))),
+            0xa => Ok(SectionDataOrCustom::Section(SectionData::Code(
+                reader.read_vec()?,
+            ))),
+            0xb => Ok(SectionDataOrCustom::Section(SectionData::Data(
+                reader.read_vec()?,
+            ))),
+            _ => Err(ReaderError::InvalidSectionId(id)),
         }?;
 
-        Ok(Section { id, size, data})
+        Ok(Section { id, size, data })
     }
 }
 
@@ -596,9 +650,9 @@ pub enum SectionId {
     Table = 4,
     Memory = 5,
     Global = 6,
-    Export = 7, 
+    Export = 7,
     Start = 8,
     DataCount = 9,
     Code = 10,
-    Data = 11
+    Data = 11,
 }

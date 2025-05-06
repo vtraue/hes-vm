@@ -1,7 +1,10 @@
 use std::fmt::{self, write};
 
-use crate::parser::{error::ReaderError, reader::{self, FromReader, Reader}, types::*};
-
+use crate::parser::{
+    error::ReaderError,
+    reader::{self, FromReader, Reader},
+    types::*,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {
@@ -17,7 +20,7 @@ impl<'src> FromReader<'src> for Blocktype {
         match desc_byte {
             0x40 => Ok(Self::Empty),
             0x6F..=0x7F => Ok(Self::Value(desc_byte.try_into()?)),
-            _ => Ok(Self::TypeIndex(reader.read()?))
+            _ => Ok(Self::TypeIndex(reader.read()?)),
         }
     }
 }
@@ -51,12 +54,12 @@ impl fmt::Display for Memarg {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Unreachable,
     Nop,
     Block(Blocktype),
+
     Loop(Blocktype),
     If(Blocktype, isize),
     Else,
@@ -67,7 +70,7 @@ pub enum Op {
     Call(FuncId),
     CallIndirect(TableId, TypeId),
     Drop,
-    Select(Option<ValueType>), 
+    Select(Option<ValueType>),
     LocalGet(LocalId),
     LocalSet(LocalId),
     LocalTee(LocalId),
@@ -161,13 +164,12 @@ pub enum Op {
 
 impl Op {
     pub fn needs_end_terminator(&self) -> bool {
-        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If(_,_))
+        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If(_, _))
     }
 
     pub fn is_const(&self) -> bool {
         //TODO: (joh): Das stimmt so nicht 100%, wir muessten
         //testen ob ein Global.Get in der Form Const t ist: https://webassembly.github.io/spec/core/valid/instructions.html#constant-expressions
-        //Das muessten wir spaeter dann in
         matches!(
             self,
             Self::I32Const(_) | Self::I64Const(_) | Self::GlobalGet(_)

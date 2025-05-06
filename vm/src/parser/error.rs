@@ -2,6 +2,7 @@ use super::op::Op;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReaderError {
+    PosOutOfRange,
     InvalidLeb,
     EndOfBuffer,
     InvalidUtf8InName(std::str::Utf8Error),
@@ -30,4 +31,3 @@ impl From<std::str::Utf8Error> for ReaderError {
 }
 
 pub type Result<T, E = ReaderError> = core::result::Result<T, E>;
-

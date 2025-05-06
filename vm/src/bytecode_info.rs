@@ -38,13 +38,13 @@ pub struct Function {
 
 impl Function {
     pub fn get_local(&self, id: u32) -> Option<ValueType> {
-        self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t) 
+        self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t)
     }
 }
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Locals\n")?; 
+        write!(f, "Locals\n")?;
         self.locals.iter().try_for_each(|l| write!(f, "{}\n", l.0))?;
         write!(f, "Code:\n")?;
         self.code.iter().try_for_each(|c| write!(f, "{}\n", c.0))

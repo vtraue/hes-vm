@@ -1,11 +1,8 @@
+use std::ops::Range;
+
+use super::error::*;
 use super::op::Op;
 use super::types::Section;
-use super::error::*;
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
-pub struct Position {
-    pub offset: usize,
-    pub len: usize
-}
 
 #[derive(Debug, Clone)]
 pub struct Reader<'src> {
@@ -75,7 +72,7 @@ pub const WASM_HEADER_MAGIC: &[u8; 4] = b"\0asm";
 
 impl<'src> Reader<'src> {
     pub fn new(buffer: &'src [u8]) -> Self {
-        Self { buffer, pos: 0}
+        Self { buffer, pos: 0 }
     }
     pub fn buffer(&self) -> &'src [u8] {
         &self.buffer[self.pos..]
@@ -84,7 +81,7 @@ impl<'src> Reader<'src> {
     pub fn bytes_left(&self) -> usize {
         self.buffer.len() - self.pos
     }
-    pub fn check_header(&mut self) -> Result<(Position, Position)> {
+    pub fn check_header(&mut self) -> Result<(Range<usize>, Range<usize>)> {
         let (header, header_pos) = self.read_bytes(4)?;
         if header != WASM_HEADER_MAGIC {
             return Err(ReaderError::InvalidHeaderMagicNumber);
@@ -116,43 +113,46 @@ impl<'src> Reader<'src> {
         Ok(res)
     }
 
-    pub fn read_bytes(&mut self, size: usize) -> Result<(&'src [u8], Position)> {
+    pub fn read_bytes(&mut self, size: usize) -> Result<(&'src [u8], Range<usize>)> {
         self.can_read_bytes(size)?;
-        let pos = Position {
-            offset: self.pos,
-            len: size
-        };
+        let range = self.pos..self.pos + size;
 
-        let new_pos = self.pos + size;
-        let res = &self.buffer[self.pos..new_pos]; 
-        self.pos = new_pos;
+        let res = self
+            .buffer
+            .get(range.clone())
+            .ok_or(ReaderError::EndOfBuffer)?;
 
-        Ok((res, pos))
+        self.pos = range.end;
+
+        Ok((res, range))
     }
-    
+
+    pub fn get_bytes_at(&self, pos: Range<usize>) -> Result<&'src [u8], ReaderError> {
+        self.buffer.get(pos).ok_or(ReaderError::PosOutOfRange)
+    }
     pub fn read_u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(
             self.read_bytes(size_of::<u32>())?.0.try_into().unwrap(),
         ))
     }
-    
-    pub fn read_str(&mut self) -> Result<(&'src str, Position)> {
+
+    pub fn read_str(&mut self) -> Result<(&'src str, Range<usize>)> {
         let len = self.read::<usize>()?;
         let bytes = self.read_bytes(len)?;
-        let str = str::from_utf8(bytes.0)?; 
+        let str = str::from_utf8(bytes.0)?;
         Ok((str, bytes.1))
     }
 
-    pub fn skip_bytes(&mut self, size: usize) -> Result<Position> {
+    pub fn skip_bytes(&mut self, size: usize) -> Result<Range<usize>> {
         self.can_read_bytes(size)?;
         let pos = self.pos;
         self.pos += size;
-        Ok(Position { offset: pos, len: size })
+        Ok(pos..pos + size)
     }
-    
-    pub fn read_and_skip_size(&mut self) -> Result<Position> {
+
+    pub fn read_and_skip_size(&mut self) -> Result<Range<usize>> {
         let size = self.read::<usize>()?;
-        self.skip_bytes(size)  
+        self.skip_bytes(size)
     }
 
     pub fn read<T>(&mut self) -> Result<T>
@@ -162,21 +162,16 @@ impl<'src> Reader<'src> {
         T::from_reader(self)
     }
 
-    
-    pub fn read_with_position<T>(&mut self) -> Result<(T, Position)>
+    pub fn read_with_position<T>(&mut self) -> Result<(T, Range<usize>)>
     where
         T: FromReader<'src>,
     {
         let start = self.pos;
         let elem = T::from_reader(self)?;
         let bytes_read = self.pos - start;
-        Ok((
-            elem,
-            Position {
-                offset: start,
-                len: bytes_read,
-            },
-        ))
+        let range = start..start + bytes_read;
+
+        Ok((elem, range))
     }
 
     pub fn read_with_slice<T>(&mut self) -> Result<(T, &'src [u8])>
@@ -198,12 +193,15 @@ impl<'src> Reader<'src> {
             _marker: std::marker::PhantomData,
         })
     }
-   
-    pub fn read_vec<T: FromReader<'src>>(&mut self) -> Result<Box<[(T, Position)]>> {
-        Ok(self.read_vec_iter()?.collect::<Result<Vec<_>, _>>()?.into_boxed_slice()) 
+
+    pub fn read_vec<T: FromReader<'src>>(&mut self) -> Result<Box<[(T, Range<usize>)]>> {
+        Ok(self
+            .read_vec_iter()?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_boxed_slice())
     }
 
-    pub fn read_vec_bytes(&mut self) -> Result<(&'src [u8], Position)> {
+    pub fn read_vec_bytes(&mut self) -> Result<(&'src [u8], Range<usize>)> {
         let size = self.read_var_u32()? as usize;
         self.read_bytes(size)
     }
@@ -216,13 +214,17 @@ impl<'src> Reader<'src> {
         }
     }
     pub fn read_expr_iter<'me>(&'me mut self) -> ExprIter<'src, 'me> {
-        ExprIter {done: false, depth: 0, reader: self}
+        ExprIter {
+            done: false,
+            depth: 0,
+            reader: self,
+        }
     }
 
     pub fn sections<'me>(&'me mut self) -> SectionsIter<'src, 'me> {
         SectionsIter { reader: self }
     }
-    
+
     //NOTE: (joh) Die Leb128 Implementationen kommen von: https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/binary_reader.rs#L516
     #[inline]
     pub fn read_var_u32(&mut self) -> Result<u32> {
@@ -377,7 +379,7 @@ pub struct VecIter<'src, 'me, T: FromReader<'src>> {
 }
 
 impl<'src, 'me, T: FromReader<'src>> Iterator for VecIter<'src, 'me, T> {
-    type Item = Result<(T, Position)>;
+    type Item = Result<(T, Range<usize>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.pos >= self.count || self.done {
@@ -400,7 +402,7 @@ pub struct ConstantExprIter<'src, 'me> {
     reader: &'me mut Reader<'src>,
 }
 impl<'src, 'me> Iterator for ConstantExprIter<'src, 'me> {
-    type Item = Result<(Op, Position)>;
+    type Item = Result<(Op, Range<usize>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -434,10 +436,10 @@ impl<'src, 'me> Iterator for ConstantExprIter<'src, 'me> {
 pub struct ExprIter<'src, 'me> {
     done: bool,
     depth: usize,
-    reader: &'me mut Reader<'src>
+    reader: &'me mut Reader<'src>,
 }
 impl<'src, 'me> Iterator for ExprIter<'src, 'me> {
-    type Item = Result<(Op, Position)>;
+    type Item = Result<(Op, Range<usize>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -470,11 +472,11 @@ impl<'src, 'me> Iterator for ExprIter<'src, 'me> {
 }
 
 pub struct SectionsIter<'src, 'me> {
-    reader: &'me mut Reader<'src>
+    reader: &'me mut Reader<'src>,
 }
 
 impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
-    type Item = Result<(Section, Position)>;
+    type Item = Result<(Section, Range<usize>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.can_read_bytes(1).ok()?;
@@ -486,8 +488,11 @@ impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
 mod tests {
     use std::fs;
 
-    use crate::parser::types::Section;
-    use crate::parser::error;
+    use crate::parser::error::{self, ReaderError};
+    use crate::parser::module::{self, DecodedBytecode};
+    use crate::parser::types::{Data, Section, ValueType};
+
+    use super::Reader;
 
     fn get_wasm_gen() -> Box<[u8]> {
         let source = include_str!("../wat/gen.wat");
@@ -495,15 +500,98 @@ mod tests {
         fs::write("gen2.wasm", &source).unwrap();
         source
     }
-    
+
     #[test]
-    fn wasm_check_sections_iter() -> Result<(), ReaderError> {
-        let wasm = get_wasm_gen();
-        let mut reader = Reader::new(&wasm);
-        let (header, version) = reader.check_header()?;  
-        let mut sections_reader =  reader.sections();
-        sections_reader.collect::<Result<Vec<_>, _>>()?;
+    fn empty_module() -> Result<(), ReaderError> {
+        let src = "(module)";
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+
+        let module = reader.read::<DecodedBytecode>()?;
+        assert!(module.types.is_none());
+        assert!(module.imports.is_none());
+        assert!(module.functions.is_none());
+        assert!(module.tables.is_none());
+        assert!(module.memories.is_none());
+        assert!(module.globals.is_none());
+        assert!(module.exports.is_none());
+        assert!(module.start.is_none());
+        assert!(module.data_count.is_none());
+        assert!(module.code.is_none());
+        assert!(module.data.is_none());
         Ok(())
     }
-    
+
+    #[test]
+    fn simple_func() -> Result<(), ReaderError> {
+        let src = r#"
+            (module
+                (func (param i32) (param f32) (local f64)
+                    local.get 0
+                    local.get 1
+                    local.get 2
+                )
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let types = module.types.unwrap().0;
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[0].0.params[0].0, ValueType::I32);
+        assert_eq!(types[0].0.params[1].0, ValueType::F32);
+
+        let locals = module.code.unwrap().0[0].0.locals[0].0.clone();
+        assert_eq!(locals.n, 1);
+        assert_eq!(locals.t, ValueType::F64);
+
+        Ok(())
+    }
+
+    #[test]
+    fn some_imports() -> Result<(), ReaderError> {
+        let src = r#"
+            (module
+                (import "console" "log" (func $log (param i32 i32)))
+                (import "js" "mem" (memory 1)))
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let imports = module.imports.unwrap().0;
+        assert_eq!(imports.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn some_data() -> Result<(), ReaderError> {
+        let src = r#"
+            (module
+                (data "Hello world")
+                (data "Blubbi")
+            ) 
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let data_section = &module.data.unwrap().0;
+
+        if let Data::Passive(data_pos) = &data_section.get(0).unwrap().0 {
+            let data = &reader.get_bytes_at(data_pos.clone()).unwrap();
+            let str = str::from_utf8(data).unwrap();
+            assert_eq!(str, "Hello world");
+        } else {
+            unreachable!()
+        };
+
+        if let Data::Passive(data_pos) = &data_section.get(1).unwrap().0 {
+            let data = &reader.get_bytes_at(data_pos.clone()).unwrap();
+            let str = str::from_utf8(data).unwrap();
+            assert_eq!(str, "Blubbi");
+        } else {
+            unreachable!()
+        };
+        Ok(())
+    }
 }
