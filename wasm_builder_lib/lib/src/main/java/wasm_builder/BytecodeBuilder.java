@@ -1,9 +1,7 @@
 package wasm_builder;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class BytecodeBuilder {
 	private final WasmBuilder builder;
@@ -21,11 +19,11 @@ public class BytecodeBuilder {
 	}
 
 	public Func createFunction(FuncType funcType) {
-		return builder.addFunc(funcType, Optional.empty());
+		return builder.addFunc(funcType);
 	}
 
-	public Func createFunction(FuncType funcType, List<WasmValueType> locals) {
-		return builder.addFunc(funcType, Optional.of(locals));
+	public Func createFunction(FuncType funcType, List<Local> locals) {
+		return builder.addFunc(funcType, locals);
 	}
 
 	public void setGlobals(List<GlobalType> globals) {
