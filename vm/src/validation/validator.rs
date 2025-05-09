@@ -533,7 +533,7 @@ impl<'src> Validator {
                     Op::Loop(_) => (ctrl.ip as isize - jump.ip) + 1,
                     Op::Block(_) | Op::If(_, _) | Op::Else => {
                         let delta_end = self.instruction_pointer as isize - jump.ip;
-                        delta_end + 1 
+                        delta_end + 1
                     }
                     _ => return Err(ValidationError::InvalidJump),
                 };
@@ -797,7 +797,12 @@ impl<'src> Validator {
 #[cfg(test)]
 mod tests {
     use crate::{
-        parser::{error::ReaderError, module::DecodedBytecode, op::{Blocktype, Op}, reader::Reader},
+        parser::{
+            error::ReaderError,
+            module::DecodedBytecode,
+            op::{Blocktype, Op},
+            reader::Reader,
+        },
         validation::error::ValidationError,
     };
 
@@ -1047,7 +1052,6 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn jump_table_block_works() -> Result<(), ValidationTestError> {
         let src = r#"
@@ -1078,10 +1082,16 @@ mod tests {
 
         let jump_table = Validator::validate_all(&context)?;
 
-        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()){
+        for (func, jump_table) in module
+            .code
+            .as_mut()
+            .unwrap()
+            .0
+            .iter_mut()
+            .zip(jump_table.iter())
+        {
             func.0.patch_jumps(jump_table)?;
         }
-
 
         let func = &module.code.unwrap().0[0].0.code.0;
         let Op::BrIf(_, jmp) = func[6].0.clone() else {
@@ -1120,7 +1130,14 @@ mod tests {
 
         let jump_table = Validator::validate_all(&context)?;
 
-        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()){
+        for (func, jump_table) in module
+            .code
+            .as_mut()
+            .unwrap()
+            .0
+            .iter_mut()
+            .zip(jump_table.iter())
+        {
             func.0.patch_jumps(jump_table)?;
         }
 
@@ -1130,9 +1147,9 @@ mod tests {
         };
 
         let after_else = func[1 + jmp as usize].0.clone();
-        assert_eq!(after_else, Op::I32Const(100)); 
-            
-        Ok(()) 
+        assert_eq!(after_else, Op::I32Const(100));
+
+        Ok(())
     }
 
     #[test]
@@ -1160,7 +1177,14 @@ mod tests {
 
         let jump_table = Validator::validate_all(&context)?;
 
-        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()){
+        for (func, jump_table) in module
+            .code
+            .as_mut()
+            .unwrap()
+            .0
+            .iter_mut()
+            .zip(jump_table.iter())
+        {
             func.0.patch_jumps(jump_table)?;
         }
 
@@ -1170,7 +1194,7 @@ mod tests {
         };
 
         let after_if = func[1 + jmp as usize].0.clone();
-        assert_eq!(after_if, Op::I32Const(100)); 
+        assert_eq!(after_if, Op::I32Const(100));
         Ok(())
     }
 
@@ -1198,7 +1222,14 @@ mod tests {
 
         let jump_table = Validator::validate_all(&context)?;
 
-        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()) {
+        for (func, jump_table) in module
+            .code
+            .as_mut()
+            .unwrap()
+            .0
+            .iter_mut()
+            .zip(jump_table.iter())
+        {
             func.0.patch_jumps(jump_table)?;
         }
 
@@ -1220,7 +1251,7 @@ mod tests {
         println!("jump 2: {jmp2}");
         let after_jmp2 = func[(jmp2_ip + jmp2) as usize].0.clone();
         assert_eq!(after_jmp2, Op::I32Const(50));
-         
-        Ok(())          
+
+        Ok(())
     }
 }
