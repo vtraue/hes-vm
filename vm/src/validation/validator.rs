@@ -210,7 +210,7 @@ impl<'src> Validator {
         in_types: Vec<ValueType>,
         out_types: Vec<ValueType>,
     ) {
-        //TODO: (joh): Das ist nicht sehr eleggant
+        //TODO: (joh): Das ist nicht sehr elegant
         self.value_stack
             .extend(in_types.iter().cloned().map_into::<ValueStackType>());
         let jte = if let Some((Op::If(_, _), _)) = opcode {
@@ -502,14 +502,12 @@ impl<'src> Validator {
         */
         let ctrl = self.pop_ctrl()?;
 
-        println!("Blibb");
         if let Some((Op::If(_, _), _)) = ctrl.opcode {
-            println!("Blubb");
             let if_jmp = self
                 .jump_table
                 .get_jump_mut(ctrl.jump_table_entry.unwrap())?;
             println!("ctrl: {:?}", ctrl);
-            if_jmp.delta_ip = self.instruction_pointer as isize - ctrl.ip as isize;
+            if_jmp.delta_ip = self.instruction_pointer as isize - ctrl.ip as isize + 1;
             self.push_new_ctrl(Some(op), ctrl.in_types, ctrl.out_types);
             Ok(())
         } else {
@@ -518,7 +516,6 @@ impl<'src> Validator {
     }
 
     pub fn validate_end(&mut self) -> Result<(), ValidationError> {
-        println!("end!");
         let ctrl = self.pop_ctrl()?;
         ctrl.out_types
             .iter()
@@ -533,9 +530,10 @@ impl<'src> Validator {
                 let jump = self.jump_table.get_jump_mut(idx)?;
 
                 let next_ip = match ctrl_op {
-                    Op::Loop(_) => ctrl.ip as isize - jump.ip,
+                    Op::Loop(_) => (ctrl.ip as isize - jump.ip) + 1,
                     Op::Block(_) | Op::If(_, _) | Op::Else => {
-                        self.instruction_pointer as isize - jump.ip
+                        let delta_end = self.instruction_pointer as isize - jump.ip;
+                        delta_end + 1 
                     }
                     _ => return Err(ValidationError::InvalidJump),
                 };
@@ -544,7 +542,7 @@ impl<'src> Validator {
 
             if let Some(jte) = ctrl.jump_table_entry {
                 let jump = self.jump_table.get_jump_mut(jte)?;
-                jump.delta_ip = self.instruction_pointer as isize - jump.ip
+                jump.delta_ip = (self.instruction_pointer as isize - jump.ip) + 1
             }
         }
         Ok(())
@@ -799,7 +797,7 @@ impl<'src> Validator {
 #[cfg(test)]
 mod tests {
     use crate::{
-        parser::{error::ReaderError, module::DecodedBytecode, reader::Reader},
+        parser::{error::ReaderError, module::DecodedBytecode, op::{Blocktype, Op}, reader::Reader},
         validation::error::ValidationError,
     };
 
@@ -1047,5 +1045,182 @@ mod tests {
 
         let _ = Validator::validate_all(&context)?;
         Ok(())
+    }
+
+
+    #[test]
+    fn jump_table_block_works() -> Result<(), ValidationTestError> {
+        let src = r#"
+            (module
+                (import "console" "log" (func $log (param i32))) 
+                (func (param i32)
+                    (block $block
+                        i32.const 1
+                        i32.const 2
+                        i32.add
+                        i32.const 10
+                        i32.lt_s
+                        br_if $block
+                        i32.const 5
+                        i32.const 10
+                        i32.add
+                        drop   
+                    )
+                    i32.const 100
+                    call $log
+                )
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let mut module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let jump_table = Validator::validate_all(&context)?;
+
+        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()){
+            func.0.patch_jumps(jump_table)?;
+        }
+
+
+        let func = &module.code.unwrap().0[0].0.code.0;
+        let Op::BrIf(_, jmp) = func[6].0.clone() else {
+            panic!("Unexpected instruction");
+        };
+
+        let after_block = func[6 + jmp as usize].0.clone();
+        assert_eq!(after_block, Op::I32Const(100));
+        Ok(())
+    }
+
+    #[test]
+    fn jump_table_if_else_work() -> Result<(), ValidationTestError> {
+        let src = r#"
+            (module
+                (import "console" "log" (func $log (param i32))) 
+                (func (param i32)
+                    i32.const 0
+                    (if
+                        (then 
+                            i32.const 1
+                            call $log 
+                        )
+                        (else
+                            i32.const 100
+                            call $log
+                        )
+                    )
+                )
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let mut module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let jump_table = Validator::validate_all(&context)?;
+
+        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()){
+            func.0.patch_jumps(jump_table)?;
+        }
+
+        let func = &module.code.unwrap().0[0].0.code.0;
+        let Op::If(_, jmp) = func[1].0.clone() else {
+            panic!("Unexpected instruction");
+        };
+
+        let after_else = func[1 + jmp as usize].0.clone();
+        assert_eq!(after_else, Op::I32Const(100)); 
+            
+        Ok(()) 
+    }
+
+    #[test]
+    fn if_no_else() -> Result<(), ValidationTestError> {
+        let src = r#"
+            (module
+                (import "console" "log" (func $log (param i32))) 
+                (func (param i32)
+                    i32.const 0
+                    (if
+                        (then 
+                            i32.const 1
+                            call $log 
+                        )
+                    )
+                    i32.const 100
+                    call $log
+                )
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let mut module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let jump_table = Validator::validate_all(&context)?;
+
+        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()){
+            func.0.patch_jumps(jump_table)?;
+        }
+
+        let func = &module.code.unwrap().0[0].0.code.0;
+        let Op::If(_, jmp) = func[1].0.clone() else {
+            panic!("Unexpected instruction");
+        };
+
+        let after_if = func[1 + jmp as usize].0.clone();
+        assert_eq!(after_if, Op::I32Const(100)); 
+        Ok(())
+    }
+
+    #[test]
+    fn loop_jumps() -> Result<(), ValidationTestError> {
+        let src = r#"
+            (module
+                (import "console" "log" (func $log (param i32))) 
+                (func (param i32)
+                    (loop $loop
+                        i32.const 50
+                        br_if $loop
+                        i32.const 5
+                        i32.const 6 
+                        i32.add
+                        br_if $loop 
+                    )
+                )
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let mut module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let jump_table = Validator::validate_all(&context)?;
+
+        for (func, jump_table) in module.code.as_mut().unwrap().0.iter_mut().zip(jump_table.iter()) {
+            func.0.patch_jumps(jump_table)?;
+        }
+
+        let func = &module.code.unwrap().0[0].0.code.0;
+
+        let jmp1_ip: isize = 2;
+        let Op::BrIf(_, jmp1) = func[jmp1_ip as usize].0.clone() else {
+            panic!("Unexpected instruction");
+        };
+
+        println!("jump 1: {jmp1}");
+        let after_jmp1 = func[(jmp1_ip + jmp1) as usize].0.clone();
+        assert_eq!(after_jmp1, Op::I32Const(50));
+
+        let jmp2_ip: isize = 6;
+        let Op::BrIf(_, jmp2) = func[jmp2_ip as usize].0.clone() else {
+            panic!("Unexpected instruction");
+        };
+        println!("jump 2: {jmp2}");
+        let after_jmp2 = func[(jmp2_ip + jmp2) as usize].0.clone();
+        assert_eq!(after_jmp2, Op::I32Const(50));
+         
+        Ok(())          
     }
 }
