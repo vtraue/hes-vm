@@ -49,18 +49,32 @@ impl CtrlFrame {
 pub struct JumpTableEntry {
     pub ip: isize,
     pub delta_ip: isize,
+    pub stack_height: usize,
+
+    pub out_count: usize,
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct JumpTable(pub Vec<JumpTableEntry>);
 
 impl JumpTable {
-    pub fn push_new(&mut self, ip: usize) -> usize {
+    pub fn push(&mut self, entry: JumpTableEntry) -> usize {
+        self.0.push(entry);
+        self.0.len() - 1
+    }
+
+    pub fn push_new(&mut self, ip: usize, stack_height: usize, in_count: usize, out_count: usize) -> usize {
         self.0.push(JumpTableEntry {
             ip: ip as isize,
             delta_ip: ip as isize,
+            stack_height,
+            out_count
         });
         self.0.len() - 1
+    }
+
+    pub fn get_jump(&self, id: usize) -> Result<&JumpTableEntry, ValidationError> {
+        self.0.get(id).ok_or(ValidationError::InvalidJumpId)
     }
 
     pub fn get_jump_mut(&mut self, id: usize) -> Result<&mut JumpTableEntry, ValidationError> {

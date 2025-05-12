@@ -10,7 +10,7 @@ use crate::parser::{
 };
 
 use super::{
-    ctrl::{CtrlFrame, JumpTable},
+    ctrl::{CtrlFrame, JumpTable, JumpTableEntry},
     error::ValidationError,
 };
 
@@ -57,14 +57,14 @@ impl From<ValueType> for ValueStackType {
 
 impl Function {
     pub fn patch_jumps(&mut self, jump_table: &JumpTable) -> Result<(), ValidationError> {
-        for jmp in &jump_table.0 {
+        for (i, jmp) in jump_table.0.iter().enumerate() {
             let op = self.code.0[jmp.ip as usize].0.clone();
             //...
             println!("jump op: {op}");
             let new_op = match op {
-                Op::If(bt, _) => Op::If(bt, jmp.delta_ip),
-                Op::Br(bt, _) => Op::Br(bt, jmp.delta_ip),
-                Op::BrIf(bt, _) => Op::BrIf(bt, jmp.delta_ip),
+                Op::If(bt, _) => Op::If(bt, i),
+                Op::Br(bt, _) => Op::Br(bt, i),
+                Op::BrIf(bt, _) => Op::BrIf(bt, i),
                 _ => return Err(ValidationError::InvalidJump),
             };
 
@@ -72,6 +72,7 @@ impl Function {
         }
         Ok(())
     }
+
 }
 
 #[derive(Debug)]
@@ -211,10 +212,17 @@ impl<'src> Validator {
         out_types: Vec<ValueType>,
     ) {
         //TODO: (joh): Das ist nicht sehr elegant
+        let prev_stack_len = self.value_stack.len();
         self.value_stack
             .extend(in_types.iter().cloned().map_into::<ValueStackType>());
         let jte = if let Some((Op::If(_, _), _)) = opcode {
-            Some(self.jump_table.push_new(self.instruction_pointer))
+            let entry = JumpTableEntry {
+                ip: self.instruction_pointer as isize,
+                delta_ip: self.instruction_pointer as isize,
+                stack_height: prev_stack_len,
+                out_count: out_types.len(),
+            };
+            Some(self.jump_table.push(entry))
         } else {
             None
         };
@@ -549,8 +557,15 @@ impl<'src> Validator {
     }
 
     pub fn validate_br(&mut self, n: u32) -> Result<(), ValidationError> {
-        let jmp = self.jump_table.push_new(self.instruction_pointer);
+        let out_types_len = self.peek_ctrl_at_label(n)?.out_types.len();
+        let entry = JumpTableEntry {
+            ip: self.instruction_pointer as isize,
+            delta_ip: self.instruction_pointer as isize,
+            stack_height: self.value_stack.len(),
+            out_count: out_types_len,
+        };
 
+        let jmp = self.jump_table.push(entry); 
         self.push_ctrl_jump(n, jmp)?;
 
         let vals = self
@@ -571,14 +586,10 @@ impl<'src> Validator {
     }
 
     pub fn validate_br_if(&mut self, n: u32) -> Result<(), ValidationError> {
-        let jmp = self.jump_table.push_new(self.instruction_pointer);
-
-        self.push_ctrl_jump(n, jmp)?;
-
         self.pop_val_expect_val(ValueType::I32)?;
 
-        let vals = self
-            .peek_ctrl_at_label(n)?
+        let out_types_len = self.peek_ctrl_at_label(n)?.out_types.len();
+        let vals = self.peek_ctrl_at_label(n)? 
             .label_types()
             .iter()
             .cloned()
@@ -588,8 +599,19 @@ impl<'src> Validator {
             _ = self.pop_val_expect_val(t.clone())?;
             Ok::<_, ValidationError>(())
         })?;
+        let prev_stack_len = self.value_stack.len();
         self.value_stack
             .extend(vals.iter().cloned().map_into::<ValueStackType>());
+
+        let entry = JumpTableEntry {
+            ip: self.instruction_pointer as isize,
+            delta_ip: self.instruction_pointer as isize,
+            stack_height: prev_stack_len,
+            out_count: out_types_len,
+        };
+
+        let jmp = self.jump_table.push(entry);  
+        self.push_ctrl_jump(n, jmp)?;
         Ok(())
     }
 
@@ -1081,7 +1103,7 @@ mod tests {
         let context = Context::new(&module)?;
 
         let jump_table = Validator::validate_all(&context)?;
-
+         
         for (func, jump_table) in module
             .code
             .as_mut()
@@ -1097,8 +1119,9 @@ mod tests {
         let Op::BrIf(_, jmp) = func[6].0.clone() else {
             panic!("Unexpected instruction");
         };
+        let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
+        let after_block = func[6 + cont as usize].0.clone();
 
-        let after_block = func[6 + jmp as usize].0.clone();
         assert_eq!(after_block, Op::I32Const(100));
         Ok(())
     }
@@ -1145,8 +1168,9 @@ mod tests {
         let Op::If(_, jmp) = func[1].0.clone() else {
             panic!("Unexpected instruction");
         };
+        let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
 
-        let after_else = func[1 + jmp as usize].0.clone();
+        let after_else = func[1 + cont as usize].0.clone();
         assert_eq!(after_else, Op::I32Const(100));
 
         Ok(())
@@ -1192,8 +1216,9 @@ mod tests {
         let Op::If(_, jmp) = func[1].0.clone() else {
             panic!("Unexpected instruction");
         };
+        let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
 
-        let after_if = func[1 + jmp as usize].0.clone();
+        let after_if = func[1 + cont as usize].0.clone();
         assert_eq!(after_if, Op::I32Const(100));
         Ok(())
     }
@@ -1239,9 +1264,10 @@ mod tests {
         let Op::BrIf(_, jmp1) = func[jmp1_ip as usize].0.clone() else {
             panic!("Unexpected instruction");
         };
+        let cont1 = jump_table[0].get_jump(jmp1 as usize)?.delta_ip;
 
         println!("jump 1: {jmp1}");
-        let after_jmp1 = func[(jmp1_ip + jmp1) as usize].0.clone();
+        let after_jmp1 = func[(jmp1_ip + cont1) as usize].0.clone();
         assert_eq!(after_jmp1, Op::I32Const(50));
 
         let jmp2_ip: isize = 6;
@@ -1249,7 +1275,8 @@ mod tests {
             panic!("Unexpected instruction");
         };
         println!("jump 2: {jmp2}");
-        let after_jmp2 = func[(jmp2_ip + jmp2) as usize].0.clone();
+        let cont2 = jump_table[0].get_jump(jmp2 as usize)?.delta_ip;
+        let after_jmp2 = func[(jmp2_ip + cont2) as usize].0.clone();
         assert_eq!(after_jmp2, Op::I32Const(50));
 
         Ok(())

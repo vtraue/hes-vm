@@ -1,3 +1,4 @@
-pub struct Interpreter {
-     
-}
+pub mod instance;
+pub mod types;
+pub mod stack;
+pub mod vm;
