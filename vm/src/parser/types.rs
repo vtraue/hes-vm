@@ -529,7 +529,22 @@ impl Function {
     pub fn get_local(&self, id: u32) -> Option<ValueType> {
         self.locals.iter().find(|l| id < l.0.n).map(|i| i.0.t)
     }
+
+    pub fn iter_local_types(&self) -> impl Iterator<Item = ValueType> {
+        self.locals
+            .iter()
+            .cloned()
+            .map(|l| l.0.into_iter())
+            .flatten()
+    }
+    pub fn iter_ops(&self) -> impl Iterator<Item = Op> {
+        self.code.0
+        .iter()
+        .cloned()
+        .map(|(f, _)| f)
+    }
 }
+
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Locals\n")?;

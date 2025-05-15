@@ -164,27 +164,5 @@ impl<'src> DecodedBytecode {
                 .collect()
         })
     }
-
-    /*
-      fn get_imported_functions(&'src self, imports: &'src[(Import, Range<usize>)]) -> Result<Vec<FunctionInfo<'src>>, ModuleError> {
-          imports.iter().filter_map(|i| {
-              let (i, _) = i;
-              if let Some((name, id)) = i.is_function() {
-                  let t = self.get_type(id as usize);
-                  match t {
-                      Ok((func_type, _)) => Some(Ok(FunctionInfo::Imported(ImportedFunction {name, func_type}))),
-                      Err(e) => Some(Err(e))
-                  }
-              } else {
-                  None
-              }
-          })
-          .collect()
-
-      }
-      pub fn get_imported_functions_data(&'src self) -> Result<Vec<FunctionInfo<'src>>, ModuleError> {
-          self.imports.as_ref().map_or(Ok(Vec::new()), |f| self.get_imported_functions(&f.0))
-      }
-
-    */
 }
+
