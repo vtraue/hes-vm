@@ -63,12 +63,18 @@ impl JumpTable {
         self.0.len() - 1
     }
 
-    pub fn push_new(&mut self, ip: usize, stack_height: usize, in_count: usize, out_count: usize) -> usize {
+    pub fn push_new(
+        &mut self,
+        ip: usize,
+        stack_height: usize,
+        in_count: usize,
+        out_count: usize,
+    ) -> usize {
         self.0.push(JumpTableEntry {
             ip: ip as isize,
             delta_ip: ip as isize,
             stack_height,
-            out_count
+            out_count,
         });
         self.0.len() - 1
     }

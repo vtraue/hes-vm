@@ -1,2 +1,1 @@
-pub struct FunctionInstance {
-}
+pub struct FunctionInstance {}

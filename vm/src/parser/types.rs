@@ -538,10 +538,7 @@ impl Function {
             .flatten()
     }
     pub fn iter_ops(&self) -> impl Iterator<Item = Op> {
-        self.code.0
-        .iter()
-        .cloned()
-        .map(|(f, _)| f)
+        self.code.0.iter().cloned().map(|(f, _)| f)
     }
 }
 

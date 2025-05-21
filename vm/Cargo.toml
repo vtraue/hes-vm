@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 itertools = "0.14.0"
-strum = "0.27"
-strum_macros = "0.27"
+bytemuck = "1.23.0"
+num-traits = "0.2.19"
 
 [dev-dependencies]
 wat = "1.227.1"

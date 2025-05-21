@@ -72,7 +72,6 @@ impl Function {
         }
         Ok(())
     }
-
 }
 
 #[derive(Debug)]
@@ -565,7 +564,7 @@ impl<'src> Validator {
             out_count: out_types_len,
         };
 
-        let jmp = self.jump_table.push(entry); 
+        let jmp = self.jump_table.push(entry);
         self.push_ctrl_jump(n, jmp)?;
 
         let vals = self
@@ -589,7 +588,8 @@ impl<'src> Validator {
         self.pop_val_expect_val(ValueType::I32)?;
 
         let out_types_len = self.peek_ctrl_at_label(n)?.out_types.len();
-        let vals = self.peek_ctrl_at_label(n)? 
+        let vals = self
+            .peek_ctrl_at_label(n)?
             .label_types()
             .iter()
             .cloned()
@@ -610,7 +610,7 @@ impl<'src> Validator {
             out_count: out_types_len,
         };
 
-        let jmp = self.jump_table.push(entry);  
+        let jmp = self.jump_table.push(entry);
         self.push_ctrl_jump(n, jmp)?;
         Ok(())
     }
@@ -1103,7 +1103,7 @@ mod tests {
         let context = Context::new(&module)?;
 
         let jump_table = Validator::validate_all(&context)?;
-         
+
         for (func, jump_table) in module
             .code
             .as_mut()
@@ -1282,4 +1282,3 @@ mod tests {
         Ok(())
     }
 }
-

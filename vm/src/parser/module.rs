@@ -165,4 +165,3 @@ impl<'src> DecodedBytecode {
         })
     }
 }
-

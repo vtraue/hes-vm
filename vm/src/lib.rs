@@ -1,6 +1,6 @@
+pub mod interpreter;
 pub mod parser;
 pub mod validation;
-pub mod interpreter;
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
