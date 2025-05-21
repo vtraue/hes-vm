@@ -1281,4 +1281,43 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn memory_instructions_without_memory() -> Result<(), ValidationTestError> {
+        let src = r#"
+            (module
+                (func (param $p i32) (result i32)
+                    i32.const 1
+                    i32.load 
+                )
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+        let res = Validator::validate_all(&context);
+        assert_eq!(res.unwrap_err(), ValidationError::UnexpectedNoMemories);
+        Ok(())
+    }
+
+    #[test]
+    fn basic_memory() -> Result<(), ValidationTestError> {
+        let src = r#"
+            (module
+                (memory 1)
+                (func (param $p i32) (result i32)
+                    i32.const 1
+                    i32.load 
+                )
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+        let res = Validator::validate_all(&context)?;
+        Ok(())
+    }
+     
 }

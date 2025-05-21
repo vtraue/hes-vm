@@ -2,6 +2,8 @@ use std::mem::transmute;
 
 use bytemuck::cast_ref;
 
+const WASM_PAGE_SIZE: usize = 65536;
+
 use crate::parser::{
     self,
     module::DecodedBytecode,
@@ -154,14 +156,15 @@ pub struct Vm {
 }
 
 impl Vm {
-/*
+
+    /*
     pub fn init_from_bytecode(bytecode: &DecodedBytecode) -> Option<Self> {
         //NOTE: (joh): Sollte es moeglich sein ein Modul ohne Code zu erstellen?  
         let code = Code::from_module(bytecode)?;
         //TODO: (joh): Checke imports
-        
+        let memory = Vec::with_capacity(WASM_PAGE_SIZ);
     }
-*/
+    */
     pub fn push_value(&mut self, val: impl Into<StackValue>) {
         self.value_stack.push(val.into());
     }
