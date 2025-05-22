@@ -185,6 +185,7 @@ impl<'src> Reader<'src> {
 
     pub fn read_vec_iter<'me, T: FromReader<'src>>(&'me mut self) -> Result<VecIter<'src, 'me, T>> {
         let size = self.read_var_u32()? as usize;
+
         Ok(VecIter {
             count: size,
             pos: 0,

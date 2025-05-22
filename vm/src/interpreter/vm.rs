@@ -1,6 +1,7 @@
-use std::mem::transmute;
+use std::{fmt::Debug, mem::transmute};
 
 use bytemuck::cast_ref;
+use itertools::Itertools;
 
 const WASM_PAGE_SIZE: usize = 65536;
 
@@ -15,14 +16,16 @@ use super::stack::StackValue;
 
 pub struct ActivationFrame {
     locals_offset: usize,
-    func_id: isize,
+    func_id: usize,
     arity: usize,
 }
 
 pub struct Function {
     t: TypeId,
+    
     locals: Vec<ValueType>,
     code_offset: usize,
+    
 }
 
 pub struct Code {
@@ -30,6 +33,7 @@ pub struct Code {
     functions: Vec<Function>,
 }
 
+#[derive(Debug)]
 pub enum RuntimeError {
     MemoryAddressOutOfScope 
 }
@@ -99,7 +103,7 @@ impl PopFromValueStack for f64 {
         unsafe { vm.pop_f64() }
     }
 }
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum LocalValue {
     I32(u32),
     I64(u64),
@@ -126,6 +130,18 @@ impl LocalValue {
             LocalValue::F64(v) => *v = unsafe { val.f64 },
         };
     }
+
+    pub fn init_from_type(t: ValueType) -> Self {
+        match t {
+            ValueType::I32 => Self::I32(0),
+            ValueType::I64 => Self::I64(0),
+            ValueType::F32 => Self::F32(0.0),
+            ValueType::F64 => Self::F64(0.0),
+            ValueType::Funcref => todo!(),
+            ValueType::Externref => todo!(),
+            ValueType::Vectype => todo!(),
+        }
+    }
 }
 /*
 macro_rules! do_load_op {
@@ -143,15 +159,22 @@ macro_rules! trap_vm {
 }
 
 pub struct Type {
-    pub params: Box<[ValueType]>,
-    pub results: Box<[ValueType]>,
+    pub params: Vec<ValueType>,
+    pub results: Vec<ValueType>,
 }
-/*
+
 impl From<parser::types::Type> for Type {
     fn from(value: parser::types::Type) -> Self {
+        let params = value.params.iter().cloned().map(|(t, _)| t).collect(); 
+        let results = value.params.iter().cloned().map(|(t, _)| t).collect(); 
+
+        Self {
+            params,
+            results,
+        }
     }
 }
-*/
+
 pub struct Vm {
     value_stack: Vec<StackValue>,
     activation_stack: Vec<ActivationFrame>,
@@ -176,9 +199,8 @@ impl Vm {
         let memory = Vec::with_capacity(inital_memory_pages * WASM_PAGE_SIZE);
         let locals = Vec::new();
         let start_func_id = bytecode.start.map(|i| i as usize);
-        let types = bytecode.iter_types()?.map(|(t, _)| t);
-                  
-         
+        let types = bytecode.iter_types()?.cloned().map_into::<Type>().collect();
+                     
         let vm = Self {
             value_stack: Vec::new(),
             types,
@@ -200,17 +222,36 @@ impl Vm {
         let t = &self.types[func.t as usize];
         let locals_offset = self.locals.len();
 
-        let new_locals = t.params.chain(func.locals); 
-        self.locals.extend(t)
-          
-    }
+        let new_locals = t.params
+            .iter()
+            .cloned()
+            .chain(func.locals.iter().cloned()) 
+            .map(|t| LocalValue::init_from_type(t));
 
+        self.locals.extend(new_locals);
+        let activ = ActivationFrame {
+            locals_offset,
+            func_id,
+            arity: 0,
+        };
+
+        self.activation_stack.push(activ);  
+        self.func_id = Some(func_id);
+    }
+    
     pub fn get_local(&self, id: usize) -> LocalValue {
         self.locals[id + self.local_offset]
     }
 
-    pub fn push_value(&mut self, val: impl Into<StackValue>) {
+    pub fn push_value(&mut self, val: impl Into<StackValue> + Debug) {
+        println!("Pushing value: {:?}", val);
         self.value_stack.push(val.into());
+    }
+    pub fn pop_any(&mut self) -> StackValue {
+        println!("pop any");
+        self.ip += 1;
+        self.value_stack.pop().unwrap()
+
     }
     pub unsafe fn pop_u32(&mut self) -> u32 {
         unsafe { self.value_stack.pop().unwrap().i32 }
@@ -238,8 +279,12 @@ impl Vm {
         bytemuck::cast(val)
     }
 
-    pub unsafe fn pop_value<T: PopFromValueStack>(&mut self) -> T {
-        unsafe { T::pop(self) }
+    pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
+        unsafe { 
+            let val = T::pop(self); 
+            println!("Popping: {:?}", val);
+            val
+        }
     }
 
     pub fn fetch_instruction(&self) -> &Op {
@@ -305,8 +350,8 @@ impl Vm {
     
     pub fn exec_unop_push<T, F, R>(&mut self, op: F)
     where
-        T: PopFromValueStack,
-        R: Into<StackValue>,
+        T: PopFromValueStack + Debug,
+        R: Into<StackValue> + Debug,
         F: FnOnce(T) -> R,
     {
         debug_assert!(self.value_stack.len() >= 1);
@@ -317,8 +362,8 @@ impl Vm {
 
     pub fn exec_binop_push<T, F, R>(&mut self, op: F)
     where
-        T: PopFromValueStack,
-        R: Into<StackValue>,
+        T: PopFromValueStack + Debug,
+        R: Into<StackValue> + Debug,
         F: FnOnce(T, T) -> R,
     {
         unsafe {
@@ -329,11 +374,20 @@ impl Vm {
         }
     }
 
-    pub fn exec_push(&mut self, value: impl Into<StackValue>) {
+    pub fn exec_push(&mut self, value: impl Into<StackValue> + Debug) {
         self.push_value(value);
         self.ip += 1;
     }
 
+    pub fn exec_end(&mut self) -> bool {
+        if self.activation_stack.len() > 1 {
+            todo!();
+            false
+        } else {
+            true 
+        }
+
+    }
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         loop {
             match self.fetch_instruction() {
@@ -346,13 +400,13 @@ impl Vm {
                 Op::Loop(blocktype) => todo!(),
                 Op::If(blocktype, _) => todo!(),
                 Op::Else => todo!(),
-                Op::End => todo!(),
+                Op::End => if self.exec_end() {break;},
                 Op::Br(_, _) => todo!(),
                 Op::BrIf(_, _) => todo!(),
                 Op::Return => todo!(),
                 Op::Call(_) => todo!(),
                 Op::CallIndirect(_, _) => todo!(),
-                Op::Drop => todo!(),
+                Op::Drop => _ = self.pop_any(),
                 Op::Select(value_type) => todo!(),
                 Op::LocalGet(id) => self.exec_local_get(*id as usize),
                 Op::LocalSet(id) => self.exec_local_set(*id as usize),
@@ -456,7 +510,7 @@ mod tests {
         },
     };
 
-    use super::Code;
+    use super::{Code, Vm};
 
     #[derive(Debug)]
     enum InterpreterTestError {
@@ -545,4 +599,28 @@ mod tests {
          
         Ok(())
     }
+    #[test]
+    fn run_super_simple() -> Result<(), InterpreterTestError> {
+       let src = r#"
+            (module
+                (func 
+                    i32.const 5
+                    i32.const 1
+                    i32.add
+                    drop
+                )
+            )
+        "#; 
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let _ = Validator::validate_all(&context)?;
+        let mut vm = Vm::init_from_bytecode(&module).unwrap();
+        vm.init_function(0);  
+        vm.run().unwrap();
+        Ok(())
+    }
 }
+
