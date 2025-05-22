@@ -173,7 +173,7 @@ impl<'src> FromReader<'src> for ValueType {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Type {
     pub params: Box<[(ValueType, Range<usize>)]>,
     pub results: Box<[(ValueType, Range<usize>)]>,

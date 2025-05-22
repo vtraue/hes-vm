@@ -1299,7 +1299,7 @@ mod tests {
         let res = Validator::validate_all(&context);
         assert_eq!(res.unwrap_err(), ValidationError::UnexpectedNoMemories);
         Ok(())
-    }
+   
 
     #[test]
     fn basic_memory() -> Result<(), ValidationTestError> {

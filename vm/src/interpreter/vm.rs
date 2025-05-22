@@ -8,7 +8,7 @@ use crate::parser::{
     self,
     module::DecodedBytecode,
     op::{Memarg, Op},
-    types::{Type, TypeId, ValueType},
+    types::{TypeId, ValueType},
 };
 
 use super::stack::StackValue;
@@ -60,6 +60,7 @@ impl Code {
             functions,
         })
     }
+
 }
 pub trait PopFromValueStack {
     unsafe fn pop(vm: &mut Vm) -> Self;
@@ -105,6 +106,7 @@ pub enum LocalValue {
     F32(f32),
     F64(f64),
 }
+
 impl From<LocalValue> for StackValue {
     fn from(value: LocalValue) -> Self {
         match value {
@@ -115,7 +117,6 @@ impl From<LocalValue> for StackValue {
         }
     }
 }
-
 impl LocalValue {
     pub unsafe fn set_inner_from_stack_val(&mut self, val: StackValue) {
         match self {
@@ -140,31 +141,74 @@ macro_rules! trap_vm {
         break;
     };
 }
+
+pub struct Type {
+    pub params: Box<[ValueType]>,
+    pub results: Box<[ValueType]>,
+}
+/*
+impl From<parser::types::Type> for Type {
+    fn from(value: parser::types::Type) -> Self {
+    }
+}
+*/
 pub struct Vm {
     value_stack: Vec<StackValue>,
     activation_stack: Vec<ActivationFrame>,
-
+    types: Vec<Type>,
     ip: usize,
-    func_id: usize,
+    func_id: Option<usize>,
     local_offset: usize,
     code: Code,
     locals: Vec<LocalValue>,
     memory: Vec<u8>,  
-    running: bool,
-    trap: bool,
-    start_func_id: usize,
+    start_func_id: Option<usize>,
 }
 
 impl Vm {
-
-    /*
+    //NOTE: (joh): Vielleicht sollten wir ownership uebernehmen?
     pub fn init_from_bytecode(bytecode: &DecodedBytecode) -> Option<Self> {
         //NOTE: (joh): Sollte es moeglich sein ein Modul ohne Code zu erstellen?  
         let code = Code::from_module(bytecode)?;
-        //TODO: (joh): Checke imports
-        let memory = Vec::with_capacity(WASM_PAGE_SIZ);
+        //TODO: (joh): Checke imports/exports
+
+        let inital_memory_pages = bytecode.inital_memory_size(0).unwrap_or(0); 
+        let memory = Vec::with_capacity(inital_memory_pages * WASM_PAGE_SIZE);
+        let locals = Vec::new();
+        let start_func_id = bytecode.start.map(|i| i as usize);
+        let types = bytecode.iter_types()?.map(|(t, _)| t);
+                  
+         
+        let vm = Self {
+            value_stack: Vec::new(),
+            types,
+            activation_stack: Vec::new(),
+            ip: 0,
+            func_id: None,
+            code,
+            locals,
+            memory,
+            start_func_id,
+            local_offset: 0
+        };
+
+        Some(vm)
     }
-    */
+
+    pub fn init_function(&mut self, func_id: usize) {
+        let func = &self.code.functions[func_id];
+        let t = &self.types[func.t as usize];
+        let locals_offset = self.locals.len();
+
+        let new_locals = t.params.chain(func.locals); 
+        self.locals.extend(t)
+          
+    }
+
+    pub fn get_local(&self, id: usize) -> LocalValue {
+        self.locals[id + self.local_offset]
+    }
+
     pub fn push_value(&mut self, val: impl Into<StackValue>) {
         self.value_stack.push(val.into());
     }
@@ -405,7 +449,7 @@ impl Vm {
 
 mod tests {
     use crate::{
-        parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader},
+        parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType},
         validation::{
             error::ValidationError,
             validator::{Context, Validator},
@@ -436,19 +480,19 @@ mod tests {
         let src = r#"
             (module
                 (import "console" "log" (func $log (param i32))) 
-                (func (param i32)
+                (func (param i32) (local i32 i32)
                     i32.const 0
                     call $log
                 )
-                (func (param i32)
+                (func (param i32) (local i32)
                     i32.const 1
                     call $log
                 )
-                (func (param i32)
+                (func (param i32) (local i32 f32 i64)
                     i32.const 2
                     call $log
                 )
-                (func (param i32)
+                (func (param i32) 
                     i32.const 3
                     call $log
                 )
@@ -467,18 +511,38 @@ mod tests {
             Op::I32Const(0)
         );
         assert_eq!(
+            code.functions[0].locals,
+            vec![ValueType::I32,ValueType::I32]
+        );
+
+        assert_eq!(
             code.instructions[code.functions[1].code_offset],
             Op::I32Const(1)
         );
+
+        assert_eq!(
+            code.functions[1].locals,
+            vec![ValueType::I32]
+        );
+
         assert_eq!(
             code.instructions[code.functions[2].code_offset],
             Op::I32Const(2)
         );
         assert_eq!(
+            code.functions[2].locals,
+            vec![ValueType::I32, ValueType::F32, ValueType::I64]
+        );
+
+        assert_eq!(
             code.instructions[code.functions[3].code_offset],
             Op::I32Const(3)
         );
-
+        assert_eq!(
+            code.functions[3].locals,
+            vec![]
+        );
+         
         Ok(())
     }
 }

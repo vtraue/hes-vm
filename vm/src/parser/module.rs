@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use itertools::Itertools;
+
 use super::{
     error::ReaderError,
     reader::{FromReader, Reader},
@@ -163,5 +165,13 @@ impl<'src> DecodedBytecode {
                 })
                 .collect()
         })
+    }
+
+    pub fn inital_memory_size(&self, memory_id: usize) -> Option<usize> {
+        self.memories.as_ref().map(|(mems, _)| mems[memory_id].0.min.0 as usize)
+    }
+
+    pub fn iter_types(&self) -> Option<impl Iterator<Item = &Type>> {
+        self.types.as_ref().map(|(types, _)| types.iter().map(|(t, _)| t))
     }
 }
