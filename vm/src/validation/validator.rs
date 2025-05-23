@@ -494,8 +494,10 @@ impl<'src> Validator {
         blocktype: op::Blocktype,
     ) -> Result<(), ValidationError> {
         let (in_types, out_types) = self.get_block_types(context, blocktype)?;
+        in_types.iter().cloned().try_for_each(|f| self.pop_val_expect_val(f).map(|_| ()))?;
+        self.push_new_ctrl(Some(op), in_types.clone(), out_types);
         in_types.iter().cloned().for_each(|f| self.push_val_t(f));
-        self.push_new_ctrl(Some(op), in_types, out_types);
+
         Ok(())
     }
 

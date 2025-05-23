@@ -5,12 +5,12 @@ use itertools::Itertools;
 
 const WASM_PAGE_SIZE: usize = 65536;
 
-use crate::parser::{
+use crate::{parser::{
     self,
     module::DecodedBytecode,
-    op::{Memarg, Op},
+    op::{Blocktype, Memarg, Op},
     types::{TypeId, ValueType},
-};
+}, validation::ctrl::JumpTable};
 
 use super::stack::StackValue;
 
@@ -18,6 +18,10 @@ pub struct ActivationFrame {
     locals_offset: usize,
     func_id: usize,
     arity: usize,
+}
+
+pub struct Label {
+    stack_height: usize    
 }
 
 pub struct Function {
@@ -33,9 +37,10 @@ pub struct Code {
     functions: Vec<Function>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum RuntimeError {
-    MemoryAddressOutOfScope 
+    MemoryAddressOutOfScope, 
+    UnreachableReached,
 }
 
 impl Code {
@@ -101,6 +106,13 @@ impl PopFromValueStack for f32 {
 impl PopFromValueStack for f64 {
     unsafe fn pop(vm: &mut Vm) -> Self {
         unsafe { vm.pop_f64() }
+    }
+}
+
+impl PopFromValueStack for bool {
+    unsafe fn pop(vm: &mut Vm) -> Self {
+        let val = unsafe {vm.pop_u32()};
+        val != 0
     }
 }
 #[derive(Debug, Copy, Clone)]
@@ -178,6 +190,7 @@ impl From<parser::types::Type> for Type {
 pub struct Vm {
     value_stack: Vec<StackValue>,
     activation_stack: Vec<ActivationFrame>,
+    labels: Vec<Label>,
     types: Vec<Type>,
     ip: usize,
     func_id: Option<usize>,
@@ -185,12 +198,14 @@ pub struct Vm {
     code: Code,
     locals: Vec<LocalValue>,
     memory: Vec<u8>,  
+    jump_table: Vec<JumpTable>,
+
     start_func_id: Option<usize>,
 }
 
 impl Vm {
     //NOTE: (joh): Vielleicht sollten wir ownership uebernehmen?
-    pub fn init_from_bytecode(bytecode: &DecodedBytecode) -> Option<Self> {
+    pub fn init_from_bytecode(bytecode: &DecodedBytecode, jump_table: Vec<JumpTable>) -> Option<Self> {
         //NOTE: (joh): Sollte es moeglich sein ein Modul ohne Code zu erstellen?  
         let code = Code::from_module(bytecode)?;
         //TODO: (joh): Checke imports/exports
@@ -202,6 +217,8 @@ impl Vm {
         let types = bytecode.iter_types()?.cloned().map_into::<Type>().collect();
                      
         let vm = Self {
+            jump_table,
+            labels: Vec::new(),
             value_stack: Vec::new(),
             types,
             activation_stack: Vec::new(),
@@ -286,13 +303,18 @@ impl Vm {
             val
         }
     }
-
+    
     pub fn fetch_instruction(&self) -> &Op {
         &self.code.instructions[self.ip]
     }
 
+    pub fn push_label(&mut self, label: Label)  {
+        self.labels.push(label);
+    }
+
     pub fn exec_local_get(&mut self, id: usize) {
         let local_val = self.locals[self.local_offset + id];
+        println!("local get: {:?}", local_val);
         self.push_value(local_val);
         self.ip += 1;
     }
@@ -338,6 +360,7 @@ impl Vm {
         let local_val = &mut self.locals[self.local_offset + id];
 
         unsafe {local_val.set_inner_from_stack_val(val)};
+        println!("local set: {:?}", local_val);
         self.ip += 1;
     }
 
@@ -388,17 +411,59 @@ impl Vm {
         }
 
     }
+    /*
+    pub fn exec_if(&mut self, blocktype: &Blocktype, table_entry_id: usize) {
+        let cond = unsafe { self.pop_value::<bool>() };
+        if cond {
+        }
+    }
+    */
+    
+    pub fn label_from_blocktype(&self, blocktype: &Blocktype) -> Label {
+        match blocktype {
+            Blocktype::TypeIndex(t_id) => {
+                        let t = &self.types[*t_id as usize];
+                        let in_count = t.params.len(); 
+                        let stack_height = self.ip - in_count;      
+                        Label {
+                            stack_height,
+                        }
+                    },
+            _ => Label {stack_height: self.ip}
+        }
+
+    }
+
+    pub fn exec_block(&mut self, blocktype: Blocktype) {
+        self.push_label(self.label_from_blocktype(&blocktype));
+        self.ip += 1;
+    }
+    
+    pub fn exec_if(&mut self, blocktype: Blocktype, table_index: usize) {
+        let cond = unsafe { self.pop_value::<bool>() };
+        let label = self.label_from_blocktype(&blocktype); 
+        if cond {
+            self.ip += 1
+        } else {
+            //NOTE: (joh): Laaaaangsam
+            let jte = &self.jump_table[self.func_id.unwrap()];
+            self.ip = (self.ip as isize + jte.0[table_index].delta_ip) as usize;
+        }
+        self.push_label(label);
+    }
+
+
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         loop {
             match self.fetch_instruction() {
                 Op::Unreachable => {
                     println!("Reached unreachable!");
-                    break ;
+                    return Err(RuntimeError::UnreachableReached)
                 }
                 Op::Nop => {}
-                Op::Block(blocktype) => todo!(),
+                Op::Block(blocktype) => self.exec_block(blocktype.clone()),
                 Op::Loop(blocktype) => todo!(),
-                Op::If(blocktype, _) => todo!(),
+                Op::If(blocktype, table_entry_id) => self.exec_if(blocktype.clone(), *table_entry_id),
                 Op::Else => todo!(),
                 Op::End => if self.exec_end() {break;},
                 Op::Br(_, _) => todo!(),
@@ -503,11 +568,10 @@ impl Vm {
 
 mod tests {
     use crate::{
-        parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType},
-        validation::{
+        interpreter::vm::RuntimeError, parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType}, validation::{
             error::ValidationError,
             validator::{Context, Validator},
-        },
+        }
     };
 
     use super::{Code, Vm};
@@ -600,7 +664,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn run_super_simple() -> Result<(), InterpreterTestError> {
+    fn run_add_two_numbers() -> Result<(), InterpreterTestError> {
        let src = r#"
             (module
                 (func 
@@ -616,11 +680,105 @@ mod tests {
         let module = reader.read::<DecodedBytecode>()?;
         let context = Context::new(&module)?;
 
-        let _ = Validator::validate_all(&context)?;
-        let mut vm = Vm::init_from_bytecode(&module).unwrap();
+        let jumps = Validator::validate_all(&context)?;
+        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
         vm.init_function(0);  
         vm.run().unwrap();
         Ok(())
     }
-}
 
+    #[test]
+    fn run_add_locals() -> Result<(), InterpreterTestError> {
+       let src = r#"
+            (module
+                (func (local i32 i32)
+                    i32.const 1
+                    i32.const 2
+                    i32.add
+                    local.set 0
+
+                    local.get 0
+                    i32.const 1
+                    i32.add
+                    drop
+                )
+            )
+        "#; 
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let jumps = Validator::validate_all(&context)?;
+        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        vm.init_function(0);  
+        vm.run().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    fn run_test_if() -> Result<(), InterpreterTestError> {
+       let src = r#"
+            (module
+                (func (local i32 i32)
+                    i32.const 1
+                    i32.const 0
+                    i32.add
+                    local.set 0
+
+                    local.get 0
+                    (if 
+                        (then
+                            unreachable
+                        )
+                    )
+                )
+            )
+        "#; 
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let jumps = Validator::validate_all(&context)?;
+        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        vm.init_function(0);  
+        assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
+        Ok(())
+    }
+
+    #[test]
+    fn run_test_if_else() -> Result<(), InterpreterTestError> {
+       let src = r#"
+            (module
+                (func (local i32 i32)
+                    i32.const 0
+                    i32.const 0
+                    i32.add
+                    local.set 0
+
+                    local.get 0
+                    (if 
+                        (then
+                              
+                        )
+                        (else
+                            unreachable
+                        )
+                    )
+                )
+            )
+        "#; 
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+
+        let jumps = Validator::validate_all(&context)?;
+        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        vm.init_function(0);  
+        assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
+        Ok(())
+    }
+}
+    
