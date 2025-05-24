@@ -4,7 +4,7 @@ use std::{iter, ops::Range};
 use itertools::Itertools;
 
 use crate::parser::{
-    module::{DecodedBytecode, FunctionInfo, ImportedFunction, InternalFunction, SortedImports},
+    module::{self, DecodedBytecode, FunctionInfo, ImportedFunction, InternalFunction, SortedImports},
     op::{self, Op},
     types::{Expression, Function, GlobalType, Limits, Type, ValueType},
 };
@@ -62,6 +62,7 @@ impl Function {
             //...
             println!("jump op: {op}");
             let new_op = match op {
+                Op::Else(_) => Op::Else(jmp.delta_ip),
                 Op::If(bt, _) => Op::If(bt, i),
                 Op::Br(bt, _) => Op::Br(bt, i),
                 Op::BrIf(bt, _) => Op::BrIf(bt, i),
@@ -214,7 +215,8 @@ impl<'src> Validator {
         let prev_stack_len = self.value_stack.len();
         self.value_stack
             .extend(in_types.iter().cloned().map_into::<ValueStackType>());
-        let jte = if let Some((Op::If(_, _), _)) = opcode {
+
+        let jte = if matches!(opcode, Some((Op::If(_, _), _))) || matches!(opcode, Some((Op::Else(_), _))) {
             let entry = JumpTableEntry {
                 ip: self.instruction_pointer as isize,
                 delta_ip: self.instruction_pointer as isize,
@@ -540,7 +542,7 @@ impl<'src> Validator {
 
                 let next_ip = match ctrl_op {
                     Op::Loop(_) => (ctrl.ip as isize - jump.ip) + 1,
-                    Op::Block(_) | Op::If(_, _) | Op::Else => {
+                    Op::Block(_) | Op::If(_, _) | Op::Else(_) => {
                         let delta_end = self.instruction_pointer as isize - jump.ip;
                         delta_end + 1
                     }
@@ -664,7 +666,7 @@ impl<'src> Validator {
                 self.pop_val_expect_val(I32)?;
                 self.validate_block(context, op, blocktype)?;
             }
-            Op::Else => self.validate_else(op)?,
+            Op::Else(_) => self.validate_else(op)?,
             Op::End => self.validate_end()?,
             Op::Br(n, _) => self.validate_br(n)?,
             Op::BrIf(n, _) => self.validate_br_if(n)?,
@@ -818,6 +820,15 @@ impl<'src> Validator {
     }
 }
 
+pub fn patch_jumps<'a, I: IntoIterator<Item = &'a JumpTable>>(module: &mut DecodedBytecode, jumps: I) -> Result<(), ValidationError> {
+    if let Some(funcs) = module.code.as_mut() {
+        for (func, table) in funcs.0.iter_mut().zip(jumps) {
+            func.0.patch_jumps(table)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -827,7 +838,7 @@ mod tests {
             op::{Blocktype, Op},
             reader::Reader,
         },
-        validation::error::ValidationError,
+        validation::{error::ValidationError, validator::patch_jumps},
     };
 
     use super::{Context, Validator};
@@ -1106,17 +1117,7 @@ mod tests {
 
         let jump_table = Validator::validate_all(&context)?;
 
-        for (func, jump_table) in module
-            .code
-            .as_mut()
-            .unwrap()
-            .0
-            .iter_mut()
-            .zip(jump_table.iter())
-        {
-            func.0.patch_jumps(jump_table)?;
-        }
-
+        patch_jumps(&mut module, jump_table.iter())?;
         let func = &module.code.unwrap().0[0].0.code.0;
         let Op::BrIf(_, jmp) = func[6].0.clone() else {
             panic!("Unexpected instruction");
@@ -1155,16 +1156,7 @@ mod tests {
 
         let jump_table = Validator::validate_all(&context)?;
 
-        for (func, jump_table) in module
-            .code
-            .as_mut()
-            .unwrap()
-            .0
-            .iter_mut()
-            .zip(jump_table.iter())
-        {
-            func.0.patch_jumps(jump_table)?;
-        }
+        patch_jumps(&mut module, jump_table.iter())?;
 
         let func = &module.code.unwrap().0[0].0.code.0;
         let Op::If(_, jmp) = func[1].0.clone() else {
@@ -1175,6 +1167,14 @@ mod tests {
         let after_else = func[1 + cont as usize].0.clone();
         assert_eq!(after_else, Op::I32Const(100));
 
+        let else_pos = (cont) as usize;
+        let op_at = func[else_pos].0.clone();
+        let Op::Else(else_jmp) = op_at else {
+            panic!("Unexpected instruction: {:?}", op_at);
+        };
+
+        let after_else_block = func[(else_pos as isize + else_jmp) as usize].0.clone();
+        assert_eq!(after_else_block, Op::End);
         Ok(())
     }
 

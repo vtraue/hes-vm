@@ -21,7 +21,7 @@ pub struct ActivationFrame {
 }
 
 pub struct Label {
-    stack_height: usize    
+    stack_height: usize,
 }
 
 pub struct Function {
@@ -403,6 +403,9 @@ impl Vm {
     }
 
     pub fn exec_end(&mut self) -> bool {
+        if self.labels.len() > 0 {
+
+        }
         if self.activation_stack.len() > 1 {
             todo!();
             false
@@ -452,6 +455,9 @@ impl Vm {
         self.push_label(label);
     }
 
+    pub fn exec_else(&mut self, jmp: usize) {
+        self.ip += jmp;
+    }
 
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         loop {
@@ -464,7 +470,7 @@ impl Vm {
                 Op::Block(blocktype) => self.exec_block(blocktype.clone()),
                 Op::Loop(blocktype) => todo!(),
                 Op::If(blocktype, table_entry_id) => self.exec_if(blocktype.clone(), *table_entry_id),
-                Op::Else => todo!(),
+                Op::Else(jmp) => todo!(),
                 Op::End => if self.exec_end() {break;},
                 Op::Br(_, _) => todo!(),
                 Op::BrIf(_, _) => todo!(),
@@ -753,7 +759,7 @@ mod tests {
             (module
                 (func (local i32 i32)
                     i32.const 0
-                    i32.const 0
+                    i32.const 1
                     i32.add
                     local.set 0
 
