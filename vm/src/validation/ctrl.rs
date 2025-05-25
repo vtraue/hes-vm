@@ -17,7 +17,7 @@ pub struct CtrlFrame {
 
 impl CtrlFrame {
     pub fn new(
-        context: &Validator,
+        height: usize,
         ip: usize,
         opcode: Option<(Op, Range<usize>)>,
         jump_table_entry: Option<usize>,

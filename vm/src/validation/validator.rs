@@ -213,9 +213,12 @@ impl<'src> Validator {
     ) {
         //TODO: (joh): Das ist nicht sehr elegant
         let prev_stack_len = self.value_stack.len();
+        in_types.iter().cloned().for_each(|f| self.push_val_t(f));
+
+        /*
         self.value_stack
             .extend(in_types.iter().cloned().map_into::<ValueStackType>());
-
+        */
         let jte = if matches!(opcode, Some((Op::If(_, _), _))) || matches!(opcode, Some((Op::Else(_), _))) {
             let entry = JumpTableEntry {
                 ip: self.instruction_pointer as isize,
@@ -227,15 +230,16 @@ impl<'src> Validator {
         } else {
             None
         };
-
-        let ctrl = CtrlFrame::new(
-            self,
-            self.instruction_pointer,
+        let ctrl = CtrlFrame {
             opcode,
-            jte,
+            ip: self.instruction_pointer,
+            jump_table_entry: jte,
             in_types,
             out_types,
-        );
+            start_height: prev_stack_len,
+            is_unreachable: false,
+        };
+        
         self.ctrl_jump_stack.push(Vec::new());
         self.ctrl_stack.push(ctrl);
     }
@@ -483,7 +487,7 @@ impl<'src> Validator {
             op::Blocktype::TypeIndex(index) => {
                 let (t, _) = context.bytecode.get_type(index as usize)?;
                 let in_t = t.params.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
-                let out_t = t.params.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
+                let out_t = t.results.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
                 Ok((in_t, out_t))
             }
         }
@@ -496,10 +500,9 @@ impl<'src> Validator {
         blocktype: op::Blocktype,
     ) -> Result<(), ValidationError> {
         let (in_types, out_types) = self.get_block_types(context, blocktype)?;
+        println!("block in: {:?}, out: {:?}", in_types, out_types);
         in_types.iter().cloned().try_for_each(|f| self.pop_val_expect_val(f).map(|_| ()))?;
         self.push_new_ctrl(Some(op), in_types.clone(), out_types);
-        in_types.iter().cloned().for_each(|f| self.push_val_t(f));
-
         Ok(())
     }
 
@@ -1321,4 +1324,7 @@ mod tests {
         let res = Validator::validate_all(&context)?;
         Ok(())
     }
+
+
+    
 }

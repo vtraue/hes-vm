@@ -15,12 +15,17 @@ pub enum Blocktype {
 
 impl<'src> FromReader<'src> for Blocktype {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
-        let desc_byte = reader.read_u8()?;
-        println!("desc byte: {:0x}", desc_byte);
-        match desc_byte {
-            0x40 => Ok(Self::Empty),
-            0x6F..=0x7F => Ok(Self::Value(desc_byte.try_into()?)),
-            _ => Ok(Self::TypeIndex(reader.read()?)),
+        let value = reader.read_var_s33()?;
+        if value > 0 {
+            Ok(Self::TypeIndex(value.try_into().unwrap()))
+        } else {
+            //NOTE: (joh) Hmmm...
+            let b: u8 = (value * -1) as u8;
+            match value * -1 {
+                0x40 => Ok(Self::Empty),
+                0x6F..=0x7F => Ok(Self::Value(b.try_into()?)),
+                _ => Err(ReaderError::InvalidBlocktypeEncoding)
+            }
         }
     }
 }

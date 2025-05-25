@@ -166,6 +166,22 @@ impl std::convert::TryFrom<u8> for ValueType {
         }
     }
 }
+impl std::convert::TryFrom<i8> for ValueType {
+    type Error = ReaderError;
+
+    fn try_from(value: i8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0x7F => Ok(Self::I32),
+            0x7E => Ok(Self::I64),
+            0x7D => Ok(Self::F32),
+            0x7C => Ok(Self::F64),
+            0x70 => Ok(Self::Funcref),
+            0x6F => Ok(Self::Externref),
+            0x7B => Ok(Self::Vectype),
+            _ => Err(ReaderError::InvalidValueTypeId(value as u8)),
+        }
+    }
+}
 
 impl<'src> FromReader<'src> for ValueType {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {

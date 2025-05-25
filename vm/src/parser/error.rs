@@ -6,6 +6,7 @@ pub enum ReaderError {
     InvalidLeb,
     EndOfBuffer,
     InvalidUtf8InName(std::str::Utf8Error),
+    InvalidBlocktypeEncoding,
     InvalidBool,
     InvalidTypeId,
     InvalidRefTypeId,
