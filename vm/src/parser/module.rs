@@ -112,6 +112,9 @@ impl<'src> DecodedBytecode {
             SectionData::Data(items) => self.data = Some((items, position)),
         };
     }
+    pub fn iter_imports(&self) -> Option<impl Iterator<Item = Import>> {
+        self.imports.as_ref().map(|(imports, _)| imports.iter().into_iter().map(|(i, _)| i.clone()))
+    }
 
     pub fn get_type(&'src self, id: usize) -> Result<&'src (Type, Range<usize>), ModuleError> {
         let (types, _) = self.types.as_ref().ok_or(ModuleError::NoTypes)?;

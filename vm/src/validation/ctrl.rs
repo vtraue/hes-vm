@@ -16,6 +16,7 @@ pub struct CtrlFrame {
 }
 
 impl CtrlFrame {
+    /*
     pub fn new(
         height: usize,
         ip: usize,
@@ -35,7 +36,7 @@ impl CtrlFrame {
             is_unreachable: false,
         }
     }
-
+    */ 
     pub fn label_types<'me>(&'me self) -> &'me [ValueType] {
         if let Some((Op::Loop(_), _)) = self.opcode {
             self.in_types.as_slice()

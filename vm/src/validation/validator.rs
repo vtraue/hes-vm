@@ -270,7 +270,7 @@ impl<'src> Validator {
             })?;
 
         if self.value_stack.len() != start_height {
-            return Err(ValidationError::UnbalancedStack);
+            return Err(ValidationError::UnbalancedStack {got: self.value_stack.len(), expected: start_height});
         }
 
         let frame = self.ctrl_stack.pop().unwrap();
@@ -503,6 +503,7 @@ impl<'src> Validator {
         println!("block in: {:?}, out: {:?}", in_types, out_types);
         in_types.iter().cloned().try_for_each(|f| self.pop_val_expect_val(f).map(|_| ()))?;
         self.push_new_ctrl(Some(op), in_types.clone(), out_types);
+
         Ok(())
     }
 
@@ -534,6 +535,7 @@ impl<'src> Validator {
         ctrl.out_types
             .iter()
             .for_each(|t| self.push_val_t(t.clone()));
+
         if let Some((ctrl_op, _)) = ctrl.opcode {
             let jumps_idx = self
                 .ctrl_jump_stack
@@ -544,10 +546,9 @@ impl<'src> Validator {
                 let jump = self.jump_table.get_jump_mut(idx)?;
 
                 let next_ip = match ctrl_op {
-                    Op::Loop(_) => (ctrl.ip as isize - jump.ip) + 1,
+                    Op::Loop(_) => ctrl.ip as isize - jump.ip,
                     Op::Block(_) | Op::If(_, _) | Op::Else(_) => {
-                        let delta_end = self.instruction_pointer as isize - jump.ip;
-                        delta_end + 1
+                        self.instruction_pointer as isize - jump.ip
                     }
                     _ => return Err(ValidationError::InvalidJump),
                 };
@@ -556,7 +557,7 @@ impl<'src> Validator {
 
             if let Some(jte) = ctrl.jump_table_entry {
                 let jump = self.jump_table.get_jump_mut(jte)?;
-                jump.delta_ip = (self.instruction_pointer as isize - jump.ip) + 1
+                jump.delta_ip = self.instruction_pointer as isize - jump.ip
             }
         }
         Ok(())
@@ -807,7 +808,9 @@ impl<'src> Validator {
         let params: Vec<ValueType> = func_type.params.iter().map(|(v, _)| v.clone()).collect();
         let results: Vec<ValueType> = func_type.results.iter().map(|(v, _)| v.clone()).collect();
 
-        validator.push_new_ctrl(None, params.to_vec(), results.to_vec());
+        
+        validator.push_new_ctrl(None, Vec::new(), results.to_vec());
+        
         for op in code.0.code.0.iter() {
             println!("Validating {}", op.0);
             validator.validate_op(context, op.clone())?;
@@ -1060,7 +1063,7 @@ mod tests {
         let context = Context::new(&module)?;
 
         let res = Validator::validate_all(&context);
-        assert_eq!(res.unwrap_err(), ValidationError::UnbalancedStack);
+        assert!(matches!(res.unwrap_err(), ValidationError::UnbalancedStack { got: _, expected: _}));
         Ok(())
     }
 
@@ -1126,7 +1129,7 @@ mod tests {
             panic!("Unexpected instruction");
         };
         let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
-        let after_block = func[6 + cont as usize].0.clone();
+        let after_block = func[7 + cont as usize].0.clone();
 
         assert_eq!(after_block, Op::I32Const(100));
         Ok(())
@@ -1223,7 +1226,7 @@ mod tests {
         };
         let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
 
-        let after_if = func[1 + cont as usize].0.clone();
+        let after_if = func[2 + cont as usize].0.clone();
         assert_eq!(after_if, Op::I32Const(100));
         Ok(())
     }
@@ -1272,7 +1275,7 @@ mod tests {
         let cont1 = jump_table[0].get_jump(jmp1 as usize)?.delta_ip;
 
         println!("jump 1: {jmp1}");
-        let after_jmp1 = func[(jmp1_ip + cont1) as usize].0.clone();
+        let after_jmp1 = func[(jmp1_ip + cont1 + 1)as usize].0.clone();
         assert_eq!(after_jmp1, Op::I32Const(50));
 
         let jmp2_ip: isize = 6;
@@ -1281,7 +1284,7 @@ mod tests {
         };
         println!("jump 2: {jmp2}");
         let cont2 = jump_table[0].get_jump(jmp2 as usize)?.delta_ip;
-        let after_jmp2 = func[(jmp2_ip + cont2) as usize].0.clone();
+        let after_jmp2 = func[(jmp2_ip + cont2 + 1) as usize].0.clone();
         assert_eq!(after_jmp2, Op::I32Const(50));
 
         Ok(())

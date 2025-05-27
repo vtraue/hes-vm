@@ -16,7 +16,7 @@ pub enum ValidationError {
         got: ValueStackType,
         expexted: ValueStackType,
     },
-    UnbalancedStack,
+    UnbalancedStack {got: usize, expected: usize},
     UnexpectedNoMemories,
     InvalidAlignment,
     InvalidLocalID(u32),
