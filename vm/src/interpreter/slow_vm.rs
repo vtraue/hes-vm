@@ -13,7 +13,7 @@ use crate::{parser::{
     types::{ImportDesc, TypeId, ValueType},
 }, validation::ctrl::JumpTable};
 
-use super::stack::StackValue;
+use super::{env::{ExternalFunctionHandler, Modules}, stack::StackValue};
 
 #[derive(Debug, Clone)]
 pub struct ActivationFrame {
@@ -41,30 +41,41 @@ pub struct Code {
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
+pub enum InstanceError {
+    ImportMissingModule,
+    ImportMissingFunction,
+    NoCodeInModule,
+    NoTypesInModule,
+    ImportFunctionTypeDoesNotMatch, 
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum RuntimeError {
     MemoryAddressOutOfScope, 
     UnreachableReached,
+    NativeFuncCallError(usize)
 }
 
 impl Code {
     pub fn from_module(module: &DecodedBytecode) -> Option<Self> {
         let mut offset: usize = 0;
-        let funcs = &module.code.as_ref()?.0;
         let mut code: Vec<Op> = Vec::new();
         let mut functions: Vec<Function> = Vec::new();
 
-        for (i, (func, _)) in funcs.iter().enumerate() {
+        let funcs = module.iter_function_types()?.zip(module.iter_code()?);
+        for (t, func) in funcs {
             let locals = func.iter_local_types().collect::<Vec<_>>();
             let ops = func.iter_ops().collect::<Vec<_>>();
             code.extend(ops);
-
+            
             let entry = Function {
-                t: i as u32,
+                t,
                 locals,
                 code_offset: offset,
             };
             offset = code.len();
             functions.push(entry);
+
         }
 
         Some(Self {
@@ -169,6 +180,35 @@ impl LocalValue {
             ValueType::Vectype => todo!(),
         }
     }
+    #[inline]
+    pub fn u32(&self) -> u32 {
+        let Self::I32(val) = self else {
+            unreachable!()
+        };
+        *val 
+    }
+    #[inline]
+    pub fn u64(&self) -> u64 {
+        let Self::I64(val) = self else {
+            unreachable!()
+        };
+        *val
+    }
+    #[inline]
+    pub fn f32(&self) -> f32 {
+        let Self::F32(val) = self else {
+            unreachable!()
+        };
+        *val 
+    }
+
+    #[inline]
+    pub fn f64(&self) -> f64 {
+        let Self::F64(val) = self else {
+            unreachable!()
+        };
+        *val
+    }
 
     /*
     pub fn from_type_and_value(t: ValueType, value: StackValue) {
@@ -191,6 +231,7 @@ macro_rules! trap_vm {
     };
 }
 
+#[derive(Debug, Clone)]
 pub struct Type {
     pub params: Vec<ValueType>,
     pub results: Vec<ValueType>,
@@ -199,7 +240,7 @@ pub struct Type {
 impl From<parser::types::Type> for Type {
     fn from(value: parser::types::Type) -> Self {
         let params = value.params.iter().cloned().map(|(t, _)| t).collect(); 
-        let results = value.params.iter().cloned().map(|(t, _)| t).collect(); 
+        let results = value.results.iter().cloned().map(|(t, _)| t).collect(); 
 
         Self {
             params,
@@ -207,7 +248,6 @@ impl From<parser::types::Type> for Type {
         }
     }
 }
-type ExternalFunctionHandler = fn(&mut Vm) -> usize;
 
 pub enum FunctionType {
     Native(ImportedFunctionInfo),
@@ -233,7 +273,8 @@ pub struct ImportedFunctionInfo {
     //TODO: (joh): Referenz auf Hostcode
     module: String,
     name: String,
-    t: usize  
+    t: usize,  
+    func: ExternalFunctionHandler, 
 }
 
 pub struct Vm {
@@ -255,32 +296,50 @@ pub struct Vm {
 
 impl Vm {
     //NOTE: (joh): Vielleicht sollten wir ownership uebernehmen?
-    pub fn init_from_bytecode(bytecode: &DecodedBytecode, jump_table: Vec<JumpTable>) -> Option<Self> {
+    pub fn init_from_bytecode(bytecode: &DecodedBytecode, jump_table: Vec<JumpTable>, env: Modules) -> Result<Self, InstanceError> {
         //NOTE: (joh): Sollte es moeglich sein ein Modul ohne Code zu erstellen?  
-        let code = Code::from_module(bytecode)?;
+            let code = Code::from_module(bytecode).ok_or(InstanceError::NoCodeInModule)?;
         //TODO: (joh): Checke imports/exports
 
         let inital_memory_pages = bytecode.inital_memory_size(0).unwrap_or(0); 
         let memory = Vec::with_capacity(inital_memory_pages * WASM_PAGE_SIZE);
         let locals = Vec::new();
         let start_func_id = bytecode.start.map(|i| i as usize);
-        let types = bytecode.iter_types()?.cloned().map_into::<Type>().collect();
+        let types = bytecode.iter_types().ok_or(InstanceError::NoCodeInModule)?.cloned().map_into::<Type>().collect::<Vec<_>>();
 
         let mut functions= Vec::new(); 
 
+        let mut imported_func_count = 0;
         if let Some(imports) = bytecode.iter_imports() {
             for import in imports {
-                let module = import.ident.module.0; 
-                let name = import.ident.name.0;
+                let module_name = import.ident.module.0; 
+                let import_name = import.ident.name.0;
+                println!("Looking for module: {}", module_name);
+                println!("Looking for import: {}", import_name);
+                let module = env.get(module_name.as_str()).ok_or(InstanceError::ImportMissingModule)?;
+                
                 match import.desc.0 {
                     ImportDesc::TypeIdx(t) => {
+                        let func_info = module.functions.get(import_name.as_str()).ok_or(InstanceError::ImportMissingFunction)?;
+                        let real_t = types.get(t as usize).unwrap();
+                        println!("expecting function: {:?}", real_t);
+                        
+
+                        if !real_t.params.eq(&func_info.params) || !real_t.results.eq(&func_info.result) {
+                            return Err(InstanceError::ImportFunctionTypeDoesNotMatch);
+                        } 
+                         
                         let info = ImportedFunctionInfo {
-                            module,
-                            name,
+                            module: module_name,
+                            name: import_name,
                             t: t as usize,
+                            func: func_info.handler,
                         };
+
+                        imported_func_count += 1;
                         functions.push(FunctionType::Native(info));
                     },
+
                     ImportDesc::TableType(limits) => todo!(),
                     ImportDesc::MemType(limits) => todo!(),
                     ImportDesc::GlobalType(global_type) => todo!(),
@@ -306,20 +365,24 @@ impl Vm {
             functions,
         };
 
-        Some(vm)
+        Ok(vm)
     }
 
-    pub fn enter_function(&mut self, func_id: usize, params: &[LocalValue]) {
+    pub fn enter_function(&mut self, func_id: usize, params: &[LocalValue]) -> Result<(), RuntimeError> {
         match &self.functions[func_id] {
             FunctionType::Native(imported_function_info) => {
-                todo!()
+                println!("native call");
+                (imported_function_info.func)(self, params).map_err(|e| RuntimeError::NativeFuncCallError(e))
             },
-            FunctionType::Internal(id) => self.enter_wasm_function(*id, params),
+            FunctionType::Internal(id) => Ok(self.enter_wasm_function(*id, params))
         }
     }
+
     pub fn enter_wasm_function(&mut self, func_id: usize, params: &[LocalValue]) {
+        println!("Entering func: {func_id}");
         let func = &self.code.functions[func_id];
         let t = &self.types[func.t as usize];
+        println!("expecting t: {:?}",t);
         let locals_offset = self.locals.len();
         //TODO: (joh) Besseres Error Handling falls wir das hier von aussen aufrufen
         if params.len() != t.params.len() {
@@ -542,7 +605,7 @@ impl Vm {
         }
     }
 
-    pub fn exec_call(&mut self, id: usize) {
+    pub fn exec_call(&mut self, id: usize) -> Result<(), RuntimeError> {
         println!("calling: {id}");
         let func = &self.functions[id];
         let t_id = func.get_type_id(); 
@@ -560,7 +623,8 @@ impl Vm {
         this_frame.ip = self.ip;
         this_frame.stack_height = self.value_stack.len(); 
 
-        self.enter_function(id, &params);
+        self.enter_function(id, &params)?;
+        Ok(())
     }
     
     pub fn exec_return(&mut self) {
@@ -657,7 +721,7 @@ impl Vm {
                 Op::Br(target, table_index) => self.exec_br(*target as usize, *table_index),
                 Op::BrIf(target, table) => self.exec_br_if(*target as usize, *table), 
                 Op::Return => self.exec_return(),
-                Op::Call(func_id) => self.exec_call(*func_id as usize),
+                Op::Call(func_id) => self.exec_call(*func_id as usize)?,
                 Op::CallIndirect(_, _) => todo!(),
                 Op::Drop => _ = self.pop_any(),
                 Op::Select(value_type) => todo!(),
@@ -755,14 +819,16 @@ impl Vm {
 
 
 mod tests {
+    use std::{collections::HashMap, hash::Hash};
+
     use crate::{
-        interpreter::slow_vm::RuntimeError, parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType}, validation::{
+        interpreter::{env::{ExternalFunction, Module}, slow_vm::RuntimeError}, parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType}, validation::{
             error::ValidationError,
             validator::{patch_jumps, Context, Validator},
         }
     };
 
-    use super::{Code, Vm};
+    use super::{Code, LocalValue, Vm};
 
     #[derive(Debug)]
     enum InterpreterTestError {
@@ -779,6 +845,11 @@ mod tests {
         fn from(value: ValidationError) -> Self {
             Self::Validation(value)
         }
+    }
+
+    fn debug_env_always_fails(vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
+        let ret_nr = params[0].u32();
+        Err(ret_nr as usize)
     }
 
     #[test]
@@ -869,7 +940,7 @@ mod tests {
         let context = Context::new(&module)?;
 
         let jumps = Validator::validate_all(&context)?;
-        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
         vm.enter_function(0, &[]);  
         vm.run().unwrap();
         Ok(())
@@ -898,7 +969,7 @@ mod tests {
         let context = Context::new(&module)?;
 
         let jumps = Validator::validate_all(&context)?;
-        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
         vm.enter_function(0, &[]);  
         vm.run().unwrap();
         Ok(())
@@ -929,7 +1000,7 @@ mod tests {
         let context = Context::new(&module)?;
 
         let jumps = Validator::validate_all(&context)?;
-        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
         vm.enter_function(0, &[]);  
         assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
         Ok(())
@@ -964,7 +1035,7 @@ mod tests {
         let jumps = Validator::validate_all(&context)?;
         patch_jumps(&mut module, jumps.iter())?;
 
-        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
         vm.enter_function(0, &[]);  
         assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
         Ok(())
@@ -995,7 +1066,7 @@ mod tests {
         let jumps = Validator::validate_all(&context)?;
         patch_jumps(&mut module, jumps.iter())?;
 
-        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
         vm.enter_function(0, &[]);  
         vm.run().unwrap();
         Ok(())
@@ -1026,7 +1097,7 @@ mod tests {
         let jumps = Validator::validate_all(&context)?;
         patch_jumps(&mut module, jumps.iter())?;
 
-        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
         vm.enter_function(0, &[]);  
         vm.run().unwrap();
         Ok(())
@@ -1069,13 +1140,48 @@ mod tests {
         let jumps = Validator::validate_all(&context)?;
         patch_jumps(&mut module, jumps.iter())?;
 
-        let mut vm = Vm::init_from_bytecode(&module, jumps).unwrap();
+        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
         println!("code: {:?}", vm.code.instructions);
         let start_func_id = vm.start_func_id.unwrap();
         println!("start: {start_func_id}");
-        vm.enter_function(start_func_id, &[]);  
+        vm.enter_function(start_func_id, &[]).unwrap();  
         assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
         Ok(())
+    }
+    #[test]
+
+    fn call_simple_native_func() -> Result<(), InterpreterTestError> {
+        let src = r#"
+            (module
+                (import "env" "dbg_fail" (func $fail (param i32)))
+                (func $main 
+                    i32.const 100
+                    call $fail
+                )
+                (start $main)
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+        println!("{:?}", module.types.as_ref().unwrap()); 
+        let jumps = Validator::validate_all(&context)?;
+        let dbg_fail_proc = ExternalFunction {
+            handler: debug_env_always_fails,
+            params: vec![ValueType::I32],
+            result: vec![],
+        };
+        let mut funcs = HashMap::new();
+        funcs.insert("dbg_fail", dbg_fail_proc);
+        
+        let mut envs = HashMap::new();
+        envs.insert("env", Module {functions: funcs}); 
+
+        let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
+        vm.enter_function(1, &[]).unwrap();  
+        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(100));
+        Ok(()) 
     }
 }
 
