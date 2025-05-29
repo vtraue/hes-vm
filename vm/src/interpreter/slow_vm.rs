@@ -646,7 +646,9 @@ impl Vm {
     {
         unsafe {
             debug_assert!(self.value_stack.len() >= 1);
-            let res = op(self.pop_value::<T>(), self.pop_value::<T>());
+            let c2 = self.pop_value::<T>();
+            let c1 = self.pop_value::<T>();
+            let res = op(c1, c2);
             self.push_value(res);
             self.ip += 1;
         }
@@ -720,16 +722,21 @@ impl Vm {
             Blocktype::TypeIndex(t_id) => {
                 let t = &self.types[*t_id as usize];
                 let in_count = t.params.len();
-                let stack_height = self.ip - in_count;
+                let stack_height = self.value_stack.len() - in_count;
                 Label { stack_height }
             }
             _ => Label {
-                stack_height: self.ip,
+                stack_height: self.value_stack.len(),
             },
         }
     }
 
     pub fn exec_block(&mut self, blocktype: Blocktype) {
+        self.push_label(self.label_from_blocktype(&blocktype));
+        self.ip += 1;
+    }
+
+    pub fn exec_loop(&mut self, blocktype: Blocktype) {
         self.push_label(self.label_from_blocktype(&blocktype));
         self.ip += 1;
     }
@@ -746,12 +753,12 @@ impl Vm {
         }
         self.push_label(label);
     }
-
+    
     pub fn exec_else(&mut self, jmp: isize) {
         self.ip = (jmp + self.ip as isize) as usize;
     }
 
-    pub fn exec_br(&mut self, target: usize, table_index: usize) {
+    pub fn exec_br(&mut self, target: usize, table_index: usize){
         let table_entry = &self.jump_table[self.func_id.unwrap()];
         let jump = table_entry.get_jump(table_index).unwrap();
         self.ip = (self.ip as isize + jump.delta_ip) as usize;
@@ -779,9 +786,11 @@ impl Vm {
     pub fn exec_br_if(&mut self, target: usize, table_index: usize) {
         if unsafe { self.pop_value() } {
             self.exec_br(target, table_index);
+        } else {
+            self.ip += 1;
         }
     }
-
+     
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         loop {
             match self.fetch_instruction() {
@@ -791,7 +800,7 @@ impl Vm {
                 }
                 Op::Nop => {}
                 Op::Block(blocktype) => self.exec_block(blocktype.clone()),
-                Op::Loop(blocktype) => todo!(),
+                Op::Loop(blocktype) => self.exec_loop(blocktype.clone()),
                 Op::If(blocktype, table_entry_id) => {
                     self.exec_if(blocktype.clone(), *table_entry_id)
                 }
@@ -1332,6 +1341,55 @@ mod tests {
                     i32.const 10
                     global.set $global_test
                     global.get $global_test
+                    call $fail
+                )
+                (start $main)
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+        println!("{:?}", module.types.as_ref().unwrap());
+        let jumps = Validator::validate_all(&context)?;
+        let dbg_fail_proc = ExternalFunction {
+            handler: debug_env_always_fails,
+            params: vec![ValueType::I32],
+            result: vec![],
+        };
+        let mut funcs = HashMap::new();
+        funcs.insert("dbg_fail", dbg_fail_proc);
+
+        let mut envs = HashMap::new();
+        envs.insert("env", Module { functions: funcs });
+
+        let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
+        vm.enter_function(1, &[]).unwrap();
+        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(10));
+        Ok(())
+    }
+    #[test]
+
+    pub fn super_simple_loop() -> Result<(), InterpreterTestError> {
+        let src = r#"
+            (module
+                (import "env" "dbg_fail" (func $fail (param i32)))
+                (global $global_test (mut i32))
+                (global $global_test2 (mut i32))
+
+                (func $main 
+                    (local $i i32)
+                    (loop $l
+                        local.get $i
+                        i32.const 1
+                        i32.add
+                        local.set $i
+                        local.get $i
+                        i32.const 10
+                        i32.lt_s
+                        br_if $l
+                    )
+                    local.get $i
                     call $fail
                 )
                 (start $main)
