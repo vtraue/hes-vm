@@ -48,8 +48,8 @@ pub struct Memarg {
 impl<'src> FromReader<'src> for Memarg {
     fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
         Ok(Memarg {
-            offset: reader.read()?,
             align: reader.read()?,
+            offset: reader.read()?,
         })
     }
 }
