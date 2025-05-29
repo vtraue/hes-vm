@@ -424,6 +424,7 @@ impl<'src> Validator {
         self.push_val_t(global_type.t.0);
         Ok(())
     }
+
     pub fn validate_global_set(
         &mut self,
         context: &Context,

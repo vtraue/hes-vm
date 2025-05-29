@@ -265,6 +265,7 @@ pub struct Vm {
     local_offset: usize,
     code: Code,
     locals: Vec<LocalValue>,
+    globals: Vec<LocalValue>,
     memory: Vec<u8>,  
     jump_table: Vec<JumpTable>,
     //external_func_args: Vec<LocalValue>, //TODO: (joh): Anderer Typ als LocalVal 
@@ -326,8 +327,10 @@ impl Vm {
         }
 
         functions.extend((0..code.functions.len()).map(|i| FunctionType::Internal(i)));
-        
+
+        let globals = bytecode.iter_globals().map(|iter| iter.map(|g| LocalValue::init_from_type(g.t.0.t.0)).collect()).unwrap_or(Vec::new());        
         let vm = Self {
+            globals,
             jump_table,
             labels: Vec::new(),
             value_stack: Vec::new(),
@@ -425,9 +428,9 @@ impl Vm {
     }
     pub fn pop_any(&mut self) -> StackValue {
         println!("pop any");
-        self.ip += 1;
         self.value_stack.pop().unwrap()
     }
+
     pub fn discard(&mut self, count: usize) {
         self.value_stack.truncate(self.value_stack.len() - count);
     }
@@ -480,6 +483,13 @@ impl Vm {
         let local_val = self.locals[self.local_offset + id];
         println!("local get: {:?}", local_val);
         self.push_value(local_val);
+        self.ip += 1;
+    }
+
+    pub fn exec_global_get(&mut self, id: usize) {
+        println!("global get");
+        let global_val = self.globals[id];
+        self.push_value(global_val);
         self.ip += 1;
     }
 
@@ -573,6 +583,13 @@ impl Vm {
         println!("local set: {:?}", local_val);
         self.ip += 1;
     }
+    
+    pub fn exec_global_set(&mut self, id: usize) {
+        let val = self.pop_any();
+        let global_val = &mut self.globals[id];
+        unsafe {global_val.set_inner_from_stack_val(val)};
+        self.ip += 1;
+    }
 
     pub fn exec_local_tee(&mut self, id: usize) {
         let val = self.value_stack.last().unwrap(); 
@@ -644,7 +661,7 @@ impl Vm {
         println!("params: {:?}", params);
         
         let this_frame = self.activation_stack.last_mut().unwrap();
-        this_frame.ip = self.ip;
+        this_frame.ip = self.ip + 1;
         this_frame.stack_height = self.value_stack.len(); 
 
         self.enter_function(id, &params)?;
@@ -747,17 +764,17 @@ impl Vm {
                 Op::Return => self.exec_return(),
                 Op::Call(func_id) => self.exec_call(*func_id as usize)?,
                 Op::CallIndirect(_, _) => todo!(),
-                Op::Drop => _ = self.pop_any(),
+                Op::Drop => _ = {self.pop_any(); self.ip += 1},
                 Op::Select(value_type) => todo!(),
                 Op::LocalGet(id) => self.exec_local_get(*id as usize),
                 Op::LocalSet(id) => self.exec_local_set(*id as usize),
                 Op::LocalTee(id) => self.exec_local_tee(*id as usize),
-                Op::GlobalGet(_) => todo!(),
-                Op::GlobalSet(_) => todo!(),
+                Op::GlobalGet(id) => self.exec_global_get(*id as usize),
+                Op::GlobalSet(id) => self.exec_global_set(*id as usize),
                 Op::I32Load(memarg) => self.i32_load(*memarg)?,
                 Op::I64Load(memarg) => self.i64_load(*memarg)?,
                 Op::F32Load(memarg) => self.f32_load(*memarg)?,
-                    Op::F64Load(memarg) => self.f64_load(*memarg)?,
+                Op::F64Load(memarg) => self.f64_load(*memarg)?,
                 Op::I32Load8s(memarg) => todo!(),
                 Op::I32Load8u(memarg) => todo!(),
                 Op::I32Load16s(memarg) => todo!(),
@@ -1248,7 +1265,46 @@ mod tests {
         vm.enter_function(1, &[]).unwrap();  
         assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(100));
         Ok(()) 
+    }
+
+    #[test]
+    pub fn run_globals() -> Result<(), InterpreterTestError> {
+        let src = r#"
+            (module
+                (import "env" "dbg_fail" (func $fail (param i32)))
+                (global $global_test (mut i32))
+                (global $global_test2 (mut i32))
+
+                (func $main 
+                    i32.const 10
+                    global.set $global_test
+                    global.get $global_test
+                    call $fail
+                )
+                (start $main)
+            )
+        "#;
+        let code = wat::parse_str(src).unwrap().into_boxed_slice();
+        let mut reader = Reader::new(&code);
+        let module = reader.read::<DecodedBytecode>()?;
+        let context = Context::new(&module)?;
+        println!("{:?}", module.types.as_ref().unwrap()); 
+        let jumps = Validator::validate_all(&context)?;
+        let dbg_fail_proc = ExternalFunction {
+            handler: debug_env_always_fails,
+            params: vec![ValueType::I32],
+            result: vec![],
+        };
+        let mut funcs = HashMap::new();
+        funcs.insert("dbg_fail", dbg_fail_proc);
         
+        let mut envs = HashMap::new();
+        envs.insert("env", Module {functions: funcs}); 
+
+        let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
+        vm.enter_function(1, &[]).unwrap();  
+        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(10));
+        Ok(())
     }
 }
 

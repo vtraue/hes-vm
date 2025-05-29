@@ -122,6 +122,10 @@ impl<'src> DecodedBytecode {
     pub fn iter_code(&self) -> Option<impl Iterator<Item = &Function>> {
         self.code.as_ref().map(|(funcs, _)| funcs.iter().map(|(f,_)| f ))
     }
+    pub fn iter_globals(&self) -> Option<impl Iterator<Item = &Global>> {
+        self.globals.as_ref().map(|(globals, _)| globals.iter().map(|(f, _)| f))
+    }
+
     pub fn get_type(&'src self, id: usize) -> Result<&'src (Type, Range<usize>), ModuleError> {
         let (types, _) = self.types.as_ref().ok_or(ModuleError::NoTypes)?;
         types.get(id).ok_or(ModuleError::InvalidTypeId(id))
