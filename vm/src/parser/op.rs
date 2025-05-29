@@ -24,7 +24,7 @@ impl<'src> FromReader<'src> for Blocktype {
             match value * -1 {
                 0x40 => Ok(Self::Empty),
                 0x6F..=0x7F => Ok(Self::Value(b.try_into()?)),
-                _ => Err(ReaderError::InvalidBlocktypeEncoding)
+                _ => Err(ReaderError::InvalidBlocktypeEncoding),
             }
         }
     }

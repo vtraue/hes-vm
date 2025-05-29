@@ -113,17 +113,25 @@ impl<'src> DecodedBytecode {
         };
     }
     pub fn iter_imports(&self) -> Option<impl Iterator<Item = Import>> {
-        self.imports.as_ref().map(|(imports, _)| imports.iter().into_iter().map(|(i, _)| i.clone()))
+        self.imports
+            .as_ref()
+            .map(|(imports, _)| imports.iter().into_iter().map(|(i, _)| i.clone()))
     }
 
     pub fn iter_function_types(&self) -> Option<impl Iterator<Item = TypeId>> {
-        self.functions.as_ref().map(|(funcs,_)| funcs.iter().map(|(i, _)| *i))
+        self.functions
+            .as_ref()
+            .map(|(funcs, _)| funcs.iter().map(|(i, _)| *i))
     }
     pub fn iter_code(&self) -> Option<impl Iterator<Item = &Function>> {
-        self.code.as_ref().map(|(funcs, _)| funcs.iter().map(|(f,_)| f ))
+        self.code
+            .as_ref()
+            .map(|(funcs, _)| funcs.iter().map(|(f, _)| f))
     }
     pub fn iter_globals(&self) -> Option<impl Iterator<Item = &Global>> {
-        self.globals.as_ref().map(|(globals, _)| globals.iter().map(|(f, _)| f))
+        self.globals
+            .as_ref()
+            .map(|(globals, _)| globals.iter().map(|(f, _)| f))
     }
 
     pub fn get_type(&'src self, id: usize) -> Result<&'src (Type, Range<usize>), ModuleError> {
@@ -181,10 +189,14 @@ impl<'src> DecodedBytecode {
     }
 
     pub fn inital_memory_size(&self, memory_id: usize) -> Option<usize> {
-        self.memories.as_ref().map(|(mems, _)| mems[memory_id].0.min.0 as usize)
+        self.memories
+            .as_ref()
+            .map(|(mems, _)| mems[memory_id].0.min.0 as usize)
     }
 
     pub fn iter_types(&self) -> Option<impl Iterator<Item = &Type>> {
-        self.types.as_ref().map(|(types, _)| types.iter().map(|(t, _)| t))
+        self.types
+            .as_ref()
+            .map(|(types, _)| types.iter().map(|(t, _)| t))
     }
 }

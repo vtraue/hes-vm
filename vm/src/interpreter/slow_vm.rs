@@ -1,19 +1,25 @@
 use std::{fmt::Debug, mem::transmute};
 
-use bytemuck::{cast_ref, AnyBitPattern};
+use bytemuck::{AnyBitPattern, cast_ref};
 use itertools::Itertools;
 use smallvec::SmallVec;
 
 const WASM_PAGE_SIZE: usize = 65536;
 
-use crate::{parser::{
-    self,
-    module::DecodedBytecode,
-    op::{Blocktype, Memarg, Op},
-    types::{ImportDesc, TypeId, ValueType},
-}, validation::ctrl::JumpTable};
+use crate::{
+    parser::{
+        self,
+        module::DecodedBytecode,
+        op::{Blocktype, Memarg, Op},
+        types::{ImportDesc, TypeId, ValueType},
+    },
+    validation::ctrl::JumpTable,
+};
 
-use super::{env::{ExternalFunctionHandler, Modules}, stack::StackValue};
+use super::{
+    env::{ExternalFunctionHandler, Modules},
+    stack::StackValue,
+};
 
 #[derive(Debug, Clone)]
 pub struct ActivationFrame {
@@ -32,7 +38,6 @@ pub struct Function {
     t: TypeId,
     locals: Vec<ValueType>,
     code_offset: usize,
-    
 }
 
 pub struct Code {
@@ -46,14 +51,14 @@ pub enum InstanceError {
     ImportMissingFunction,
     NoCodeInModule,
     NoTypesInModule,
-    ImportFunctionTypeDoesNotMatch, 
+    ImportFunctionTypeDoesNotMatch,
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum RuntimeError {
-    MemoryAddressOutOfScope, 
+    MemoryAddressOutOfScope,
     UnreachableReached,
-    NativeFuncCallError(usize)
+    NativeFuncCallError(usize),
 }
 
 impl Code {
@@ -67,7 +72,7 @@ impl Code {
             let locals = func.iter_local_types().collect::<Vec<_>>();
             let ops = func.iter_ops().collect::<Vec<_>>();
             code.extend(ops);
-            
+
             let entry = Function {
                 t,
                 locals,
@@ -82,7 +87,6 @@ impl Code {
             functions,
         })
     }
-
 }
 pub trait PopFromValueStack {
     unsafe fn pop(vm: &mut Vm) -> Self;
@@ -124,7 +128,7 @@ impl PopFromValueStack for f64 {
 
 impl PopFromValueStack for bool {
     unsafe fn pop(vm: &mut Vm) -> Self {
-        let val = unsafe {vm.pop_u32()};
+        let val = unsafe { vm.pop_u32() };
         val != 0
     }
 }
@@ -139,10 +143,10 @@ pub enum LocalValue {
 impl From<LocalValue> for StackValue {
     fn from(value: LocalValue) -> Self {
         match value {
-            LocalValue::I32(val) => Self {i32: val},
-            LocalValue::I64(val) => Self {i64: val},
-            LocalValue::F32(val) => Self {f32: val},
-            LocalValue::F64(val) => Self {f64: val},
+            LocalValue::I32(val) => Self { i32: val },
+            LocalValue::I64(val) => Self { i64: val },
+            LocalValue::F32(val) => Self { f32: val },
+            LocalValue::F64(val) => Self { f64: val },
         }
     }
 }
@@ -167,7 +171,7 @@ impl LocalValue {
             ValueType::Vectype => todo!(),
         }
     }
-    
+
     pub fn init_from_type_and_val(t: ValueType, val: StackValue) -> Self {
         match t {
             ValueType::I32 => Self::I32(unsafe { val.i32 }),
@@ -181,31 +185,23 @@ impl LocalValue {
     }
     #[inline]
     pub fn u32(&self) -> u32 {
-        let Self::I32(val) = self else {
-            unreachable!()
-        };
-        *val 
+        let Self::I32(val) = self else { unreachable!() };
+        *val
     }
     #[inline]
     pub fn u64(&self) -> u64 {
-        let Self::I64(val) = self else {
-            unreachable!()
-        };
+        let Self::I64(val) = self else { unreachable!() };
         *val
     }
     #[inline]
     pub fn f32(&self) -> f32 {
-        let Self::F32(val) = self else {
-            unreachable!()
-        };
-        *val 
+        let Self::F32(val) = self else { unreachable!() };
+        *val
     }
 
     #[inline]
     pub fn f64(&self) -> f64 {
-        let Self::F64(val) = self else {
-            unreachable!()
-        };
+        let Self::F64(val) = self else { unreachable!() };
         *val
     }
 }
@@ -218,18 +214,15 @@ pub struct Type {
 
 impl From<parser::types::Type> for Type {
     fn from(value: parser::types::Type) -> Self {
-        let params = value.params.iter().cloned().map(|(t, _)| t).collect(); 
-        let results = value.results.iter().cloned().map(|(t, _)| t).collect(); 
-        Self {
-            params,
-            results,
-        }
+        let params = value.params.iter().cloned().map(|(t, _)| t).collect();
+        let results = value.results.iter().cloned().map(|(t, _)| t).collect();
+        Self { params, results }
     }
 }
 
 pub enum FunctionType {
     Native(ImportedFunctionInfo),
-    Internal(usize)
+    Internal(usize),
 }
 
 impl FunctionType {
@@ -244,15 +237,14 @@ impl FunctionType {
             FunctionType::Native(info) => info.t,
             FunctionType::Internal(id) => *id,
         }
-
     }
 }
 pub struct ImportedFunctionInfo {
     //TODO: (joh): Referenz auf Hostcode
     module: String,
     name: String,
-    t: usize,  
-    func: ExternalFunctionHandler, 
+    t: usize,
+    func: ExternalFunctionHandler,
 }
 
 pub struct Vm {
@@ -266,48 +258,63 @@ pub struct Vm {
     code: Code,
     locals: Vec<LocalValue>,
     globals: Vec<LocalValue>,
-    memory: Vec<u8>,  
+    memory: Vec<u8>,
     jump_table: Vec<JumpTable>,
-    //external_func_args: Vec<LocalValue>, //TODO: (joh): Anderer Typ als LocalVal 
+    //external_func_args: Vec<LocalValue>, //TODO: (joh): Anderer Typ als LocalVal
     start_func_id: Option<usize>,
-    functions: Vec<FunctionType>
+    functions: Vec<FunctionType>,
 }
 
 impl Vm {
     //NOTE: (joh): Vielleicht sollten wir ownership uebernehmen?
-    pub fn init_from_bytecode(bytecode: &DecodedBytecode, jump_table: Vec<JumpTable>, env: Modules) -> Result<Self, InstanceError> {
-        //NOTE: (joh): Sollte es moeglich sein ein Modul ohne Code zu erstellen?  
-            let code = Code::from_module(bytecode).ok_or(InstanceError::NoCodeInModule)?;
+    pub fn init_from_bytecode(
+        bytecode: &DecodedBytecode,
+        jump_table: Vec<JumpTable>,
+        env: Modules,
+    ) -> Result<Self, InstanceError> {
+        //NOTE: (joh): Sollte es moeglich sein ein Modul ohne Code zu erstellen?
+        let code = Code::from_module(bytecode).ok_or(InstanceError::NoCodeInModule)?;
         //TODO: (joh): Checke imports/exports
 
-        let inital_memory_pages = bytecode.inital_memory_size(0).unwrap_or(0); 
-        let memory = vec!(0; WASM_PAGE_SIZE);
+        let inital_memory_pages = bytecode.inital_memory_size(0).unwrap_or(0);
+        let memory = vec![0; WASM_PAGE_SIZE];
         let locals = Vec::new();
         let start_func_id = bytecode.start.map(|i| i as usize);
-        let types = bytecode.iter_types().ok_or(InstanceError::NoCodeInModule)?.cloned().map_into::<Type>().collect::<Vec<_>>();
+        let types = bytecode
+            .iter_types()
+            .ok_or(InstanceError::NoCodeInModule)?
+            .cloned()
+            .map_into::<Type>()
+            .collect::<Vec<_>>();
 
-        let mut functions= Vec::new(); 
+        let mut functions = Vec::new();
 
         let mut imported_func_count = 0;
         if let Some(imports) = bytecode.iter_imports() {
             for import in imports {
-                let module_name = import.ident.module.0; 
+                let module_name = import.ident.module.0;
                 let import_name = import.ident.name.0;
                 println!("Looking for module: {}", module_name);
                 println!("Looking for import: {}", import_name);
-                let module = env.get(module_name.as_str()).ok_or(InstanceError::ImportMissingModule)?;
-                
+                let module = env
+                    .get(module_name.as_str())
+                    .ok_or(InstanceError::ImportMissingModule)?;
+
                 match import.desc.0 {
                     ImportDesc::TypeIdx(t) => {
-                        let func_info = module.functions.get(import_name.as_str()).ok_or(InstanceError::ImportMissingFunction)?;
+                        let func_info = module
+                            .functions
+                            .get(import_name.as_str())
+                            .ok_or(InstanceError::ImportMissingFunction)?;
                         let real_t = types.get(t as usize).unwrap();
                         println!("expecting function: {:?}", real_t);
-                        
 
-                        if !real_t.params.eq(&func_info.params) || !real_t.results.eq(&func_info.result) {
+                        if !real_t.params.eq(&func_info.params)
+                            || !real_t.results.eq(&func_info.result)
+                        {
                             return Err(InstanceError::ImportFunctionTypeDoesNotMatch);
-                        } 
-                         
+                        }
+
                         let info = ImportedFunctionInfo {
                             module: module_name,
                             name: import_name,
@@ -317,7 +324,7 @@ impl Vm {
 
                         imported_func_count += 1;
                         functions.push(FunctionType::Native(info));
-                    },
+                    }
 
                     ImportDesc::TableType(limits) => todo!(),
                     ImportDesc::MemType(limits) => todo!(),
@@ -328,7 +335,13 @@ impl Vm {
 
         functions.extend((0..code.functions.len()).map(|i| FunctionType::Internal(i)));
 
-        let globals = bytecode.iter_globals().map(|iter| iter.map(|g| LocalValue::init_from_type(g.t.0.t.0)).collect()).unwrap_or(Vec::new());        
+        let globals = bytecode
+            .iter_globals()
+            .map(|iter| {
+                iter.map(|g| LocalValue::init_from_type(g.t.0.t.0))
+                    .collect()
+            })
+            .unwrap_or(Vec::new());
         let vm = Self {
             globals,
             jump_table,
@@ -349,13 +362,18 @@ impl Vm {
         Ok(vm)
     }
 
-    pub fn enter_function(&mut self, func_id: usize, params: &[LocalValue]) -> Result<(), RuntimeError> {
+    pub fn enter_function(
+        &mut self,
+        func_id: usize,
+        params: &[LocalValue],
+    ) -> Result<(), RuntimeError> {
         match &self.functions[func_id] {
             FunctionType::Native(imported_function_info) => {
                 println!("native call");
-                (imported_function_info.func)(self, params).map_err(|e| RuntimeError::NativeFuncCallError(e))
-            },
-            FunctionType::Internal(id) => Ok(self.enter_wasm_function(*id, params))
+                (imported_function_info.func)(self, params)
+                    .map_err(|e| RuntimeError::NativeFuncCallError(e))
+            }
+            FunctionType::Internal(id) => Ok(self.enter_wasm_function(*id, params)),
         }
     }
 
@@ -363,23 +381,24 @@ impl Vm {
         println!("Entering func: {func_id}");
         let func = &self.code.functions[func_id];
         let t = &self.types[func.t as usize];
-        println!("expecting t: {:?}",t);
+        println!("expecting t: {:?}", t);
         let locals_offset = self.locals.len();
         //TODO: (joh) Besseres Error Handling falls wir das hier von aussen aufrufen
         if params.len() != t.params.len() {
             panic!("Invalid param count supplied");
         }
 
-        let empty_locals = func.locals.iter().cloned().map(|t| LocalValue::init_from_type(t));
-
-        let new_locals = params
+        let empty_locals = func
+            .locals
             .iter()
             .cloned()
-            .chain(empty_locals); 
-            
+            .map(|t| LocalValue::init_from_type(t));
+
+        let new_locals = params.iter().cloned().chain(empty_locals);
+
         self.locals.extend(new_locals);
         let ip = func.code_offset;
-        
+
         let new_frame = ActivationFrame {
             locals_offset,
             func_id,
@@ -392,26 +411,25 @@ impl Vm {
         self.local_offset = new_frame.locals_offset;
         self.func_id = Some(func_id);
         self.ip = ip;
-        
-        self.activation_stack.push(new_frame);  
 
+        self.activation_stack.push(new_frame);
     }
 
     pub fn leave_wasm_function(&mut self) -> bool {
         debug_assert!(self.activation_stack.len() > 0);
         println!("Leaving wasm function");
-        let prev = self.activation_stack.pop().unwrap(); 
-        println!("this frame: {:?}", prev); 
+        let prev = self.activation_stack.pop().unwrap();
+        println!("this frame: {:?}", prev);
 
         match self.activation_stack.last() {
             Some(frame) => {
                 println!("prev frame: {:?}", frame);
-                self.func_id = Some(frame.func_id);  
-                self.ip = frame.ip; 
+                self.func_id = Some(frame.func_id);
+                self.ip = frame.ip;
                 self.locals.truncate(prev.locals_offset);
                 true
-            },
-            None => false 
+            }
+            None => false,
         }
     }
 
@@ -462,20 +480,20 @@ impl Vm {
     }
 
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
-        unsafe { 
-            let val = T::pop(self); 
+        unsafe {
+            let val = T::pop(self);
             println!("Popping: {:?}", val);
             val
         }
     }
-    
+
     pub fn fetch_instruction(&self) -> &Op {
-        let op = &self.code.instructions[self.ip];  
+        let op = &self.code.instructions[self.ip];
         println!("fetching: {:?}", op);
-        op 
+        op
     }
 
-    pub fn push_label(&mut self, label: Label)  {
+    pub fn push_label(&mut self, label: Label) {
         self.labels.push(label);
     }
 
@@ -497,52 +515,62 @@ impl Vm {
         self.memory.len() > offset + addr + n
     }
 
+    pub fn try_mem_load_n<const BYTES: usize>(
+        &mut self,
+        arg: Memarg,
+    ) -> Result<[u8; BYTES], RuntimeError> {
+        debug_assert!(self.memory.len() > 0);
 
-    pub fn try_mem_load_n<const BYTES: usize>(&mut self, arg: Memarg) -> Result<[u8; BYTES], RuntimeError> {
-        debug_assert!(self.memory.len() > 0); 
+        let addr = unsafe { self.pop_value::<u32>() as usize };
+        let addr_start = addr + arg.offset as usize;
+        let range = addr_start..addr + BYTES;
 
-        let addr = unsafe { self.pop_value::<u32>() as usize}; 
-        let addr_start = addr + arg.offset as usize; 
-        let range = addr_start .. addr + BYTES;
-        
         //Laaangsam...
-        Ok(self.memory.get(range).ok_or(RuntimeError::MemoryAddressOutOfScope)?.try_into().unwrap())
+        Ok(self
+            .memory
+            .get(range)
+            .ok_or(RuntimeError::MemoryAddressOutOfScope)?
+            .try_into()
+            .unwrap())
     }
-     
 
     //TODO: (joh): Ein Makro
     pub fn i32_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<4>(arg)?; 
+        let data = self.try_mem_load_n::<4>(arg)?;
         self.push_value(u32::from_le_bytes(data));
-        self.ip += 1; 
+        self.ip += 1;
         Ok(())
     }
     pub fn i64_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<8>(arg)?; 
+        let data = self.try_mem_load_n::<8>(arg)?;
         self.push_value(u64::from_le_bytes(data));
-        self.ip += 1; 
+        self.ip += 1;
         Ok(())
     }
     pub fn f32_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<4>(arg)?; 
+        let data = self.try_mem_load_n::<4>(arg)?;
         self.push_value(f32::from_le_bytes(data));
-        self.ip += 1; 
+        self.ip += 1;
         Ok(())
     }
     pub fn f64_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<8>(arg)?; 
+        let data = self.try_mem_load_n::<8>(arg)?;
         self.push_value(f64::from_le_bytes(data));
-        self.ip += 1; 
+        self.ip += 1;
         Ok(())
     }
 
-    pub fn try_mem_store<const BYTES: usize>(&mut self, arg: Memarg, data: &[u8; BYTES]) -> Result<(), RuntimeError> {
-        debug_assert!(self.memory.len() > 0); 
+    pub fn try_mem_store<const BYTES: usize>(
+        &mut self,
+        arg: Memarg,
+        data: &[u8; BYTES],
+    ) -> Result<(), RuntimeError> {
+        debug_assert!(self.memory.len() > 0);
 
-        let addr = unsafe { self.pop_value::<u32>() as usize}; 
-        let addr_start = addr + arg.offset as usize; 
-        let range = addr_start .. addr_start + BYTES;
-        self.memory[range].copy_from_slice(data);  
+        let addr = unsafe { self.pop_value::<u32>() as usize };
+        let addr_start = addr + arg.offset as usize;
+        let range = addr_start..addr_start + BYTES;
+        self.memory[range].copy_from_slice(data);
         Ok(())
     }
     pub fn i32_store(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
@@ -576,28 +604,28 @@ impl Vm {
     }
 
     pub fn exec_local_set(&mut self, id: usize) {
-        let val = self.value_stack.pop().unwrap(); 
+        let val = self.value_stack.pop().unwrap();
         let local_val = &mut self.locals[self.local_offset + id];
 
-        unsafe {local_val.set_inner_from_stack_val(val)};
+        unsafe { local_val.set_inner_from_stack_val(val) };
         println!("local set: {:?}", local_val);
         self.ip += 1;
     }
-    
+
     pub fn exec_global_set(&mut self, id: usize) {
         let val = self.pop_any();
         let global_val = &mut self.globals[id];
-        unsafe {global_val.set_inner_from_stack_val(val)};
+        unsafe { global_val.set_inner_from_stack_val(val) };
         self.ip += 1;
     }
 
     pub fn exec_local_tee(&mut self, id: usize) {
-        let val = self.value_stack.last().unwrap(); 
+        let val = self.value_stack.last().unwrap();
         let local_val = &mut self.locals[self.local_offset + id];
-        unsafe {local_val.set_inner_from_stack_val(*val)};
+        unsafe { local_val.set_inner_from_stack_val(*val) };
         self.ip += 1;
     }
-    
+
     pub fn exec_unop_push<T, F, R>(&mut self, op: F)
     where
         T: PopFromValueStack + Debug,
@@ -641,7 +669,7 @@ impl Vm {
                 self.leave_wasm_function();
                 false
             } else {
-                true 
+                true
             }
         }
     }
@@ -649,31 +677,40 @@ impl Vm {
     pub fn exec_call(&mut self, id: usize) -> Result<(), RuntimeError> {
         println!("calling: {id}");
         let func = &self.functions[id];
-        let t_id = func.get_type_id(); 
-        let param_count = self.types[t_id].params.len(); 
+        let t_id = func.get_type_id();
+        let param_count = self.types[t_id].params.len();
         //TODO: (joh): Collects hier vermeiden
-        
-        //Das ist schreklich macht aber den Borrow-Checker happy.  
-        let in_stack_vals = (0..param_count).map(|_| self.pop_any()).collect::<SmallVec<[StackValue; 8]>>();
 
-        let params = &self.types[t_id].params; 
-        let params: SmallVec<[LocalValue; 8]> = params.iter().cloned().zip(in_stack_vals).map(|(param, stack_val)| LocalValue::init_from_type_and_val(param, stack_val)).collect();
+        //Das ist schreklich macht aber den Borrow-Checker happy.
+        let in_stack_vals = (0..param_count)
+            .map(|_| self.pop_any())
+            .collect::<SmallVec<[StackValue; 8]>>();
+
+        let params = &self.types[t_id].params;
+        let params: SmallVec<[LocalValue; 8]> = params
+            .iter()
+            .cloned()
+            .zip(in_stack_vals)
+            .map(|(param, stack_val)| LocalValue::init_from_type_and_val(param, stack_val))
+            .collect();
         println!("params: {:?}", params);
-        
+
         let this_frame = self.activation_stack.last_mut().unwrap();
         this_frame.ip = self.ip + 1;
-        this_frame.stack_height = self.value_stack.len(); 
+        this_frame.stack_height = self.value_stack.len();
 
         self.enter_function(id, &params)?;
         Ok(())
     }
-    
+
     pub fn exec_return(&mut self) {
         let current_frame = self.activation_stack.last().cloned().unwrap();
 
-        let return_values = (0..current_frame.arity).map(|_| self.pop_any()).collect::<SmallVec<[StackValue; 4]>>();
-    
-        self.value_stack.truncate(current_frame.stack_height);  
+        let return_values = (0..current_frame.arity)
+            .map(|_| self.pop_any())
+            .collect::<SmallVec<[StackValue; 4]>>();
+
+        self.value_stack.truncate(current_frame.stack_height);
         self.value_stack.extend(return_values.as_slice());
         self.leave_wasm_function();
     }
@@ -681,14 +718,14 @@ impl Vm {
     pub fn label_from_blocktype(&self, blocktype: &Blocktype) -> Label {
         match blocktype {
             Blocktype::TypeIndex(t_id) => {
-                        let t = &self.types[*t_id as usize];
-                        let in_count = t.params.len(); 
-                        let stack_height = self.ip - in_count;      
-                        Label {
-                            stack_height,
-                        }
-                    },
-            _ => Label {stack_height: self.ip}
+                let t = &self.types[*t_id as usize];
+                let in_count = t.params.len();
+                let stack_height = self.ip - in_count;
+                Label { stack_height }
+            }
+            _ => Label {
+                stack_height: self.ip,
+            },
         }
     }
 
@@ -696,10 +733,10 @@ impl Vm {
         self.push_label(self.label_from_blocktype(&blocktype));
         self.ip += 1;
     }
-    
+
     pub fn exec_if(&mut self, blocktype: Blocktype, table_index: usize) {
         let cond = unsafe { self.pop_value::<bool>() };
-        let label = self.label_from_blocktype(&blocktype); 
+        let label = self.label_from_blocktype(&blocktype);
         if cond {
             self.ip += 1
         } else {
@@ -715,17 +752,17 @@ impl Vm {
     }
 
     pub fn exec_br(&mut self, target: usize, table_index: usize) {
-        let table_entry = &self.jump_table[self.func_id.unwrap()];      
-        let jump = table_entry.get_jump(table_index).unwrap(); 
+        let table_entry = &self.jump_table[self.func_id.unwrap()];
+        let jump = table_entry.get_jump(table_index).unwrap();
         self.ip = (self.ip as isize + jump.delta_ip) as usize;
         //NOTE: (joh): Muessen wir hier die Result Werte vielleicht doch pushen/poppen?
-        
+
         if target != 0 {
             self.labels.truncate(self.labels.len() - target);
         }
         let target_label = self.labels.pop().unwrap();
 
-        //TODO: (joh): Hilfe 
+        //TODO: (joh): Hilfe
         if jump.out_count > 0 {
             if jump.out_count > 1 {
                 todo!()
@@ -742,29 +779,39 @@ impl Vm {
     pub fn exec_br_if(&mut self, target: usize, table_index: usize) {
         if unsafe { self.pop_value() } {
             self.exec_br(target, table_index);
-        } 
+        }
     }
-
 
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         loop {
             match self.fetch_instruction() {
                 Op::Unreachable => {
                     println!("Reached unreachable!");
-                    return Err(RuntimeError::UnreachableReached)
+                    return Err(RuntimeError::UnreachableReached);
                 }
                 Op::Nop => {}
                 Op::Block(blocktype) => self.exec_block(blocktype.clone()),
                 Op::Loop(blocktype) => todo!(),
-                Op::If(blocktype, table_entry_id) => self.exec_if(blocktype.clone(), *table_entry_id),
+                Op::If(blocktype, table_entry_id) => {
+                    self.exec_if(blocktype.clone(), *table_entry_id)
+                }
                 Op::Else(jmp) => self.exec_else(*jmp),
-                Op::End => if self.exec_end() {break;},
+                Op::End => {
+                    if self.exec_end() {
+                        break;
+                    }
+                }
                 Op::Br(target, table_index) => self.exec_br(*target as usize, *table_index),
-                Op::BrIf(target, table) => self.exec_br_if(*target as usize, *table), 
+                Op::BrIf(target, table) => self.exec_br_if(*target as usize, *table),
                 Op::Return => self.exec_return(),
                 Op::Call(func_id) => self.exec_call(*func_id as usize)?,
                 Op::CallIndirect(_, _) => todo!(),
-                Op::Drop => _ = {self.pop_any(); self.ip += 1},
+                Op::Drop => {
+                    _ = {
+                        self.pop_any();
+                        self.ip += 1
+                    }
+                }
                 Op::Select(value_type) => todo!(),
                 Op::LocalGet(id) => self.exec_local_get(*id as usize),
                 Op::LocalSet(id) => self.exec_local_set(*id as usize),
@@ -789,12 +836,12 @@ impl Vm {
                 Op::I64Store(memarg) => self.i64_store(*memarg)?,
                 Op::F32Store(memarg) => self.f32_store(*memarg)?,
                 Op::F64Store(memarg) => self.f64_store(*memarg)?,
-                Op::I32Store8(memarg) =>  todo!(),
+                Op::I32Store8(memarg) => todo!(),
                 Op::I32Store16(memarg) => todo!(),
-                Op::I64Store8(memarg) =>  todo!(),
+                Op::I64Store8(memarg) => todo!(),
                 Op::I64Store16(memarg) => todo!(),
                 Op::I64Store32(memarg) => todo!(),
-                Op::I32Const(val) => self.exec_push(val.clone()) ,
+                Op::I32Const(val) => self.exec_push(val.clone()),
                 Op::I64Const(val) => self.exec_push(val.clone()),
                 Op::F32Const(val) => self.exec_push(val.clone()),
                 Op::F64Const(val) => self.exec_push(val.clone()),
@@ -818,36 +865,36 @@ impl Vm {
                 Op::I64Gtu => self.exec_binop_push(|a: u64, b: u64| a > b),
                 Op::I64Les => self.exec_binop_push(|a: u64, b: u64| a <= b),
                 Op::I64Leu => self.exec_binop_push(|a: i64, b: i64| a <= b),
-                Op::I64Geu =>   self.exec_binop_push(|a: u64, b: u64| a >= b),
-                Op::I64Ges =>   self.exec_binop_push(|a: i64, b: i64| a >= b),
-                Op::I32Add =>   self.exec_binop_push(|a: u32, b: u32| a + b),
-                Op::I32Sub =>   self.exec_binop_push(|a: u32, b: u32| a - b),
-                Op::I32Mul =>   self.exec_binop_push(|a: u32, b: u32| a * b),
-                Op::I32Divs =>  self.exec_binop_push(|a: i32, b: i32| a / b),
-                Op::I32Divu =>  self.exec_binop_push(|a: u32, b: u32| a / b),
-                Op::I32Rems =>  self.exec_binop_push(|a: i32, b: i32| a % b),
-                Op::I32Remu =>  self.exec_binop_push(|a: u32, b: u32| a % b),
-                Op::I32And =>   self.exec_binop_push(|a: u32, b: u32| a & b),
-                Op::I32Or =>    self.exec_binop_push(|a: u32, b: u32| a | b),
-                Op::I32Xor =>   self.exec_binop_push(|a: u32, b: u32| a ^ b),
-                Op::I32Shl =>   self.exec_binop_push(|a: u32, b: u32| a << b),
-                Op::I32Shrs =>  self.exec_binop_push(|a: i32, b: i32| a >> b),
-                Op::I32Shru =>  self.exec_binop_push(|a: u32, b: u32| a >> b),
+                Op::I64Geu => self.exec_binop_push(|a: u64, b: u64| a >= b),
+                Op::I64Ges => self.exec_binop_push(|a: i64, b: i64| a >= b),
+                Op::I32Add => self.exec_binop_push(|a: u32, b: u32| a + b),
+                Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a - b),
+                Op::I32Mul => self.exec_binop_push(|a: u32, b: u32| a * b),
+                Op::I32Divs => self.exec_binop_push(|a: i32, b: i32| a / b),
+                Op::I32Divu => self.exec_binop_push(|a: u32, b: u32| a / b),
+                Op::I32Rems => self.exec_binop_push(|a: i32, b: i32| a % b),
+                Op::I32Remu => self.exec_binop_push(|a: u32, b: u32| a % b),
+                Op::I32And => self.exec_binop_push(|a: u32, b: u32| a & b),
+                Op::I32Or => self.exec_binop_push(|a: u32, b: u32| a | b),
+                Op::I32Xor => self.exec_binop_push(|a: u32, b: u32| a ^ b),
+                Op::I32Shl => self.exec_binop_push(|a: u32, b: u32| a << b),
+                Op::I32Shrs => self.exec_binop_push(|a: i32, b: i32| a >> b),
+                Op::I32Shru => self.exec_binop_push(|a: u32, b: u32| a >> b),
                 Op::I32Rotl => todo!(),
                 Op::I32Rotr => todo!(),
                 Op::I64Add => self.exec_binop_push(|a: u64, b: u64| a + b),
                 Op::I64Sub => self.exec_binop_push(|a: u64, b: u64| a - b),
                 Op::I64Mul => self.exec_binop_push(|a: u64, b: u64| a * b),
-                Op::I64Divs =>self.exec_binop_push(|a: i64, b: i64| a / b),
-                Op::I64Divu =>self.exec_binop_push(|a: u64, b: u64| a / b),
-                Op::I64Rems =>self.exec_binop_push(|a: i64, b: i64| a % b),
-                Op::I64Remu =>self.exec_binop_push(|a: u64, b: u64| a % b),
+                Op::I64Divs => self.exec_binop_push(|a: i64, b: i64| a / b),
+                Op::I64Divu => self.exec_binop_push(|a: u64, b: u64| a / b),
+                Op::I64Rems => self.exec_binop_push(|a: i64, b: i64| a % b),
+                Op::I64Remu => self.exec_binop_push(|a: u64, b: u64| a % b),
                 Op::I64And => self.exec_binop_push(|a: u64, b: u64| a & b),
-                Op::I64Or => self.exec_binop_push(|a:  u64, b: u64| a | b),
+                Op::I64Or => self.exec_binop_push(|a: u64, b: u64| a | b),
                 Op::I64Xor => self.exec_binop_push(|a: u64, b: u64| a ^ b),
                 Op::I64Shl => self.exec_binop_push(|a: u64, b: u64| a << b),
-                Op::I64Shrs =>self.exec_binop_push(|a: i64, b: i64| a >> b),
-                Op::I64Shru =>self.exec_binop_push(|a: u64, b: u64| a >> b),
+                Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),
+                Op::I64Shru => self.exec_binop_push(|a: u64, b: u64| a >> b),
                 Op::I64Rotl => todo!(),
                 Op::I64Rotr => todo!(),
                 Op::MemoryCopy => todo!(),
@@ -858,15 +905,21 @@ impl Vm {
     }
 }
 
-
 mod tests {
     use std::{collections::HashMap, hash::Hash};
 
     use crate::{
-        interpreter::{env::{ExternalFunction, Module}, slow_vm::RuntimeError}, parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType}, validation::{
+        interpreter::{
+            env::{ExternalFunction, Module},
+            slow_vm::RuntimeError,
+        },
+        parser::{
+            error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType,
+        },
+        validation::{
             error::ValidationError,
-            validator::{patch_jumps, Context, Validator},
-        }
+            validator::{Context, Validator, patch_jumps},
+        },
     };
 
     use super::{Code, LocalValue, Vm};
@@ -930,7 +983,7 @@ mod tests {
         );
         assert_eq!(
             code.functions[0].locals,
-            vec![ValueType::I32,ValueType::I32]
+            vec![ValueType::I32, ValueType::I32]
         );
 
         assert_eq!(
@@ -938,10 +991,7 @@ mod tests {
             Op::I32Const(1)
         );
 
-        assert_eq!(
-            code.functions[1].locals,
-            vec![ValueType::I32]
-        );
+        assert_eq!(code.functions[1].locals, vec![ValueType::I32]);
 
         assert_eq!(
             code.instructions[code.functions[2].code_offset],
@@ -956,16 +1006,13 @@ mod tests {
             code.instructions[code.functions[3].code_offset],
             Op::I32Const(3)
         );
-        assert_eq!(
-            code.functions[3].locals,
-            vec![]
-        );
-         
+        assert_eq!(code.functions[3].locals, vec![]);
+
         Ok(())
     }
     #[test]
     fn run_add_two_numbers() -> Result<(), InterpreterTestError> {
-       let src = r#"
+        let src = r#"
             (module
                 (func 
                     i32.const 5
@@ -974,7 +1021,7 @@ mod tests {
                     drop
                 )
             )
-        "#; 
+        "#;
         let code = wat::parse_str(src).unwrap().into_boxed_slice();
         let mut reader = Reader::new(&code);
         let module = reader.read::<DecodedBytecode>()?;
@@ -982,14 +1029,14 @@ mod tests {
 
         let jumps = Validator::validate_all(&context)?;
         let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);  
+        vm.enter_function(0, &[]);
         vm.run().unwrap();
         Ok(())
     }
 
     #[test]
     fn run_add_locals() -> Result<(), InterpreterTestError> {
-       let src = r#"
+        let src = r#"
             (module
                 (func (local i32 i32)
                     i32.const 1
@@ -1003,7 +1050,7 @@ mod tests {
                     drop
                 )
             )
-        "#; 
+        "#;
         let code = wat::parse_str(src).unwrap().into_boxed_slice();
         let mut reader = Reader::new(&code);
         let module = reader.read::<DecodedBytecode>()?;
@@ -1011,14 +1058,14 @@ mod tests {
 
         let jumps = Validator::validate_all(&context)?;
         let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);  
+        vm.enter_function(0, &[]);
         vm.run().unwrap();
         Ok(())
     }
 
     #[test]
     fn run_test_if() -> Result<(), InterpreterTestError> {
-       let src = r#"
+        let src = r#"
             (module
                 (func (local i32 i32)
                     i32.const 1
@@ -1034,7 +1081,7 @@ mod tests {
                     )
                 )
             )
-        "#; 
+        "#;
         let code = wat::parse_str(src).unwrap().into_boxed_slice();
         let mut reader = Reader::new(&code);
         let module = reader.read::<DecodedBytecode>()?;
@@ -1042,14 +1089,14 @@ mod tests {
 
         let jumps = Validator::validate_all(&context)?;
         let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);  
+        vm.enter_function(0, &[]);
         assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
         Ok(())
     }
 
     #[test]
     fn run_test_if_else() -> Result<(), InterpreterTestError> {
-       let src = r#"
+        let src = r#"
             (module
                 (func (local i32 i32)
                     i32.const 0
@@ -1067,7 +1114,7 @@ mod tests {
                     )
                 )
             )
-        "#; 
+        "#;
         let code = wat::parse_str(src).unwrap().into_boxed_slice();
         let mut reader = Reader::new(&code);
         let mut module = reader.read::<DecodedBytecode>()?;
@@ -1077,14 +1124,14 @@ mod tests {
         patch_jumps(&mut module, jumps.iter())?;
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);  
+        vm.enter_function(0, &[]);
         assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
         Ok(())
     }
 
     #[test]
     fn run_br_simple_no_return() -> Result<(), InterpreterTestError> {
-       let src = r#"
+        let src = r#"
             (module
                 (func (local i32 i32)
                     (block 
@@ -1098,7 +1145,7 @@ mod tests {
                     )
                 )
             )
-        "#; 
+        "#;
         let code = wat::parse_str(src).unwrap().into_boxed_slice();
         let mut reader = Reader::new(&code);
         let mut module = reader.read::<DecodedBytecode>()?;
@@ -1108,14 +1155,14 @@ mod tests {
         patch_jumps(&mut module, jumps.iter())?;
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);  
+        vm.enter_function(0, &[]);
         vm.run().unwrap();
         Ok(())
     }
-    
+
     #[test]
     fn run_block_params() -> Result<(), InterpreterTestError> {
-       let src = r#"
+        let src = r#"
             (module
                 (func (local i32 i32)
                     i32.const 2
@@ -1129,7 +1176,7 @@ mod tests {
                     )
                 )
             )
-        "#; 
+        "#;
         let code = wat::parse_str(src).unwrap().into_boxed_slice();
         let mut reader = Reader::new(&code);
         let mut module = reader.read::<DecodedBytecode>()?;
@@ -1139,14 +1186,14 @@ mod tests {
         patch_jumps(&mut module, jumps.iter())?;
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);  
+        vm.enter_function(0, &[]);
         vm.run().unwrap();
         Ok(())
     }
 
     #[test]
     fn run_simple_call() -> Result<(), InterpreterTestError> {
-       let src = r#"
+        let src = r#"
             (module
                 (func $b (param i32) (result i32)  
                     local.get 0
@@ -1172,7 +1219,7 @@ mod tests {
                 )
                 (start $a)
             )
-        "#; 
+        "#;
         let code = wat::parse_str(src).unwrap().into_boxed_slice();
         let mut reader = Reader::new(&code);
         let mut module = reader.read::<DecodedBytecode>()?;
@@ -1185,7 +1232,7 @@ mod tests {
         println!("code: {:?}", vm.code.instructions);
         let start_func_id = vm.start_func_id.unwrap();
         println!("start: {start_func_id}");
-        vm.enter_function(start_func_id, &[]).unwrap();  
+        vm.enter_function(start_func_id, &[]).unwrap();
         assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
         Ok(())
     }
@@ -1206,7 +1253,7 @@ mod tests {
         let mut reader = Reader::new(&code);
         let module = reader.read::<DecodedBytecode>()?;
         let context = Context::new(&module)?;
-        println!("{:?}", module.types.as_ref().unwrap()); 
+        println!("{:?}", module.types.as_ref().unwrap());
         let jumps = Validator::validate_all(&context)?;
         let dbg_fail_proc = ExternalFunction {
             handler: debug_env_always_fails,
@@ -1215,14 +1262,17 @@ mod tests {
         };
         let mut funcs = HashMap::new();
         funcs.insert("dbg_fail", dbg_fail_proc);
-        
+
         let mut envs = HashMap::new();
-        envs.insert("env", Module {functions: funcs}); 
+        envs.insert("env", Module { functions: funcs });
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
-        vm.enter_function(1, &[]).unwrap();  
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(100));
-        Ok(()) 
+        vm.enter_function(1, &[]).unwrap();
+        assert_eq!(
+            vm.run().unwrap_err(),
+            RuntimeError::NativeFuncCallError(100)
+        );
+        Ok(())
     }
     #[test]
 
@@ -1248,7 +1298,7 @@ mod tests {
         let mut reader = Reader::new(&code);
         let module = reader.read::<DecodedBytecode>()?;
         let context = Context::new(&module)?;
-        println!("{:?}", module.types.as_ref().unwrap()); 
+        println!("{:?}", module.types.as_ref().unwrap());
         let jumps = Validator::validate_all(&context)?;
         let dbg_fail_proc = ExternalFunction {
             handler: debug_env_always_fails,
@@ -1257,14 +1307,17 @@ mod tests {
         };
         let mut funcs = HashMap::new();
         funcs.insert("dbg_fail", dbg_fail_proc);
-        
+
         let mut envs = HashMap::new();
-        envs.insert("env", Module {functions: funcs}); 
+        envs.insert("env", Module { functions: funcs });
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
-        vm.enter_function(1, &[]).unwrap();  
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(100));
-        Ok(()) 
+        vm.enter_function(1, &[]).unwrap();
+        assert_eq!(
+            vm.run().unwrap_err(),
+            RuntimeError::NativeFuncCallError(100)
+        );
+        Ok(())
     }
 
     #[test]
@@ -1288,7 +1341,7 @@ mod tests {
         let mut reader = Reader::new(&code);
         let module = reader.read::<DecodedBytecode>()?;
         let context = Context::new(&module)?;
-        println!("{:?}", module.types.as_ref().unwrap()); 
+        println!("{:?}", module.types.as_ref().unwrap());
         let jumps = Validator::validate_all(&context)?;
         let dbg_fail_proc = ExternalFunction {
             handler: debug_env_always_fails,
@@ -1297,16 +1350,13 @@ mod tests {
         };
         let mut funcs = HashMap::new();
         funcs.insert("dbg_fail", dbg_fail_proc);
-        
+
         let mut envs = HashMap::new();
-        envs.insert("env", Module {functions: funcs}); 
+        envs.insert("env", Module { functions: funcs });
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
-        vm.enter_function(1, &[]).unwrap();  
+        vm.enter_function(1, &[]).unwrap();
         assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(10));
         Ok(())
     }
 }
-
-
-    

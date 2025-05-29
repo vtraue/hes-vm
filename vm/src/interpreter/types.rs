@@ -7,5 +7,3 @@ pub struct InternalFunctionInstance {
 
 //NOTE: (joh):
 //Viel besser waere vermutlich ein Stack pro Typ, aber wir machen es erstmal so
-
-

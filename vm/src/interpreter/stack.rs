@@ -1,6 +1,5 @@
 use bytemuck::cast;
 
-
 #[derive(Copy, Clone)]
 pub union StackValue {
     pub i32: u32,
@@ -51,4 +50,3 @@ impl From<u16> for StackValue {
         Self { i32: value.into() }
     }
 }
-

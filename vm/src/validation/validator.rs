@@ -4,7 +4,9 @@ use std::{iter, ops::Range};
 use itertools::Itertools;
 
 use crate::parser::{
-    module::{self, DecodedBytecode, FunctionInfo, ImportedFunction, InternalFunction, SortedImports},
+    module::{
+        self, DecodedBytecode, FunctionInfo, ImportedFunction, InternalFunction, SortedImports,
+    },
     op::{self, Op},
     types::{Expression, Function, GlobalType, Limits, Type, ValueType},
 };
@@ -219,7 +221,9 @@ impl<'src> Validator {
         self.value_stack
             .extend(in_types.iter().cloned().map_into::<ValueStackType>());
         */
-        let jte = if matches!(opcode, Some((Op::If(_, _), _))) || matches!(opcode, Some((Op::Else(_), _))) {
+        let jte = if matches!(opcode, Some((Op::If(_, _), _)))
+            || matches!(opcode, Some((Op::Else(_), _)))
+        {
             let entry = JumpTableEntry {
                 ip: self.instruction_pointer as isize,
                 delta_ip: self.instruction_pointer as isize,
@@ -239,7 +243,7 @@ impl<'src> Validator {
             start_height: prev_stack_len,
             is_unreachable: false,
         };
-        
+
         self.ctrl_jump_stack.push(Vec::new());
         self.ctrl_stack.push(ctrl);
     }
@@ -270,7 +274,10 @@ impl<'src> Validator {
             })?;
 
         if self.value_stack.len() != start_height {
-            return Err(ValidationError::UnbalancedStack {got: self.value_stack.len(), expected: start_height});
+            return Err(ValidationError::UnbalancedStack {
+                got: self.value_stack.len(),
+                expected: start_height,
+            });
         }
 
         let frame = self.ctrl_stack.pop().unwrap();
@@ -488,7 +495,12 @@ impl<'src> Validator {
             op::Blocktype::TypeIndex(index) => {
                 let (t, _) = context.bytecode.get_type(index as usize)?;
                 let in_t = t.params.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
-                let out_t = t.results.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
+                let out_t = t
+                    .results
+                    .iter()
+                    .cloned()
+                    .map(|(v, _)| v)
+                    .collect::<Vec<_>>();
                 Ok((in_t, out_t))
             }
         }
@@ -502,7 +514,10 @@ impl<'src> Validator {
     ) -> Result<(), ValidationError> {
         let (in_types, out_types) = self.get_block_types(context, blocktype)?;
         println!("block in: {:?}, out: {:?}", in_types, out_types);
-        in_types.iter().cloned().try_for_each(|f| self.pop_val_expect_val(f).map(|_| ()))?;
+        in_types
+            .iter()
+            .cloned()
+            .try_for_each(|f| self.pop_val_expect_val(f).map(|_| ()))?;
         self.push_new_ctrl(Some(op), in_types.clone(), out_types);
 
         Ok(())
@@ -809,9 +824,8 @@ impl<'src> Validator {
         let params: Vec<ValueType> = func_type.params.iter().map(|(v, _)| v.clone()).collect();
         let results: Vec<ValueType> = func_type.results.iter().map(|(v, _)| v.clone()).collect();
 
-        
         validator.push_new_ctrl(None, Vec::new(), results.to_vec());
-        
+
         for op in code.0.code.0.iter() {
             println!("Validating {}", op.0);
             validator.validate_op(context, op.clone())?;
@@ -827,7 +841,10 @@ impl<'src> Validator {
     }
 }
 
-pub fn patch_jumps<'a, I: IntoIterator<Item = &'a JumpTable>>(module: &mut DecodedBytecode, jumps: I) -> Result<(), ValidationError> {
+pub fn patch_jumps<'a, I: IntoIterator<Item = &'a JumpTable>>(
+    module: &mut DecodedBytecode,
+    jumps: I,
+) -> Result<(), ValidationError> {
     if let Some(funcs) = module.code.as_mut() {
         for (func, table) in funcs.0.iter_mut().zip(jumps) {
             func.0.patch_jumps(table)?;
@@ -1064,7 +1081,13 @@ mod tests {
         let context = Context::new(&module)?;
 
         let res = Validator::validate_all(&context);
-        assert!(matches!(res.unwrap_err(), ValidationError::UnbalancedStack { got: _, expected: _}));
+        assert!(matches!(
+            res.unwrap_err(),
+            ValidationError::UnbalancedStack {
+                got: _,
+                expected: _
+            }
+        ));
         Ok(())
     }
 
@@ -1276,7 +1299,7 @@ mod tests {
         let cont1 = jump_table[0].get_jump(jmp1 as usize)?.delta_ip;
 
         println!("jump 1: {jmp1}");
-        let after_jmp1 = func[(jmp1_ip + cont1 + 1)as usize].0.clone();
+        let after_jmp1 = func[(jmp1_ip + cont1 + 1) as usize].0.clone();
         assert_eq!(after_jmp1, Op::I32Const(50));
 
         let jmp2_ip: isize = 6;
@@ -1308,7 +1331,7 @@ mod tests {
         let res = Validator::validate_all(&context);
         assert_eq!(res.unwrap_err(), ValidationError::UnexpectedNoMemories);
         Ok(())
-    }   
+    }
 
     #[test]
     fn basic_memory() -> Result<(), ValidationTestError> {
@@ -1328,7 +1351,4 @@ mod tests {
         let res = Validator::validate_all(&context)?;
         Ok(())
     }
-
-
-    
 }

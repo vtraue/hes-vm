@@ -11,7 +11,7 @@ pub struct ExternalFunction {
     pub handler: ExternalFunctionHandler,
 
     pub params: Vec<ValueType>,
-    pub result: Vec<ValueType>
+    pub result: Vec<ValueType>,
 }
 
 #[derive(Debug)]
@@ -20,4 +20,3 @@ pub struct Module<'a> {
 }
 
 pub type Modules<'a> = HashMap<&'a str, Module<'a>>;
-
