@@ -242,7 +242,11 @@ pub struct Global {
     pub t: (GlobalType, Range<usize>),
     pub init_expr: Box<[(Op, Range<usize>)]>,
 }
-
+impl Global {
+    pub fn value_type(&self) -> ValueType {
+        self.t.0.t.0
+    }
+}
 impl<'src> fmt::Display for Global {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

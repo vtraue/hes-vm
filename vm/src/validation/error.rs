@@ -38,6 +38,7 @@ pub enum ValidationError {
     InvalidJump,
     InvalidJumpId,
     InvalidCodeId(usize),
+    NotAConstOp,
 }
 
 pub type Result<T> = std::result::Result<T, ValidationError>;

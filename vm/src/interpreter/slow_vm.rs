@@ -3,6 +3,7 @@ use std::{fmt::Debug, mem::transmute};
 use bytemuck::{AnyBitPattern, cast_ref};
 use itertools::Itertools;
 use smallvec::SmallVec;
+use tests::run_const_expr;
 
 const WASM_PAGE_SIZE: usize = 65536;
 
@@ -11,9 +12,9 @@ use crate::{
         self,
         module::DecodedBytecode,
         op::{Blocktype, Memarg, Op},
-        types::{ImportDesc, TypeId, ValueType},
+        types::{Global, ImportDesc, TypeId, ValueType},
     },
-    validation::ctrl::JumpTable,
+    validation::{ctrl::JumpTable, error::ValidationError},
 };
 
 use super::{
@@ -47,11 +48,17 @@ pub struct Code {
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum InstanceError {
+    UnexpectedEmptyConstInitExpression,
     ImportMissingModule,
     ImportMissingFunction,
+    ImportMissingGlobal,
     NoCodeInModule,
     NoTypesInModule,
     ImportFunctionTypeDoesNotMatch,
+    ImportGlobalTypeDoesNotMatch,
+    InvalidReturnCountInConstExpr,
+    InvalidReturnTypeInConstExpr,
+    InvalidConstOp 
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -151,6 +158,15 @@ impl From<LocalValue> for StackValue {
     }
 }
 impl LocalValue {
+    pub fn get_value_type(&self) -> ValueType {
+        match self {
+            LocalValue::I32(_) => ValueType::I32,
+            LocalValue::I64(_) => ValueType::I64,
+            LocalValue::F32(_) => ValueType::F32,
+            LocalValue::F64(_) => ValueType::F64,
+        }
+    }
+
     pub unsafe fn set_inner_from_stack_val(&mut self, val: StackValue) {
         match self {
             LocalValue::I32(v) => *v = unsafe { val.i32 },
@@ -205,6 +221,26 @@ impl LocalValue {
         *val
     }
 }
+impl From<u32> for LocalValue {
+    fn from(value: u32) -> Self {
+        Self::I32(value)
+    }
+}
+impl From<u64> for LocalValue {
+    fn from(value: u64) -> Self {
+        Self::I64(value)
+    }
+}
+impl From<f32> for LocalValue {
+    fn from(value: f32) -> Self {
+        Self::F32(value)
+    }
+}
+impl From<f64> for LocalValue {
+    fn from(value: f64) -> Self {
+        Self::F64(value)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Type {
@@ -257,7 +293,7 @@ pub struct Vm {
     local_offset: usize,
     code: Code,
     locals: Vec<LocalValue>,
-    globals: Vec<LocalValue>,
+    globals: Vec<LocalValue>, 
     memory: Vec<u8>,
     jump_table: Vec<JumpTable>,
     //external_func_args: Vec<LocalValue>, //TODO: (joh): Anderer Typ als LocalVal
@@ -277,7 +313,7 @@ impl Vm {
         //TODO: (joh): Checke imports/exports
 
         let inital_memory_pages = bytecode.inital_memory_size(0).unwrap_or(0);
-        let memory = vec![0; WASM_PAGE_SIZE];
+        let memory = vec![0; WASM_PAGE_SIZE * inital_memory_pages];
         let locals = Vec::new();
         let start_func_id = bytecode.start.map(|i| i as usize);
         let types = bytecode
@@ -288,6 +324,7 @@ impl Vm {
             .collect::<Vec<_>>();
 
         let mut functions = Vec::new();
+        let mut globals = Vec::new();
 
         let mut imported_func_count = 0;
         if let Some(imports) = bytecode.iter_imports() {
@@ -328,20 +365,32 @@ impl Vm {
 
                     ImportDesc::TableType(limits) => todo!(),
                     ImportDesc::MemType(limits) => todo!(),
-                    ImportDesc::GlobalType(global_type) => todo!(),
+
+                    ImportDesc::GlobalType(global_type) => {
+                        let env_global = module.globals
+                            .get(import_name.as_str())
+                            .ok_or(InstanceError::ImportMissingGlobal)?;
+
+                        if env_global.mutable != global_type.mutable.0 || env_global.value.get_value_type() != global_type.t.0 {
+                            return Err(InstanceError::ImportGlobalTypeDoesNotMatch)
+                        }
+
+                        globals.push(env_global.value);     
+                    },
                 }
             }
         }
 
         functions.extend((0..code.functions.len()).map(|i| FunctionType::Internal(i)));
 
-        let globals = bytecode
-            .iter_globals()
-            .map(|iter| {
-                iter.map(|g| LocalValue::init_from_type(g.t.0.t.0))
-                    .collect()
-            })
-            .unwrap_or(Vec::new());
+        if let Some(internal_globals) = bytecode.iter_globals() {
+            for global in internal_globals {
+                let global_value = Self::get_global_init_value(global)?; 
+                globals.push(global_value);     
+            }
+        }
+        
+          
         let vm = Self {
             globals,
             jump_table,
@@ -361,6 +410,25 @@ impl Vm {
 
         Ok(vm)
     }
+
+    fn get_global_init_value(global: &Global) -> Result<LocalValue, InstanceError> {
+        let expr = &global.init_expr;
+        let result_stack = run_const_expr(expr.iter().cloned())?;
+        if result_stack.len() > 1 {
+            Err(InstanceError::InvalidReturnCountInConstExpr) 
+        } else {
+            if let Some(res) = result_stack.get(0) {
+                if res.get_value_type() == global.value_type() {
+                    Ok(res.clone())
+                } else {
+                    Err(InstanceError::InvalidReturnTypeInConstExpr)
+                }
+            } else {
+                Ok(LocalValue::init_from_type(global.value_type())) 
+            }
+        }
+    }
+    
 
     pub fn enter_function(
         &mut self,
@@ -915,7 +983,7 @@ impl Vm {
 }
 
 mod tests {
-    use std::{collections::HashMap, hash::Hash};
+    use std::{collections::HashMap, hash::Hash, ops::Range};
 
     use crate::{
         interpreter::{
@@ -931,7 +999,7 @@ mod tests {
         },
     };
 
-    use super::{Code, LocalValue, Vm};
+    use super::{Code, InstanceError, LocalValue, Vm};
 
     #[derive(Debug)]
     enum InterpreterTestError {
@@ -953,6 +1021,22 @@ mod tests {
     fn debug_env_always_fails(vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
         let ret_nr = params[0].u32();
         Err(ret_nr as usize)
+    }
+
+    pub fn run_const_expr(expr: impl Iterator<Item = (Op, Range<usize>)>) -> Result<Vec<LocalValue>, InstanceError> {
+        let mut stack = Vec::new(); 
+        for (op, _) in expr {
+            match op {
+                Op::I32Const(val) => stack.push(val.into()),
+                Op::I64Const(val) => stack.push(val.into()),
+                Op::F32Const(val) => stack.push(val.into()),
+                Op::F64Const(val) => stack.push(val.into()),
+                Op::GlobalGet(_) => todo!(),
+                Op::End => break,
+                _ => return Err(InstanceError::InvalidConstOp)
+            }
+        }
+        Ok(stack)
     }
 
     #[test]
@@ -1273,7 +1357,7 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs });
+        envs.insert("env", Module { functions: funcs, ..Default::default() });
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();
@@ -1318,7 +1402,7 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs });
+        envs.insert("env", Module { functions: funcs, ..Default::default() });
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();
@@ -1330,17 +1414,20 @@ mod tests {
     }
 
     #[test]
-    pub fn run_globals() -> Result<(), InterpreterTestError> {
+    fn run_globals() -> Result<(), InterpreterTestError> {
         let src = r#"
             (module
                 (import "env" "dbg_fail" (func $fail (param i32)))
                 (global $global_test (mut i32))
                 (global $global_test2 (mut i32))
-
+                (global $global_test_init (mut i32) (i32.const 900))
+                
                 (func $main 
                     i32.const 10
                     global.set $global_test
                     global.get $global_test
+                    global.get $global_test_init 
+                    i32.add
                     call $fail
                 )
                 (start $main)
@@ -1361,16 +1448,16 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs });
+        envs.insert("env", Module { functions: funcs, ..Default::default() });
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(10));
+        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(910));
         Ok(())
     }
     #[test]
 
-    pub fn super_simple_loop() -> Result<(), InterpreterTestError> {
+    fn super_simple_loop() -> Result<(), InterpreterTestError> {
         let src = r#"
             (module
                 (import "env" "dbg_fail" (func $fail (param i32)))
@@ -1410,7 +1497,7 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs });
+        envs.insert("env", Module { functions: funcs, ..Default::default() });
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();

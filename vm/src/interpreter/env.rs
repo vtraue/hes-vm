@@ -15,8 +15,15 @@ pub struct ExternalFunction {
 }
 
 #[derive(Debug)]
+pub struct ExternalGlobal {
+    pub value: LocalValue,
+    pub mutable: bool,
+}
+
+#[derive(Debug, Default)]
 pub struct Module<'a> {
     pub functions: HashMap<&'a str, ExternalFunction>,
+    pub globals: HashMap<&'a str, ExternalGlobal>,  
 }
 
 pub type Modules<'a> = HashMap<&'a str, Module<'a>>;
