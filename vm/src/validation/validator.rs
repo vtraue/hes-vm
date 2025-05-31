@@ -3,13 +3,16 @@ use std::{iter, ops::Range};
 
 use itertools::Itertools;
 
-use crate::{interpreter::slow_vm::LocalValue, parser::{
-    module::{
-        self, DecodedBytecode, FunctionInfo, ImportedFunction, InternalFunction, SortedImports,
+use crate::{
+    interpreter::slow_vm::LocalValue,
+    parser::{
+        module::{
+            self, DecodedBytecode, FunctionInfo, ImportedFunction, InternalFunction, SortedImports,
+        },
+        op::{self, Op},
+        types::{Expression, Function, GlobalType, Limits, Type, ValueType},
     },
-    op::{self, Op},
-    types::{Expression, Function, GlobalType, Limits, Type, ValueType},
-}};
+};
 
 use super::{
     ctrl::{CtrlFrame, JumpTable, JumpTableEntry},
@@ -790,7 +793,6 @@ impl<'src> Validator {
         self.instruction_pointer += 1;
         Ok(())
     }
-
 
     pub fn validate_func(context: &Context, code_id: usize) -> Result<JumpTable, ValidationError> {
         //TODO: (joh): Code und Typ zusammen um das hier etwas zu vereinfachen?

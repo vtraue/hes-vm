@@ -1,6 +1,5 @@
 use std::{fmt::Debug, mem::transmute};
 
-use bytemuck::{AnyBitPattern, cast_ref};
 use itertools::Itertools;
 use smallvec::SmallVec;
 use tests::run_const_expr;
@@ -58,7 +57,7 @@ pub enum InstanceError {
     ImportGlobalTypeDoesNotMatch,
     InvalidReturnCountInConstExpr,
     InvalidReturnTypeInConstExpr,
-    InvalidConstOp 
+    InvalidConstOp,
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -293,7 +292,7 @@ pub struct Vm {
     local_offset: usize,
     code: Code,
     locals: Vec<LocalValue>,
-    globals: Vec<LocalValue>, 
+    globals: Vec<LocalValue>,
     memory: Vec<u8>,
     jump_table: Vec<JumpTable>,
     //external_func_args: Vec<LocalValue>, //TODO: (joh): Anderer Typ als LocalVal
@@ -367,16 +366,19 @@ impl Vm {
                     ImportDesc::MemType(limits) => todo!(),
 
                     ImportDesc::GlobalType(global_type) => {
-                        let env_global = module.globals
+                        let env_global = module
+                            .globals
                             .get(import_name.as_str())
                             .ok_or(InstanceError::ImportMissingGlobal)?;
 
-                        if env_global.mutable != global_type.mutable.0 || env_global.value.get_value_type() != global_type.t.0 {
-                            return Err(InstanceError::ImportGlobalTypeDoesNotMatch)
+                        if env_global.mutable != global_type.mutable.0
+                            || env_global.value.get_value_type() != global_type.t.0
+                        {
+                            return Err(InstanceError::ImportGlobalTypeDoesNotMatch);
                         }
 
-                        globals.push(env_global.value);     
-                    },
+                        globals.push(env_global.value);
+                    }
                 }
             }
         }
@@ -385,12 +387,11 @@ impl Vm {
 
         if let Some(internal_globals) = bytecode.iter_globals() {
             for global in internal_globals {
-                let global_value = Self::get_global_init_value(global)?; 
-                globals.push(global_value);     
+                let global_value = Self::get_global_init_value(global)?;
+                globals.push(global_value);
             }
         }
-        
-          
+
         let vm = Self {
             globals,
             jump_table,
@@ -415,7 +416,7 @@ impl Vm {
         let expr = &global.init_expr;
         let result_stack = run_const_expr(expr.iter().cloned())?;
         if result_stack.len() > 1 {
-            Err(InstanceError::InvalidReturnCountInConstExpr) 
+            Err(InstanceError::InvalidReturnCountInConstExpr)
         } else {
             if let Some(res) = result_stack.get(0) {
                 if res.get_value_type() == global.value_type() {
@@ -424,11 +425,10 @@ impl Vm {
                     Err(InstanceError::InvalidReturnTypeInConstExpr)
                 }
             } else {
-                Ok(LocalValue::init_from_type(global.value_type())) 
+                Ok(LocalValue::init_from_type(global.value_type()))
             }
         }
     }
-    
 
     pub fn enter_function(
         &mut self,
@@ -821,12 +821,12 @@ impl Vm {
         }
         self.push_label(label);
     }
-    
+
     pub fn exec_else(&mut self, jmp: isize) {
         self.ip = (jmp + self.ip as isize) as usize;
     }
 
-    pub fn exec_br(&mut self, target: usize, table_index: usize){
+    pub fn exec_br(&mut self, target: usize, table_index: usize) {
         let table_entry = &self.jump_table[self.func_id.unwrap()];
         let jump = table_entry.get_jump(table_index).unwrap();
         self.ip = (self.ip as isize + jump.delta_ip) as usize;
@@ -858,7 +858,7 @@ impl Vm {
             self.ip += 1;
         }
     }
-     
+
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         loop {
             match self.fetch_instruction() {
@@ -866,7 +866,7 @@ impl Vm {
                     println!("Reached unreachable!");
                     return Err(RuntimeError::UnreachableReached);
                 }
-                Op::Nop => {}
+                Op::Nop => self.ip += 1,
                 Op::Block(blocktype) => self.exec_block(blocktype.clone()),
                 Op::Loop(blocktype) => self.exec_loop(blocktype.clone()),
                 Op::If(blocktype, table_entry_id) => {
@@ -1023,8 +1023,10 @@ mod tests {
         Err(ret_nr as usize)
     }
 
-    pub fn run_const_expr(expr: impl Iterator<Item = (Op, Range<usize>)>) -> Result<Vec<LocalValue>, InstanceError> {
-        let mut stack = Vec::new(); 
+    pub fn run_const_expr(
+        expr: impl Iterator<Item = (Op, Range<usize>)>,
+    ) -> Result<Vec<LocalValue>, InstanceError> {
+        let mut stack = Vec::new();
         for (op, _) in expr {
             match op {
                 Op::I32Const(val) => stack.push(val.into()),
@@ -1033,7 +1035,7 @@ mod tests {
                 Op::F64Const(val) => stack.push(val.into()),
                 Op::GlobalGet(_) => todo!(),
                 Op::End => break,
-                _ => return Err(InstanceError::InvalidConstOp)
+                _ => return Err(InstanceError::InvalidConstOp),
             }
         }
         Ok(stack)
@@ -1357,7 +1359,13 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs, ..Default::default() });
+        envs.insert(
+            "env",
+            Module {
+                functions: funcs,
+                ..Default::default()
+            },
+        );
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();
@@ -1402,7 +1410,13 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs, ..Default::default() });
+        envs.insert(
+            "env",
+            Module {
+                functions: funcs,
+                ..Default::default()
+            },
+        );
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();
@@ -1448,11 +1462,20 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs, ..Default::default() });
+        envs.insert(
+            "env",
+            Module {
+                functions: funcs,
+                ..Default::default()
+            },
+        );
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(910));
+        assert_eq!(
+            vm.run().unwrap_err(),
+            RuntimeError::NativeFuncCallError(910)
+        );
         Ok(())
     }
     #[test]
@@ -1497,7 +1520,13 @@ mod tests {
         funcs.insert("dbg_fail", dbg_fail_proc);
 
         let mut envs = HashMap::new();
-        envs.insert("env", Module { functions: funcs, ..Default::default() });
+        envs.insert(
+            "env",
+            Module {
+                functions: funcs,
+                ..Default::default()
+            },
+        );
 
         let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
         vm.enter_function(1, &[]).unwrap();

@@ -23,7 +23,7 @@ pub struct ExternalGlobal {
 #[derive(Debug, Default)]
 pub struct Module<'a> {
     pub functions: HashMap<&'a str, ExternalFunction>,
-    pub globals: HashMap<&'a str, ExternalGlobal>,  
+    pub globals: HashMap<&'a str, ExternalGlobal>,
 }
 
 pub type Modules<'a> = HashMap<&'a str, Module<'a>>;
