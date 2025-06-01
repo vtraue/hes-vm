@@ -6,6 +6,7 @@ import java.lang.Math;
 import wasm_builder.BytecodeBuilder;
 import wasm_builder.Func;
 import wasm_builder.FuncType;
+import wasm_builder.Local;
 import wasm_builder.WasmValueType;
 
 import java.util.ArrayList;
@@ -45,8 +46,8 @@ public class TypedAstBuilder {
       this.locals.add(sym);
     }
 
-    List<WasmValueType> getLocalValueTypes() {
-      return this.locals.stream().map(Symbol::toValueType).toList();
+    List<Local> getWasmLocals() {
+      return this.locals.stream().map(sym -> new Local(sym.toValueType())).toList();
     }
 
     public Optional<List<WasmValueType>> getArgValueTypes() {

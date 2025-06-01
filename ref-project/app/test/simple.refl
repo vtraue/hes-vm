@@ -61,6 +61,7 @@ export fn main() {
     }
     break 4;
   };
+
   test_block2 := {
     a := 1;
     break 10;

@@ -29,7 +29,9 @@ record TypedId(String name, TypedAstBuilder.Symbol sym) implements TypedExpressi
   @Override
   public void toWasmCode(wasm_builder.Func func, TypedAstBuilder builder) throws IOException {
     func.emitLocalGet(sym.id());  
-    func.emitLoad();
+    if(!sym.local()) {
+      func.emitLoad();
+    }
   }
 };
 record TypedLiteral(Literal lit, Type t) implements TypedExpression {
@@ -104,20 +106,26 @@ record TypedBreak(Optional<TypedExpression> expr, Type t) implements TypedExpres
 record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) implements TypedStatement {
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
-    func.emitGlobalGet(0);
-    func.emitLocalSet(id.sym().id());
+    if(id.sym().local()) {
+      if(expr.isPresent()) {
+        expr.get().toWasmCode(func, builder);
+        func.emitLocalSet(id.sym().id());
+      }
+    } else {
+      func.emitGlobalGet(0);
+      func.emitLocalSet(id.sym().id());
 
-    func.emitGlobalGet(0);  
-    func.emitConst(4);
-    func.emitAdd();
-    func.emitGlobalSet(0);
+      func.emitGlobalGet(0);  
+      func.emitConst(4);
+      func.emitAdd();
+      func.emitGlobalSet(0);
 
-    if(expr.isPresent()) {
-      func.emitLocalGet(id.sym().id());
-      expr.get().toWasmCode(func, builder);
-      func.emitStore();
+      if(expr.isPresent()) {
+        func.emitLocalGet(id.sym().id());
+        expr.get().toWasmCode(func, builder);
+        func.emitStore();
+      }
     }
-
   }
   
 };

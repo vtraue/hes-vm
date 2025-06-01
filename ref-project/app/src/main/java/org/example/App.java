@@ -62,7 +62,7 @@ public class App {
           InternalFunction funcType = (InternalFunction)builder.getFunction(decl.id()).get();
           wasm_builder.Func wasmFunc = bytecodeBuilder.createFunction(funcType.toWasmFuncType());
           
-          funcType.getLocalValueTypes().stream().forEach(l -> wasmFunc.addLocal(l));
+          funcType.getWasmLocals().stream().forEach(l -> wasmFunc.addLocal(l));
           for(TypedStatement is : decl.block()) {
             is.toWasmCode(wasmFunc, builder);
           }
