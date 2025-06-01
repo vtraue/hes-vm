@@ -2,7 +2,7 @@ use parser::{error::ReaderError, module::ModuleError};
 
 use super::validator::ValueStackType;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum ValidationError {
     ReaderError(ReaderError),
     ModuleError(ModuleError),

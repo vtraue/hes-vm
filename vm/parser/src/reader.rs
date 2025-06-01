@@ -486,20 +486,14 @@ impl<'src, 'me> Iterator for SectionsIter<'src, 'me> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
 
-    use crate::parser::error::{self, ReaderError};
-    use crate::parser::module::{self, DecodedBytecode};
-    use crate::parser::types::{Data, Section, ValueType};
+    use crate::types;
+
+    use super::ReaderError;
+    use crate::DecodedBytecode;
+    use types::{Data, ValueType};
 
     use super::Reader;
-
-    fn get_wasm_gen() -> Box<[u8]> {
-        let source = include_str!("../wat/gen.wat");
-        let source = wat::parse_str(source).unwrap().into_boxed_slice();
-        fs::write("gen2.wasm", &source).unwrap();
-        source
-    }
 
     #[test]
     fn empty_module() -> Result<(), ReaderError> {

@@ -9,7 +9,7 @@ use super::{
     },
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum ModuleError {
     Reader(ReaderError),
     NoTypes,

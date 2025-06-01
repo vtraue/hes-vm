@@ -14,3 +14,4 @@ pub fn parse_wasm(data: &[u8]) -> Result<DecodedBytecode, ReaderError> {
     reader.read::<DecodedBytecode>() 
 }
 
+

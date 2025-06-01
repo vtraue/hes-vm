@@ -1,6 +1,6 @@
 use super::op::Op;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum ReaderError {
     PosOutOfRange,
     InvalidLeb,
