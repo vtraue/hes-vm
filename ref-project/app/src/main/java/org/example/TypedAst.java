@@ -56,7 +56,11 @@ record TypedLiteral(Literal lit, Type t) implements TypedExpression {
 record TypedBinOP(TypedExpression lhs, BinopType op, TypedExpression rhs) implements TypedExpression {
   @Override
   public Type getType() {
-    return Type.Bool;
+    if(op.getKind() == BinopKind.Cmp) {
+      return Type.Bool;
+    } else {
+      return lhs.getType();
+    }
   }
 
   @Override
@@ -78,13 +82,10 @@ record TypedFncall(String name, Function type, Optional<TypedFncallArgs> params)
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     if(this.params.isPresent()) {
       for(TypedExpression arg : this.params.get().args()) {
-        System.out.println(arg.toString());
         arg.toWasmCode(func, builder);
       }
     }
     int func_id = builder.getGlobalFunctionId(this.type);
-    System.out.printf("Func id: %d\n", func_id); 
-    System.out.println("call!");
     func.emitCall(func_id);
   }
 };
@@ -110,6 +111,7 @@ record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) imple
       if(expr.isPresent()) {
         expr.get().toWasmCode(func, builder);
         func.emitLocalSet(id.sym().id());
+
       }
     } else {
       func.emitGlobalGet(0);
@@ -132,9 +134,15 @@ record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) imple
 record TypedAssign(TypedId id, TypedExpression expr) implements TypedStatement {
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
-    func.emitLocalGet(id.sym().id());
-    expr.toWasmCode(func, builder);
-    func.emitStore();
+    if(id.sym().local()) {
+      expr.toWasmCode(func, builder);
+      func.emitLocalSet(id.sym().id());
+    } else {
+      func.emitLocalGet(id.sym().id());
+      expr.toWasmCode(func, builder);
+      func.emitStore();
+    }
+
   }
 };
 
@@ -146,7 +154,6 @@ record TypedBlock(List<TypedStatement> statements, Type type) implements TypedEx
 
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
-    System.out.printf("Block type: %s\n", type.toString());
     func.emitBlock();
     if(type == Type.Void) {
       func.emitBlockType();
@@ -161,7 +168,7 @@ record TypedBlock(List<TypedStatement> statements, Type type) implements TypedEx
   }
 };
 
-record TypedParam(TypedId id, Type type) implements TypedAstNode{};
+record TypedParam(TypedId id, Type type) implements TypedAstNode {};
 record TypedParams(List<TypedParam> params) implements TypedAstNode {};
 record TypedFndecl(String id, Optional<Params> params, Optional<Type> returnType, boolean export, List<TypedStatement> block) implements TypedStatement {
 
@@ -191,8 +198,19 @@ record TypedReturn(Optional<TypedExpression> expr) implements TypedStatement {
 record TypedWhile(TypedExpression expr, TypedBlock block) implements TypedStatement {
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
-    // TODO Auto-generated method stub
-    throw new UnsupportedOperationException("Unimplemented method 'toWasmCode'");
+    expr.toWasmCode(func, builder); 
+    func.emitIf();
+    func.emitBlockType();
+    func.emitLoop();
+    func.emitBlockType();
+    for(var s: block.statements()) {
+      s.toWasmCode(func, builder);
+    }
+    expr.toWasmCode(func, builder);
+    func.emitBrIf(0);
+
+    func.emitEnd();
+    func.emitEnd();
   }
 
 };

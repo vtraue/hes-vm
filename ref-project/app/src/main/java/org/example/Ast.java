@@ -63,6 +63,11 @@ enum Type implements AstNode {
   }
 }
 
+enum BinopKind {
+  Numeric,
+  Cmp
+};
+
 enum BinopType {
   Mul,
   Div,
@@ -74,7 +79,16 @@ enum BinopType {
   Gt,
   Lt,
   Le;
-
+  public BinopKind getKind() {
+    switch(this) {
+      case Mul:
+      case Add:
+      case Div:
+      case Sub:
+        return BinopKind.Numeric;
+      default: return BinopKind.Cmp;
+    }
+  }
   public String toString() {
     String res;
     switch (this) {
@@ -172,9 +186,9 @@ record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression
     }
     TypedExpression typedLhsData = (TypedExpression)typedLhs.unwrap();
     TypedExpression typedRhsData = (TypedExpression)typedRhs.unwrap();
+
     Type lhsT = typedLhsData.getType();
     Type rhsT = typedRhsData.getType();
-
     if(!typedLhsData.getType().equals(typedRhsData.getType())) {
       return new Err<>(String.format("Expected %s %s %s, got %s %s %s", lhsT.toString(), op.toString(), lhsT.toString(), lhsT.toString(), op.toString(), rhsT.toString()));
     }
@@ -307,8 +321,6 @@ record Assign(Id id, Expression expr) implements Statement {
     TypedExpression typedExpression = (TypedExpression) typedExpressionRes.unwrap(); 
     TypedId typedId = (TypedId) tId.unwrap();
 
-    System.out.printf("TypedExpression: %s\n", typedExpression.getType().toString()); 
-    System.out.printf("TypedID: %s\n", typedId.getType().toString()); 
     if(!typedExpression.getType().equals(typedId.getType())) {
       return new Err<>(String.format("Cannot assign an expression of type %s to variable %s", typedExpression.getType(), typedId.getType()));
     }

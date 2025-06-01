@@ -15,7 +15,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitStatement(ReflangParser.StatementContext ctx) {
-    System.out.println("stmt");
     var result = visitChildren(ctx);
     if(result != null && this.depth == 0) {
       this.statements.add((Statement)result);
@@ -25,14 +24,11 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitStmtExpr(ReflangParser.StmtExprContext ctx) {
-    System.out.println("stmt");
     var result = (Expression)this.visit(ctx.e);
-    System.out.println(result.toDebugText());
     return result;
   }
   @Override
   public AstNode visitAssign(ReflangParser.AssignContext ctx) {
-    System.out.println("assign");
     Id varname = (Id)this.visit(ctx.name);
     Expression initExpr = (Expression)(this.visit(ctx.init_expr));    
     return new Assign(varname, initExpr);
@@ -61,7 +57,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   }
   @Override
   public AstNode visitVardeclt(ReflangParser.VardecltContext ctx) {
-    System.out.println("vardecl");
     Id varname = new Id(ctx.name.getText());
     Type t = (Type)this.visit(ctx.t);
 
@@ -88,7 +83,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitBlock(ReflangParser.BlockContext ctx) {
-    System.out.println("block");
     this.depth += 1;
     List<Statement> statements = ctx.statements
       .stream()
@@ -102,7 +96,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitFndecl(ReflangParser.FndeclContext ctx) {
-    System.out.println("fndecl");
     Id fnName = (Id)this.visit(ctx.name);
     Optional<Params> params = Optional.empty(); 
     if(ctx.params() != null) {
@@ -120,7 +113,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   }
   @Override
   public AstNode visitExport_fndecl(ReflangParser.Export_fndeclContext ctx) {
-    System.out.println("fndecl");
     Id fnName = (Id)this.visit(ctx.name);
     Optional<Params> params = Optional.empty(); 
     if(ctx.params() != null) {
@@ -138,7 +130,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitParams(ReflangParser.ParamsContext ctx) {
-    System.out.println("Params");
     Stream<Param> rest_stream = ctx.rest
       .stream()
       .map(p -> (Param)this.visit(p));
@@ -153,7 +144,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitParam(ReflangParser.ParamContext ctx) {
-    System.out.println("Param");
 
     Id name = (Id)this.visit(ctx.name); 
     Type t = (Type)this.visit(ctx.t);
@@ -164,7 +154,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   @Override
   public AstNode visitReturn(ReflangParser.ReturnContext ctx) {
     if(ctx.expr() != null) {
-      System.out.println("return");
       return new Return(Optional.of((Expression)this.visit(ctx.expr())));
     } else {
       return new Return(Optional.empty());
@@ -172,27 +161,23 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   }
   @Override 
   public AstNode visitVarname(ReflangParser.VarnameContext ctx) {
-    System.out.println("Varname");
     return new Id(ctx.name.getText());  
   }
 
   @Override
   public AstNode visitFncall(ReflangParser.FncallContext ctx) {
-    System.out.println("Fncall");
     Optional<FncallArgs> args = Optional.empty(); 
 
     if(ctx.args() != null) {
       args = Optional.of((FncallArgs)this.visit(ctx.args())); 
     }
     var result = new Fncall(ctx.name.getText(), args);
-    System.out.println(result.toDebugText());
 
     return result; 
   }
 
   @Override
   public AstNode visitArgs(ReflangParser.ArgsContext ctx) {
-    System.out.println("Args");
     Stream<Expression> rest_stream = ctx.rest
       .stream()
       .map(p -> (Expression)this.visit(p));
@@ -202,7 +187,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
     List<Expression> expressions = Stream.concat(first_stream, rest_stream)
       .collect(Collectors.toList());
     
-    System.out.println("Args done");
     return new FncallArgs(expressions);
   }
 
@@ -215,10 +199,8 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitCond(ReflangParser.CondContext ctx) {
-    System.out.println("cond");
     Expression condExpression = (Expression)this.visit(ctx.expr());
     Block ifBlock = (Block)this.visit(ctx.if_block);
-    System.out.printf("If block: %s", ifBlock.toDebugText());
     Optional<Block> elseBlock = Optional.empty(); 
     if(ctx.else_block != null) {
       elseBlock = Optional.of((Block)this.visit(ctx.else_block)); 
@@ -229,7 +211,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   //NOTE: (joh): das geht bestimmt besser
   @Override
   public AstNode visitTInt(ReflangParser.TIntContext ctx) {
-    System.out.println("tint");
     return Type.Int;
   }
   @Override
@@ -249,7 +230,6 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   
   @Override
   public AstNode visitLiteralStr(ReflangParser.LiteralStrContext ctx) {
-    System.out.println("String literal");
     String str = ctx.STRING().getText();
     String text = str.substring(1, str.length() - 1);
     var literal = new StringLiteral(text, stringLiteralPointer);   

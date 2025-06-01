@@ -214,7 +214,6 @@ public class TypedAstBuilder {
     }
 
     if(!this.currentFunction.isPresent()) {
-      System.out.println("Huh???");
     }
 
     var currentFunction = (InternalFunction)this.getCurrentFunction().get();

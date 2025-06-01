@@ -34,18 +34,30 @@ export fn test() {
 
   assert(a == 10);
 
+  i := 0;
+  while(i < 10) {
+    i = i + 1;
+    printNum(i);
+  }
+
   return;
 }
 
 export fn main() {
-  printNum(2); 
+  printNum(100); 
 
   test_num := 5;
   {
     a := 5;
     b := 10;
   };
-
+  
+  i: int = 0;
+  while(i < 10) {
+    i = i + 1;
+    printNum(i);
+  }
+  printNum(500);
   test_block := {
     a := 5;
     b := 10;
@@ -56,6 +68,8 @@ export fn main() {
     } else {
       break 2;
     }
+
+
     if(a > 0) {
       break 9;
     }
@@ -65,7 +79,7 @@ export fn main() {
   test_block2 := {
     a := 1;
     break 10;
-  }
+  };
   
   if(test_num == 5) {
     a := 99;
