@@ -8,10 +8,7 @@ pub mod op;
 pub mod reader;
 pub mod types;
 
-
 pub fn parse_wasm(data: &[u8]) -> Result<DecodedBytecode, ReaderError> {
     let mut reader = Reader::new(data);
-    reader.read::<DecodedBytecode>() 
+    reader.read::<DecodedBytecode>()
 }
-
-

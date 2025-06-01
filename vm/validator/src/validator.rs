@@ -4,11 +4,9 @@ use std::ops::Range;
 use itertools::Itertools;
 
 use parser::{
-        module::{
-            DecodedBytecode, SortedImports,
-        },
-        op::{self, Op},
-        types::{Function, GlobalType, Limits, Type, ValueType},
+    module::{DecodedBytecode, SortedImports},
+    op::{self, Op},
+    types::{Function, GlobalType, Limits, Type, ValueType},
 };
 
 use super::{
@@ -56,7 +54,6 @@ impl From<ValueType> for ValueStackType {
         Self::T(value)
     }
 }
-
 
 #[derive(Debug)]
 pub struct Context<'src> {
@@ -261,12 +258,17 @@ impl<'src> Validator {
 
     pub fn peek_ctrl_at_label(&self, label: u32) -> Result<&CtrlFrame, ValidationError> {
         let id = (self.ctrl_stack.len() as isize - 1) - (label as isize);
-        self.ctrl_stack.get(id as usize).ok_or(ValidationError::LabelIndexOutOfScope(id as u32))
+        self.ctrl_stack
+            .get(id as usize)
+            .ok_or(ValidationError::LabelIndexOutOfScope(id as u32))
     }
 
     pub fn push_ctrl_jump(&mut self, label: u32, jump: usize) -> Result<(), ValidationError> {
         let id = (self.ctrl_jump_stack.len() as isize - 1) - (label as isize);
-        self.ctrl_jump_stack.get_mut(id as usize).ok_or(ValidationError::LabelIndexOutOfScope(label))?.push(jump);
+        self.ctrl_jump_stack
+            .get_mut(id as usize)
+            .ok_or(ValidationError::LabelIndexOutOfScope(label))?
+            .push(jump);
         Ok(())
     }
 
@@ -824,14 +826,9 @@ pub fn patch_jumps<'a, I: IntoIterator<Item = &'a JumpTable>>(
 
 #[cfg(test)]
 mod tests {
-    use parser::{
-            error::ReaderError,
-            module::DecodedBytecode,
-            op::Op,
-            reader::Reader};
-        
+    use parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader};
+
     use crate::{error::ValidationError, validator::patch_jumps};
-    
 
     use super::{Context, Validator};
 

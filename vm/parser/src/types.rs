@@ -141,7 +141,7 @@ pub struct GlobalType {
 }
 impl GlobalType {
     pub fn is_mut(&self) -> bool {
-        return self.mutable.0
+        return self.mutable.0;
     }
 }
 impl fmt::Display for GlobalType {

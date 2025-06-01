@@ -4,8 +4,8 @@ use super::{
     error::ReaderError,
     reader::{FromReader, Reader},
     types::{
-        CustomSection, Data, Export, Function, Global, GlobalType, Import, ImportDesc, 
-        Limits, SectionData, SectionDataOrCustom, Type, TypeId,
+        CustomSection, Data, Export, Function, Global, GlobalType, Import, ImportDesc, Limits,
+        SectionData, SectionDataOrCustom, Type, TypeId,
     },
 };
 

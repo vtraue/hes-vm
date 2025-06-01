@@ -3,7 +3,8 @@ use std::fmt::{self};
 use crate::{
     error::ReaderError,
     reader::{FromReader, Reader},
-    types::{FuncId, GlobalId, LabelId, LocalId, TableId, TypeId, ValueType}};
+    types::{FuncId, GlobalId, LabelId, LocalId, TableId, TypeId, ValueType},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {

@@ -1,7 +1,7 @@
-use std::ops::Range;
 use super::error::*;
 use super::op::Op;
 use super::types::Section;
+use std::ops::Range;
 
 #[derive(Debug, Clone)]
 pub struct Reader<'src> {
