@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
 public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   int depth = 0;
   int currentVarDeclId = 0;
@@ -41,7 +42,15 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
         return new Break(Optional.empty());
       }
   }
-
+  
+  @Override 
+  public AstNode visitDerefAssign(ReflangParser.DerefAssignContext ctx) {
+    Id varname = (Id)this.visit(ctx.name); 
+    Expression expr = (Expression)(this.visit(ctx.init_expr));
+    return new DerefAssign(varname, expr);
+  }
+  
+  
   @Override
   public AstNode visitImport_fndecl(ReflangParser.Import_fndeclContext ctx) {
     Optional<Params> params = Optional.empty(); 
@@ -211,16 +220,16 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   //NOTE: (joh): das geht bestimmt besser
   @Override
   public AstNode visitTInt(ReflangParser.TIntContext ctx) {
-    return Type.Int;
+    return PrimitiveType.Int;
   }
   @Override
   public AstNode visitTString (ReflangParser.TStringContext ctx) {
-    return Type.String;
+    return PrimitiveType.String;
   }
 
   @Override
   public AstNode visitTBool (ReflangParser.TBoolContext ctx) {
-    return Type.Bool;
+    return PrimitiveType.Bool;
   }
   
   @Override
@@ -324,6 +333,27 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
     Expression rhs = (Expression)this.visit(ctx.rhs);
     return new BinOp(lhs, op, rhs); 
   }
-}
 
+  @Override
+  public AstNode visitPointerType(ReflangParser.PointerTypeContext ctx) {
+    int depth = ctx.depth.size();
+    PrimitiveType parent = (PrimitiveType)this.visit(ctx.parent); 
+    return new PointerType(parent, depth);
+  }
+
+  @Override
+  public AstNode visitRef(ReflangParser.RefContext ctx) {
+    System.out.println("blub");
+    Id target = (Id)this.visit(ctx.name);    
+    return new Ref(target);
+  }
+
+  @Override
+  public AstNode visitDeref(ReflangParser.DerefContext ctx) {
+    System.out.println("blib");
+    Id target = (Id)this.visit(ctx.name);    
+    return new Deref(target);
+  }
+
+}
 

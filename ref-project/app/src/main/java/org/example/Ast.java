@@ -26,7 +26,51 @@ sealed interface Expression extends Statement {
     
 };
 
-enum Type implements AstNode {
+sealed interface Type extends AstNode {
+  WasmValueType toWasmValueType(); 
+};
+
+record PointerType(PrimitiveType parent, int depth) implements Type {
+  public String toString() {
+    StringBuilder builder = new StringBuilder();
+    for(int i = 0; i < depth; ++i) {
+      builder.append("*");
+    }
+    builder.append(parent.toString());   
+    return builder.toString(); 
+  }
+
+	@Override
+	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+       
+		// TODO Auto-generated method stub
+		throw new UnsupportedOperationException("Unimplemented method 'getTypedAstNode'");
+	}
+
+	@Override
+	public String toDebugText() {
+    return this.toString();
+	}
+
+	@Override
+	public WasmValueType toWasmValueType() {
+    return WasmValueType.i32;
+	}
+
+  public Type deref() {
+    if(depth <= 1) {
+      return parent;
+    } else { 
+      return new PointerType(parent, depth - 1);
+    }
+  }
+  @Override
+  public boolean equals(Object other) {
+    PointerType pt = (PointerType) other;
+    return pt.depth == depth && pt.parent == parent;
+  }
+}
+enum PrimitiveType implements Type {
   String,
   Bool,
   Int,
@@ -144,7 +188,7 @@ record BoolLiteral(boolean lit) implements Literal {
     return String.format("%s", this.lit == true ? "true" : "false");
   }
   public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-    return new Ok<>(new TypedLiteral(this, Type.Bool));
+    return new Ok<>(new TypedLiteral(this, PrimitiveType.Bool));
   }
 }
 
@@ -154,7 +198,7 @@ record StringLiteral(String literal, int pointer) implements Literal {
   }
 
   public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-    return new Ok<>(new TypedLiteral(this, Type.String));
+    return new Ok<>(new TypedLiteral(this, PrimitiveType.String));
   }
 }
 
@@ -163,7 +207,7 @@ record IntLiteral(int literal) implements Literal {
     return String.format("%d", this.literal);
   }
   public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-    return new Ok<>(new TypedLiteral(this, Type.Int));
+    return new Ok<>(new TypedLiteral(this, PrimitiveType.Int));
   }
 }
 
@@ -329,13 +373,114 @@ record Assign(Id id, Expression expr) implements Statement {
   }
 }
 
+record DerefAssign(Id id, Expression expr) implements Statement {
+
+	@Override
+	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+    Result<TypedAstNode, String> tIdRes = this.id.getTypedAstNode(builder);
+    if(!tIdRes.isOk()) {
+      return new Err<>(tIdRes.getErr());
+    }
+    TypedId tId = (TypedId) tIdRes.unwrap();
+
+
+    Type expectedType;  
+    if(tId.getType() instanceof PointerType ptr) {
+      expectedType = ptr.deref(); 
+    } else {
+      return new Err<>("Cannot deref a non pointer type!");
+    }
+
+    Result<TypedAstNode, String> typedExpressionRes = this.expr.getTypedAstNode(builder);
+    if(!typedExpressionRes.isOk()) {
+      return new Err<>(typedExpressionRes.getErr());
+    }
+    TypedExpression typedExpression = (TypedExpression) typedExpressionRes.unwrap();
+    if(typedExpression.getType().equals(expectedType)) {
+      return new Ok<>(new TypedDerefAssign(tId, typedExpression)); 
+    } else {
+      return new Err<>(String.format("Mismatched Types in Assignment to pointer. Expected: %s, got: %s ", expectedType, typedExpression.getType()));
+
+    }
+  } 	
+
+	@Override
+	public String toDebugText() {
+    return this.toString();
+	}
+
+  @Override
+  public String toString() {
+    return String.format("%s.* = %s", id, expr);
+  }
+  
+}
+record Deref(Id id) implements Expression {
+	@Override
+	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+    Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);
+    if(!tId.isOk()) {
+      return new Err<>(tId.getErr());
+    }
+    TypedId target = (TypedId) tId.unwrap(); 
+    Type newType;
+
+    if(target.getType() instanceof PointerType ptr) {
+      newType = ptr.deref();
+    } else {
+      return new Err<>("Cannot deref a non pointer type!");
+    }
+    return new Ok<>(new TypedDeref(target, newType));
+	}
+
+  @Override 
+  public String toString() {
+    return String.format("%s.*", this.id);
+  }
+
+	@Override
+	public String toDebugText() {
+    return this.toString(); 
+	}
+}
+
+record Ref(Id id) implements Expression {
+	@Override
+	public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+    Result<TypedAstNode, String> tId = this.id.getTypedAstNode(builder);
+    if(!tId.isOk()) {
+      return new Err<>(tId.getErr());
+    }
+    //builder.setVariableLocal(id.toString(), false); 
+    TypedId target = (TypedId) tId.unwrap(); 
+    target.sym().local = false; 
+
+    System.out.println(target.sym().local);
+
+    PointerType t = switch(target.getType()) {
+      case PrimitiveType pt -> new PointerType(pt, 1);
+      case PointerType pt -> new PointerType(pt.parent(), pt.depth() + 1);
+    };  
+    return new Ok<>(new TypedRef(target, t));    
+	}
+
+	@Override
+	public String toDebugText() {
+    return this.toString();
+	}
+  @Override 
+  public String toString() {
+    return String.format("&%s", id.toString());
+  }
+}
+
 record Break(Optional<Expression> expr) implements Expression {
   public String toDebugText() {
     return String.format("break %s", expr.map(AstNode::toDebugText).orElse(""));
   }
   @Override
   public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
-    Type resType = Type.Void;
+    Type resType = PrimitiveType.Void;
     Optional<TypedExpression> tExpr = Optional.empty();
     if(expr.isPresent()) {
       var br_expr = expr.get();
@@ -391,7 +536,7 @@ record Block(List<Statement> statements) implements Expression {
       return new Err<>(errorMessageBuilder.toString());
     }
 
-    return new Ok<>(new TypedBlock(typedStatements, resultType.orElse(Type.Void)));
+    return new Ok<>(new TypedBlock(typedStatements, resultType.orElse(PrimitiveType.Void)));
   }
 }
 
@@ -573,8 +718,8 @@ record While(Expression expr, Block block) implements Statement {
     }
 
     var condExpr = (TypedExpression)typedCond.unwrap();
-    if(!condExpr.getType().equals(Type.Bool)) {
-      return new Err<>(String.format("Expected bool type in while, got %s", condExpr.getType().toDebugText()));
+    if(!condExpr.getType().equals(PrimitiveType.Bool)) {
+      return new Err<>(String.format("Expected bool type in while, got %s", condExpr.getType().toString()));
     }
     return new Ok<>(new TypedWhile(condExpr, (TypedBlock)typedBlock.unwrap()));
   }
@@ -595,8 +740,8 @@ public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
       return new Err<>(typedCond.getErr());
     }
     var condExpr = (TypedExpression)typedCond.unwrap();
-    if(!condExpr.getType().equals(Type.Bool)) {
-      return new Err<>(String.format("Expected bool type in if, got %s", condExpr.getType().toDebugText()));
+    if(!condExpr.getType().equals(PrimitiveType.Bool)) {
+      return new Err<>(String.format("Expected bool type in if, got %s", condExpr.getType().toString()));
     }
 
     var typedBlock = this.ifBlock.getTypedAstNode(builder);
@@ -616,7 +761,6 @@ public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
     return new Ok<>(new TypedCond(condExpr, ifBlock, typedElseBlock));
   }
 }
-
 
 
 

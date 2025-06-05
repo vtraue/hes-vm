@@ -16,13 +16,34 @@ import java.util.HashMap;
 import java.util.List;
 
 public class TypedAstBuilder {
-  public record Symbol (
-    int id,
-    Type type,
-    boolean local 
-  ) {
+
+  public class Symbol {
+    int id;
+    Type type;
+    boolean local; 
+
+    public Symbol(int id, Type type, boolean local) {
+      this.id = id;
+      this.type = type;
+      this.local = local;
+    }
     WasmValueType toValueType() {
       return this.type.toWasmValueType();
+    }
+
+    int id() {
+      return this.id;
+    }
+
+    Type type() {
+      return this.type;
+    }
+    boolean local() {
+      return this.local;
+    }
+
+    void setLocal(boolean local) {
+      this.local = local;
     }
   };
 
@@ -245,6 +266,18 @@ public class TypedAstBuilder {
 
   Optional<Symbol> searchVariable(String name) {
     return this.currentEnv.searchVariable(name);
+  }
+
+  boolean setVariableLocal(String name, boolean local) {
+    var symRes = searchVariable(name);  
+    if(symRes.isEmpty()) {
+      return false;
+    } 
+
+    System.out.println("Setting local");
+    Symbol sym = symRes.get(); 
+    sym.setLocal(local);
+    return true;
   }
 
   Result<List<TypedExpression>, String> getExpressionTypes(List<Expression> nodes) {

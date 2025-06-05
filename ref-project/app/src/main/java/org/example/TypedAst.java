@@ -20,6 +20,7 @@ sealed interface TypedExpression extends TypedStatement{
   Type getType();
 };
 
+
 record TypedId(String name, TypedAstBuilder.Symbol sym) implements TypedExpression {
   @Override
   public Type getType() {
@@ -57,7 +58,7 @@ record TypedBinOP(TypedExpression lhs, BinopType op, TypedExpression rhs) implem
   @Override
   public Type getType() {
     if(op.getKind() == BinopKind.Cmp) {
-      return Type.Bool;
+      return PrimitiveType.Bool;
     } else {
       return lhs.getType();
     }
@@ -75,7 +76,7 @@ record TypedFncallArgs(List<TypedExpression> args) implements TypedAstNode {};
 record TypedFncall(String name, Function type, Optional<TypedFncallArgs> params) implements TypedExpression {
   @Override
   public Type getType() {
-    return type.getReturnType().orElse(Type.Void);
+    return type.getReturnType().orElse(PrimitiveType.Void);
   }
 
   @Override
@@ -90,10 +91,39 @@ record TypedFncall(String name, Function type, Optional<TypedFncallArgs> params)
   }
 };
 
+record TypedDeref(TypedId id, Type t) implements TypedExpression {
+	@Override
+	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
+    id.toWasmCode(func, builder); 
+    func.emitLoad();  
+	}
+
+	@Override
+	public Type getType() {
+    return t; 
+	}
+}
+
+record TypedRef(TypedId id, PointerType t) implements TypedExpression {
+	@Override
+	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
+    if(!id.sym().local()) {
+      func.emitLocalGet(id.sym().id);
+    } else {
+      System.out.println("Error!");
+      //TODO: Error
+    }
+	}
+
+	@Override
+	public Type getType() {
+    return this.t;
+	}
+}
 record TypedBreak(Optional<TypedExpression> expr, Type t) implements TypedExpression {
   @Override
   public Type getType() {
-    return expr.map(e -> e.getType()).orElse(Type.Void);
+    return expr.map(e -> e.getType()).orElse(PrimitiveType.Void);
   }
   @Override 
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
@@ -109,11 +139,12 @@ record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) imple
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     if(id.sym().local()) {
       if(expr.isPresent()) {
+        System.out.println("local var decl");
         expr.get().toWasmCode(func, builder);
         func.emitLocalSet(id.sym().id());
-
       }
     } else {
+      System.out.println("not local var decl");
       func.emitGlobalGet(0);
       func.emitLocalSet(id.sym().id());
 
@@ -155,7 +186,7 @@ record TypedBlock(List<TypedStatement> statements, Type type) implements TypedEx
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     func.emitBlock();
-    if(type == Type.Void) {
+    if(type == PrimitiveType.Void) {
       func.emitBlockType();
     } else {
       func.emitBlockType(type.toWasmValueType()); 
@@ -179,7 +210,6 @@ record TypedFndecl(String id, Optional<Params> params, Optional<Type> returnType
   }};
 
 record TypedExternFndecl(ExternFndecl decl) implements TypedStatement {
-
   @Override
   public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     // TODO Auto-generated method stub
@@ -235,3 +265,13 @@ record TypedCond(TypedExpression cond, TypedBlock ifBlock, Optional<TypedBlock> 
   }
 }
 
+record TypedDerefAssign(TypedId id, TypedExpression expr) implements TypedStatement {
+
+	@Override
+	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
+    func.emitLocalGet(id.sym().id); 
+    expr.toWasmCode(func, builder);
+    func.emitStore();
+    
+	}
+}

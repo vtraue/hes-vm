@@ -6,6 +6,8 @@ export fn should_work(a: int) -> int {
 	return 1;
 }
 
+should_work1 :: (a: int, b: int) -> int {
+}
 export fn should_work1(a: int, b: int) -> int {
 	return 2;
 }
@@ -24,70 +26,24 @@ fn assert(cond: bool) {
 
 
 export fn test() {
-  test_string := "blubbi";
-  printNum(1); 
-  print(test_string, 3);
-  a := 10;  
-
-  printNum(2);
-  printNum(3);
-
-  assert(a == 10);
-
-  i := 0;
-  while(i < 10) {
-    i = i + 1;
-    printNum(i);
-  }
-
   return;
 }
 
+fn test_fn(ref: int*) {
+  ref.* = 20;  
+  return;
+}
 export fn main() {
-  printNum(100); 
-
+  printNum(100);
   test_num := 5;
-  {
-    a := 5;
-    b := 10;
-  };
-  
-  i: int = 0;
-  while(i < 10) {
-    i = i + 1;
-    printNum(i);
-  }
-  printNum(500);
-  test_block := {
-    a := 5;
-    b := 10;
-    if(b > 40) {
-      n := 100;
-      
-      break 1;
-    } else {
-      break 2;
-    }
 
+  test_ref := &test_num;  
 
-    if(a > 0) {
-      break 9;
-    }
-    break 4;
-  };
+  test_ref.* = 10;
+  test_fn(&test_num);
 
-  test_block2 := {
-    a := 1;
-    break 10;
-  };
-  
-  if(test_num == 5) {
-    a := 99;
-    b := 98;
-  }
-  else {
-    c := 100;
-  }
-	return; 
+  printNum(test_num);
+
+  return; 
 }
 

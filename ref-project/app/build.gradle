@@ -22,7 +22,7 @@ repositories {
 dependencies {
 	// This dependency is used by the application.
 	antlr 'org.antlr:antlr4:4.13.2'
-		implementation project(':lib')
+	implementation project(':lib')
 }
 
 testing {

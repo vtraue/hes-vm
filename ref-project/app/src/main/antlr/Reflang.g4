@@ -7,10 +7,11 @@ statement:
 				   vardecl
 				|  vardeclt
         |  assign
+        |  derefAssign
         |  stmtExpr 
         |  export_fndecl
         |  import_fndecl
-    	|  fndecl
+    	  |  fndecl
         |  cond
         |  while
         |  break
@@ -20,10 +21,14 @@ statement:
 vardecl	: name=varname COLON_EQ init_expr=expr ';' ;
 vardeclt: name=varname COLON t=type ('=' init_expr=expr)? ';' ;
 
+fieldTypeDecl: name=varname COLON t=type;  
+fieldDeclList: first = fieldTypeDecl (',' rest += fieldTypeDecl)*;
 stmtExpr : e = expr ';' ;
 
-assign  : name=varname '=' init_expr=expr ';' ;
 varname : name=ID;
+
+assign  : name=varname '=' init_expr=expr ';' ;
+derefAssign : name=varname(POINTSTAR) '=' init_expr=expr ';' ;  
 import_fndecl : IMPORT env_name = ID FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? ';' ; 
 export_fndecl:  EXPORT FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl_block=block ;
 fndecl 	: FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl_block=block;
@@ -39,9 +44,14 @@ block	  : '{' statements += statement* '}';
 while   :  'while' '(' expr ')' block ;
 cond    :  'if' '(' cond_expr = expr ')' if_block = block ('else' else_block = block)? ;
 
-type    : TYPE_INT #TInt 
+pointerType: (parent=primitive_type)depth+=STAR+;  
+
+type: pointerType 
+      | primitive_type ; 
+
+primitive_type: TYPE_INT #TInt 
 		| TYPE_STRING #TString
-		| TYPE_BOOL #TBool ;
+		| TYPE_BOOL #TBool ; 
 
 expr 		:  fncall #fnc
         |  block #code_block
@@ -60,6 +70,8 @@ expr 		:  fncall #fnc
 				| bool_literal #LiteralBool
 				| '(' expr ')' # Paren
 				| STRING # LiteralStr
+        | AMPERSAND name=varname #Ref
+        | (name=varname)(POINTSTAR) #Deref
 				;
 bool_literal : TRUE #LiteralTrue | FALSE #LiteralFalse;
 
@@ -76,14 +88,17 @@ COLON_EQ : ':=';
 IMPORT	: 'import';
 EXPORT 	: 'export';
 FN		  : 'fn';
-
+STAR    : '*';
 LEN     : 'len'; 
 RAW_DATA: 'raw_data';
+AMPERSAND: '&';
+POINTSTAR: '.*';
 
 ID      :  [a-z][a-zA-Z0-9_]* ;
 NUMBER  :  [0-9]+ ;
 
 STRING  :  '"'(~[\n\r"])*'"';
+STRUCT  : 'struct';
 
 COMMENT :  '#' ~[\n\r]* -> skip ;
 WS      :  [ \t\n\r]+ -> skip ;
