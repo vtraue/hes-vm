@@ -6,8 +6,6 @@ export fn should_work(a: int) -> int {
 	return 1;
 }
 
-should_work1 :: (a: int, b: int) -> int {
-}
 export fn should_work1(a: int, b: int) -> int {
 	return 2;
 }

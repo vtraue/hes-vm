@@ -137,11 +137,18 @@ public class TypedAstBuilder {
     }
   }
 
+  public record StructField(String name, Type t) {};
+
+  public record StructType(
+    String name,
+    ArrayList<StructField> fields    
+  ) {
+  }
 
   public class Enviroment {
     public Optional<Enviroment> parent;
     private Map<String, Symbol> variables; 
-
+    
     public Enviroment(Optional<Enviroment> parent) {
       this.parent = parent;
       this.variables = new HashMap<>();

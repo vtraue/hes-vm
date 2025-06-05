@@ -21,14 +21,16 @@ statement:
 vardecl	: name=varname COLON_EQ init_expr=expr ';' ;
 vardeclt: name=varname COLON t=type ('=' init_expr=expr)? ';' ;
 
-fieldTypeDecl: name=varname COLON t=type;  
+structdecl: STRUCT name=varname '{' fieldTypeDecl '}' ;   
+
+fieldTypeDecl: name=varname COLON t=type;
 fieldDeclList: first = fieldTypeDecl (',' rest += fieldTypeDecl)*;
 stmtExpr : e = expr ';' ;
 
 varname : name=ID;
 
 assign  : name=varname '=' init_expr=expr ';' ;
-derefAssign : name=varname(POINTSTAR) '=' init_expr=expr ';' ;  
+derefAssign : name=varname(POINTSTAR) '=' init_expr=expr';' ;  
 import_fndecl : IMPORT env_name = ID FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? ';' ; 
 export_fndecl:  EXPORT FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl_block=block ;
 fndecl 	: FN name=varname '(' decl_params=params? ')' ('->' ret_type=type)? decl_block=block;
