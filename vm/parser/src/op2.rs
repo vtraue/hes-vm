@@ -181,7 +181,21 @@ impl Op {
     pub fn is_terminator(&self) -> bool {
         matches!(self, Self::End)
     }
+    pub fn continues(&self, depth: u32) -> (u32, bool) {
+        if self.needs_end_terminator() {
+            (depth + 1, true)
+        } else if self.is_terminator() {
+            if depth <= 0 {
+                (0, false)
+            } else {
+                (depth - 1, true)
+            }
+        } else {
+            (depth, true)
+        }
+    }
 }
+
 impl FromBytecode for Op {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         let opcode = reader.read_u8()?;

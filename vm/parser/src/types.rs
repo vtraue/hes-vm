@@ -91,6 +91,7 @@ impl std::convert::TryFrom<u8> for ValueType {
         }
     }
 }
+
 impl std::convert::TryFrom<i8> for ValueType {
     type Error = ReaderError;
 

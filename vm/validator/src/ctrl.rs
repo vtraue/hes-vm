@@ -19,27 +19,6 @@ pub struct CtrlFrame {
 }
 
 impl CtrlFrame {
-    /*
-    pub fn new(
-        height: usize,
-        ip: usize,
-        opcode: Option<(Op, Range<usize>)>,
-        jump_table_entry: Option<usize>,
-        in_types: Vec<ValueType>,
-        out_types: Vec<ValueType>,
-    ) -> Self {
-        let start_height = context.value_stack.len();
-        CtrlFrame {
-            opcode,
-            ip,
-            jump_table_entry,
-            in_types,
-            out_types,
-            start_height,
-            is_unreachable: false,
-        }
-    }
-    */
     pub fn label_types<'me>(&'me self) -> &'me [ValueType] {
         if let Some((Op::Loop(_), _)) = self.opcode {
             self.in_types.as_slice()

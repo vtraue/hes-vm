@@ -70,6 +70,7 @@ impl<'src> FromReader<'src> for String {
 pub const WASM_HEADER_MAGIC: &[u8; 4] = b"\0asm";
 
 impl<'src> Reader<'src> {
+
     pub fn new(buffer: &'src [u8]) -> Self {
         Self { buffer, pos: 0 }
     }
@@ -80,6 +81,7 @@ impl<'src> Reader<'src> {
     pub fn bytes_left(&self) -> usize {
         self.buffer.len() - self.pos
     }
+
     pub fn check_header(&mut self) -> Result<(Range<usize>, Range<usize>)> {
         let (header, header_pos) = self.read_bytes(4)?;
         if header != WASM_HEADER_MAGIC {

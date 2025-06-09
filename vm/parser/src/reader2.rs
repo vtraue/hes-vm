@@ -1,5 +1,4 @@
-use core::fmt::{self, Display};
-use std::{io::{Read, Seek, SeekFrom}, iter::repeat, ops::Range, string::FromUtf8Error};
+use core::fmt::{self, Display}; use std::{io::{Read, Seek, SeekFrom}, iter::repeat, ops::Range, string::FromUtf8Error};
 
 use byteorder::ReadBytesExt;
 use itertools::Itertools;
@@ -50,6 +49,9 @@ pub enum ParserError {
 
     #[error("Invalid Data Mode Encoding: Got {0}, expected 0, 1 or 2")]
     InvalidDataMode(u32),
+
+    #[error("Invalid section id: Got {0}, expected 0..11")]
+    InvalidSectionId(u8),
 }
 
 
@@ -63,6 +65,11 @@ pub trait FromBytecode : Sized {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError>;  
 }
 
+impl<T: FromBytecode> FromBytecode for Vec<T> {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        parse_vec(reader)  
+    }
+}
 impl FromBytecode for u32 {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         Ok(Leb::read_u32(reader)?)
@@ -175,15 +182,24 @@ pub fn iter_const_expr<R: BytecodeReader>(reader: &mut R) -> impl Iterator<Item 
         .map(|_| reader.parse::<WithPosition<Op>>())
         .take_while(|op|op.as_ref().is_ok_and(|op| !op.data.is_terminator()) || op.is_err())
 }
-/*
+
 pub fn iter_expr<R: BytecodeReader>(reader: &mut R) -> impl Iterator<Item = Result<WithPosition<Op>, ParserError>> {
     (0..)
         .map(|_| reader.parse::<WithPosition<Op>>())
         .scan(0, |depth, op| {
-            op.                
+            let cont = op.as_ref().is_ok_and(|op| {
+                let (new_depth, should_terminate) = op.data.continues(*depth);
+                *depth = new_depth;
+                !should_terminate
+            });
+            if cont || op.is_err() {
+                Some(op)
+            } else {
+                None
+            }
         })
 }
-*/
+
 impl FromBytecode for String {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         Ok(parse_string(reader)?)
@@ -334,8 +350,8 @@ impl FromBytecode for Type {
             Err(ParserError::InvalidFunctionTypeEncoding(magic))
         } else {
             Ok(Self {
-                params: parse_vec_pos(reader)?, 
-                results: parse_vec_pos(reader)?,
+                params: reader.parse()?, 
+                results: reader.parse()?,
             })
         }
     }
@@ -357,11 +373,26 @@ impl Display for Type {
         write!(f, "({}) -> ({})", p.format(", "), r.format(", "))
     }
 }
+
+macro_rules! default_impl_from_bytecode {
+    ($struct_t: ty {$($field_name: ident : $field_t: ty), + $(,)?} ) => {
+        impl FromBytecode for $struct_t {
+            fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+                Ok(Self {
+                    $($field_name: reader.parse()?),+
+                })
+            }
+        }
+    };
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct GlobalType {
     pub t: WithPosition<ValueType>,
     pub mutable: WithPosition<bool>,
 }
+default_impl_from_bytecode! {GlobalType {t: WithPosition<ValueType>, mutable: WithPosition<bool>}}
+
 impl GlobalType {
     pub fn is_mut(&self) -> bool {
         self.mutable.data
@@ -374,27 +405,35 @@ impl Display for GlobalType {
     }
 }
 
-impl FromBytecode for GlobalType {
+
+#[derive(Debug, Clone)]
+pub struct ConstExpr {
+    expr: Vec<WithPosition<Op>>
+}
+impl FromBytecode for ConstExpr {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        Ok(Self {
-            t: parse_with_pos(reader)?,
-            mutable: reader.parse()?,
-        })
+        Ok(ConstExpr {expr: iter_const_expr(reader).collect::<Result<Vec<_>,_>>()?})
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Global {
     pub t: WithPosition<GlobalType>,
-    pub init_expr: Vec<WithPosition<Op>>,
+    pub init_expr: WithPosition<ConstExpr>,
 }
+
+default_impl_from_bytecode!(Global {
+    t: WithPosition<GlobalType>,
+    init_expr: WithPosition<ConstExpr>,
+});
+
 impl Global {
     pub fn value_type(&self) -> ValueType {
         self.t.data.t.data
     }
 
     pub fn iter_init_expr(&self) -> impl Iterator<Item = &Op> {
-        self.init_expr.iter().map(|v| &v.data)
+        self.init_expr.data.expr.iter().map(|v| &v.data)
     }
 }
 
@@ -408,7 +447,6 @@ impl Display for Global {
         )
     }
 }
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct Limits {
     pub min: WithPosition<u32>,
@@ -540,6 +578,11 @@ impl Display for Locals {
     }
 }
 
+default_impl_from_bytecode!(Locals {
+    n: u32,
+    t: ValueType,
+    });
+/*
 impl FromBytecode for Locals {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         let n: u32 = reader.parse()?;        
@@ -547,7 +590,7 @@ impl FromBytecode for Locals {
         Ok(Self {n, t}) 
     }
 }
-
+*/
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExportDesc {
     FuncId(usize),
@@ -566,6 +609,7 @@ impl ExportDesc {
         }
     }
 }
+
 
 impl FromBytecode for ExportDesc {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
@@ -593,11 +637,19 @@ pub struct Export {
     pub desc: WithPosition<ExportDesc>
 }
 
+default_impl_from_bytecode!(
+    Export {
+        name: WithPosition<String>,
+        desc: WithPosition<ExportDesc>
+    });
+
+/*
 impl FromBytecode for Export {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         Ok(Self {name: reader.parse()?, desc: reader.parse()?})
     }
 }
+*/
 impl fmt::Display for Export {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.name.data, self.desc.data)
@@ -647,12 +699,142 @@ impl FromBytecode for Data {
 pub struct Expression {
     data: Vec<WithPosition<Op>> 
 }
+impl Display for Expression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.data.iter().map(|op| op.data).format("\n"))
+    }
+}
+impl FromBytecode for Expression {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        Ok(Self {
+            data: iter_expr(reader).collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
 
-/*
 #[derive(Debug, Clone)]
 pub struct Function {
-    pub size: usisze,
-    pub locals: Vec<WithPosition<Locals>>,
-    pub code: Exp
+    pub size: usize,
+    pub locals: WithPosition<Vec<WithPosition<Locals>>>,
+    pub code: WithPosition<Expression>
+}
+
+default_impl_from_bytecode!(
+    Function {
+        size: usize,
+        locals: WithPosition<Vec<WithPosition<Locals>>>,
+        code: WithPosition<Expression>
+    }
+);
+/*
+impl FromBytecode for Function {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        let size: usize = reader.parse()?;  
+        Ok(Self {
+            size,
+            locals: parse_vec_pos(reader)?,
+            code: reader.parse()?,
+        })
+    }
 }
 */
+impl Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Locals\n")?;
+        self.locals
+            .data
+            .iter()
+            .try_for_each(|l| write!(f, "{}\n", l.data))?;
+        write!(f, "Code:\n {}\n", self.code.data)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CustomSection {
+    pub name: WithPosition<String>,
+    pub data: WithPosition<Vec<u8>>, 
+}
+impl FromBytecode for CustomSection{
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        let name: WithPosition<String> = reader.parse()?; 
+        let data = parse_data_with_pos(reader)?; 
+        Ok(Self {
+            name,
+            data,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SectionDataOrCustom {
+    Section(SectionData),
+    Custom(CustomSection),
+}
+
+#[derive(Debug, Clone)]
+pub struct Section {
+    pub id: u8,
+    pub size: usize,
+    pub data: WithPosition<SectionDataOrCustom>
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum SectionId {
+    Type = 1,
+    Import = 2,
+    Function = 3,
+    Table = 4,
+    Memory = 5,
+    Global = 6,
+    Export = 7,
+    Start = 8,
+    DataCount = 9,
+    Code = 10,
+    Data = 11,
+}
+
+#[derive(Debug, Clone)]
+pub enum SectionData {
+    Type(Vec<WithPosition<Type>>),
+    Import(Vec<WithPosition<Import>>), 
+    Function(Vec<WithPosition<usize>>), 
+    Table(Vec<WithPosition<Limits>>), 
+    Memory(Vec<WithPosition<Limits>>),
+    Global(Vec<WithPosition<Global>>),
+    Export(Vec<WithPosition<Export>>),
+    Start(u32),
+    DataCount(u32),
+    Code(Vec<WithPosition<Function>>),
+    Data(Vec<WithPosition<Data>>),
+}
+macro_rules! impl_match_sec_data {
+    ($reader:ident, $id:ident, $($case:literal => $section_type:path), + $(,)?) => {
+        match $id {
+            $($case => Ok($section_type($reader.parse()?))),+,    
+            num => Err(ParserError::InvalidSectionId(num))
+        }
+    };
+}
+
+impl SectionData {
+   pub fn init<R: BytecodeReader>(reader: &mut R, id: u8) -> Result<Self, ParserError> {
+        impl_match_sec_data! {
+            reader,
+            id,
+            0x01 => Self::Type, 
+            0x02 => Self::Import,
+            0x03 => Self::Function,
+            0x04 => Self::Table,
+            0x05 => Self::Memory,
+            0x06 => Self::Global,
+            0x07 => Self::Export,
+            0x08 => Self::Start,
+            0x09 => Self::DataCount,
+            0x0A => Self::Code,
+            0x0B => Self::Data,
+        }
+    }
+}
+
+
+
