@@ -1,8 +1,7 @@
 use std::ops::Range;
 
 use parser::{
-    op::Op,
-    types::{Function, ValueType},
+    op::Op, reader::{Function, ValueType},
 };
 
 use super::{error::ValidationError, validator::Validator};
@@ -53,19 +52,18 @@ impl JumpTable {
     pub fn patch(&self, function: &mut Function) -> Result<(), ValidationError> {
         for (i, jmp) in self.iter().enumerate() {
             let op = function
-                .get_instruction(jmp.ip as usize)
-                .cloned()
+                .get_op_mut(jmp.ip as usize)
                 .ok_or(ValidationError::InvalidJump)?;
 
             let new_op = match op {
                 Op::Else(_) => Op::Else(jmp.delta_ip),
-                Op::If(bt, _) => Op::If(bt, i),
-                Op::Br(bt, _) => Op::Br(bt, i),
-                Op::BrIf(bt, _) => Op::BrIf(bt, i),
+                Op::If{bt, jmp: _} => Op::If{bt: *bt, jmp: i},
+                Op::Br{label, jmp: _} => Op::Br {label: *label, jmp: i},
+                Op::BrIf{label, jmp: _} => Op::BrIf{label: *label, jmp: i},
                 _ => return Err(ValidationError::InvalidJump),
             };
 
-            function.set_instruction(jmp.ip as usize, new_op);
+            *op = new_op 
         }
         Ok(())
     }

@@ -1,10 +1,7 @@
-use std::fmt::{self};
+use byteorder::ReadBytesExt;
+use core::fmt;
 
-use crate::{
-    error::ReaderError,
-    reader::{FromReader, Reader},
-    types::{FuncId, GlobalId, LabelId, LocalId, TableId, TypeId, ValueType},
-};
+use crate::{leb::Leb, reader::{BytecodeReader, FromBytecode, ParserError, ValueType}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {
@@ -13,9 +10,9 @@ pub enum Blocktype {
     TypeIndex(u32),
 }
 
-impl<'src> FromReader<'src> for Blocktype {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
-        let value = reader.read_var_s33()?;
+impl FromBytecode for Blocktype {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        let value = Leb::read_s33(reader)?;
         if value > 0 {
             Ok(Self::TypeIndex(value.try_into().unwrap()))
         } else {
@@ -24,7 +21,7 @@ impl<'src> FromReader<'src> for Blocktype {
             match value * -1 {
                 0x40 => Ok(Self::Empty),
                 0x6F..=0x7F => Ok(Self::Value(b.try_into()?)),
-                _ => Err(ReaderError::InvalidBlocktypeEncoding),
+                _ => Err(ParserError::InvalidBlocktype(value)),
             }
         }
     }
@@ -39,17 +36,18 @@ impl fmt::Display for Blocktype {
         }
     }
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Memarg {
     pub offset: u32,
     pub align: u32,
 }
 
-impl<'src> FromReader<'src> for Memarg {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
+impl FromBytecode for Memarg {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         Ok(Memarg {
-            align: reader.read()?,
-            offset: reader.read()?,
+            align: reader.parse()?,
+            offset: reader.parse()?,
         })
     }
 }
@@ -66,21 +64,21 @@ pub enum Op {
     Block(Blocktype),
 
     Loop(Blocktype),
-    If(Blocktype, usize),
+    If {bt: Blocktype, jmp: usize},
     Else(isize),
     End,
-    Br(LabelId, usize),
-    BrIf(LabelId, usize),
+    Br {label: usize, jmp: usize},
+    BrIf{label: usize, jmp: usize},
     Return,
-    Call(FuncId),
-    CallIndirect(TableId, TypeId),
+    Call(usize),
+    CallIndirect{table: usize, type_id: usize},
     Drop,
     Select(Option<ValueType>),
-    LocalGet(LocalId),
-    LocalSet(LocalId),
-    LocalTee(LocalId),
-    GlobalGet(GlobalId),
-    GlobalSet(GlobalId),
+    LocalGet(usize),
+    LocalSet(usize),
+    LocalTee(usize),
+    GlobalGet(usize),
+    GlobalSet(usize),
     I32Load(Memarg),
     I64Load(Memarg),
     F32Load(Memarg),
@@ -169,7 +167,7 @@ pub enum Op {
 
 impl Op {
     pub fn needs_end_terminator(&self) -> bool {
-        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If(_, _))
+        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If {bt: _,  jmp: _} )
     }
 
     pub fn is_const(&self) -> bool {
@@ -180,56 +178,73 @@ impl Op {
             Self::I32Const(_) | Self::I64Const(_) | Self::GlobalGet(_)
         )
     }
+    pub fn is_terminator(&self) -> bool {
+        matches!(self, Self::End)
+    }
+    pub fn continues(&self, depth: u32) -> (u32, bool) {
+        if self.needs_end_terminator() {
+            (depth + 1, true)
+        } else if self.is_terminator() {
+            if depth <= 0 {
+                (0, false)
+            } else {
+                (depth - 1, true)
+            }
+        } else {
+            (depth, true)
+        }
+    }
 }
-impl<'src> FromReader<'src> for Op {
-    fn from_reader(reader: &mut Reader<'src>) -> Result<Self, ReaderError> {
+
+impl FromBytecode for Op {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         let opcode = reader.read_u8()?;
         let instr = match opcode {
             0x00 => Self::Unreachable,
             0x01 => Self::Nop,
-            0x02 => Self::Block(reader.read()?),
-            0x03 => Self::Loop(reader.read()?),
-            0x04 => Self::If(reader.read()?, 0),
+            0x02 => Self::Block(reader.parse()?),
+            0x03 => Self::Loop(reader.parse()?),
+            0x04 => Self::If {bt: reader.parse()?, jmp: 0},
             0x05 => Self::Else(0),
             0x0B => Self::End,
-            0x0C => Self::Br(reader.read()?, 0),
-            0x0D => Self::BrIf(reader.read()?, 0),
+            0x0C => Self::Br {label: reader.parse()?, jmp: 0},
+            0x0D => Self::BrIf {label: reader.parse()?, jmp: 0},
             0x0F => Self::Return,
-            0x10 => Self::Call(reader.read()?),
-            0x11 => Self::CallIndirect(reader.read()?, reader.read()?),
+            0x10 => Self::Call(reader.parse()?),
+            0x11 => Self::CallIndirect {table: reader.parse()?, type_id: reader.parse()?},
             0x1A => Self::Drop,
             0x1B => Self::Select(None),
-            0x1C => Self::Select(Some(reader.read()?)),
-            0x20 => Self::LocalGet(reader.read()?),
-            0x21 => Self::LocalSet(reader.read()?),
-            0x22 => Self::LocalTee(reader.read()?),
-            0x23 => Self::GlobalGet(reader.read()?),
-            0x24 => Self::GlobalSet(reader.read()?),
-            0x28 => Self::I32Load(reader.read()?),
-            0x29 => Self::I64Load(reader.read()?),
-            0x2A => Self::F32Load(reader.read()?),
-            0x2B => Self::F64Load(reader.read()?),
-            0x2C => Self::I32Load8s(reader.read()?),
-            0x2D => Self::I32Load8u(reader.read()?),
-            0x2E => Self::I32Load16s(reader.read()?),
-            0x2F => Self::I32Load16u(reader.read()?),
-            0x30 => Self::I64Load8s(reader.read()?),
-            0x31 => Self::I64Load8u(reader.read()?),
-            0x32 => Self::I64Load16s(reader.read()?),
-            0x33 => Self::I64Load16u(reader.read()?),
-            0x34 => Self::I64Load32s(reader.read()?),
-            0x35 => Self::I64Load32u(reader.read()?),
-            0x36 => Self::I32Store(reader.read()?),
-            0x37 => Self::I64Store(reader.read()?),
-            0x38 => Self::F32Store(reader.read()?),
-            0x39 => Self::F64Store(reader.read()?),
-            0x3A => Self::I32Store8(reader.read()?),
-            0x3B => Self::I32Store16(reader.read()?),
-            0x3C => Self::I64Store8(reader.read()?),
-            0x3D => Self::I64Store16(reader.read()?),
-            0x3E => Self::I64Store32(reader.read()?),
-            0x41 => Self::I32Const(reader.read()?),
-            0x42 => Self::I64Const(reader.read()?),
+            0x1C => Self::Select(Some(reader.parse()?)),
+            0x20 => Self::LocalGet(reader.parse()?),
+            0x21 => Self::LocalSet(reader.parse()?),
+            0x22 => Self::LocalTee(reader.parse()?),
+            0x23 => Self::GlobalGet(reader.parse()?),
+            0x24 => Self::GlobalSet(reader.parse()?),
+            0x28 => Self::I32Load(reader.parse()?),
+            0x29 => Self::I64Load(reader.parse()?),
+            0x2A => Self::F32Load(reader.parse()?),
+            0x2B => Self::F64Load(reader.parse()?),
+            0x2C => Self::I32Load8s(reader.parse()?),
+            0x2D => Self::I32Load8u(reader.parse()?),
+            0x2E => Self::I32Load16s(reader.parse()?),
+            0x2F => Self::I32Load16u(reader.parse()?),
+            0x30 => Self::I64Load8s(reader.parse()?),
+            0x31 => Self::I64Load8u(reader.parse()?),
+            0x32 => Self::I64Load16s(reader.parse()?),
+            0x33 => Self::I64Load16u(reader.parse()?),
+            0x34 => Self::I64Load32s(reader.parse()?),
+            0x35 => Self::I64Load32u(reader.parse()?),
+            0x36 => Self::I32Store(reader.parse()?),
+            0x37 => Self::I64Store(reader.parse()?),
+            0x38 => Self::F32Store(reader.parse()?),
+            0x39 => Self::F64Store(reader.parse()?),
+            0x3A => Self::I32Store8(reader.parse()?),
+            0x3B => Self::I32Store16(reader.parse()?),
+            0x3C => Self::I64Store8(reader.parse()?),
+            0x3D => Self::I64Store16(reader.parse()?),
+            0x3E => Self::I64Store32(reader.parse()?),
+            0x41 => Self::I32Const(reader.parse()?),
+            0x42 => Self::I64Const(reader.parse()?),
             0x43 => todo!(), //const f32
             0x44 => todo!(), //const f64
             0x45 => Op::I32Eqz,
@@ -304,14 +319,14 @@ impl fmt::Display for Op {
             Op::Nop => write!(f, "nop"),
             Op::Block(blocktype) => write!(f, "block {blocktype}"),
             Op::Loop(blocktype) => write!(f, "loop {blocktype}"),
-            Op::If(blocktype, jmp) => write!(f, "if {blocktype} (jmp: {jmp})"),
+            Op::If{bt, jmp} => write!(f, "if {bt} (jmp: {jmp})"),
             Op::Else(jmp) => write!(f, "else (delta ip: {jmp}"),
             Op::End => write!(f, "end"),
-            Op::Br(label_id, jmp) => write!(f, "br {label_id} (jmp: {jmp})"),
-            Op::BrIf(label_id, jmp) => write!(f, "br_if {label_id} (jmp: {jmp})"),
+            Op::Br{label, jmp} => write!(f, "br {label} (jmp: {jmp})"),
+            Op::BrIf{label, jmp}  => write!(f, "br_if {label} (jmp: {jmp})"),
             Op::Return => write!(f, "return"),
             Op::Call(func_id) => write!(f, "call {func_id}"),
-            Op::CallIndirect(table_id, type_id) => write!(f, "call_indirect {table_id} {type_id}"),
+            Op::CallIndirect{table, type_id} => write!(f, "call_indirect {table} {type_id}"),
             Op::Drop => write!(f, "drop"),
             Op::Select(_) => write!(f, "select"), //TODO: (joh): Argumente fuer Select
             Op::LocalGet(id) => write!(f, "local.get {id}"),

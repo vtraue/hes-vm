@@ -1,11 +1,11 @@
-use parser::{error::ReaderError, module::ModuleError};
+
+use parser::reader::ParserError;
 
 use super::validator::ValueStackType;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum ValidationError {
-    ReaderError(ReaderError),
-    ModuleError(ModuleError),
+    ReaderError(ParserError),
     ValueStackUnderflow,
     UnexpectedValueType {
         got: ValueStackType,
@@ -43,14 +43,9 @@ pub enum ValidationError {
 
 pub type Result<T> = std::result::Result<T, ValidationError>;
 
-impl From<ReaderError> for ValidationError {
-    fn from(value: ReaderError) -> Self {
+impl From<ParserError> for ValidationError {
+    fn from(value: ParserError) -> Self {
         Self::ReaderError(value)
     }
 }
 
-impl From<ModuleError> for ValidationError {
-    fn from(value: ModuleError) -> Self {
-        Self::ModuleError(value)
-    }
-}

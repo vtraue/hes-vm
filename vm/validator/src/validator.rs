@@ -4,9 +4,7 @@ use std::ops::Range;
 use itertools::Itertools;
 
 use parser::{
-    module::{DecodedBytecode, SortedImports},
-    op::{self, Op},
-    types::{Function, GlobalType, Limits, Type, ValueType},
+    op::{self, Op}, reader::{Bytecode, ValueType},
 };
 
 use super::{
@@ -57,7 +55,7 @@ impl From<ValueType> for ValueStackType {
 
 #[derive(Debug)]
 pub struct Context<'src> {
-    pub bytecode: &'src DecodedBytecode,
+    pub bytecode: &'src Bytecode,
     pub imports: SortedImports<'src>,
     pub function_types: Vec<&'src Type>,
     pub memories: Vec<&'src Limits>,
@@ -193,7 +191,7 @@ impl<'src> Validator {
         let prev_stack_len = self.value_stack.len();
         in_types.iter().cloned().for_each(|f| self.push_val_t(f));
 
-        let jte = if matches!(opcode, Some((Op::If(_, _), _)))
+        let jte = if matches!(opcode, Some((Op::If{bt: _, jmp: _}, _)))
             || matches!(opcode, Some((Op::Else(_), _)))
         {
             let entry = JumpTableEntry {
@@ -503,7 +501,7 @@ impl<'src> Validator {
         */
         let ctrl = self.pop_ctrl()?;
 
-        if let Some((Op::If(_, _), _)) = ctrl.opcode {
+        if let Some((Op::If{bt: _, jmp:_}, _)) = ctrl.opcode {
             let if_jmp = self
                 .jump_table
                 .get_jump_mut(ctrl.jump_table_entry.unwrap())?;
@@ -533,7 +531,7 @@ impl<'src> Validator {
 
                 let next_ip = match ctrl_op {
                     Op::Loop(_) => ctrl.ip as isize - jump.ip,
-                    Op::Block(_) | Op::If(_, _) | Op::Else(_) => {
+                    Op::Block(_) | Op::If{bt: _, jmp: _} | Op::Else(_) => {
                         self.instruction_pointer as isize - jump.ip
                     }
                     _ => return Err(ValidationError::InvalidJump),
@@ -652,24 +650,24 @@ impl<'src> Validator {
             Op::Nop => {}
             Op::Block(blocktype) => self.validate_block(context, op, blocktype)?,
             Op::Loop(blocktype) => self.validate_block(context, op, blocktype)?,
-            Op::If(blocktype, _) => {
+            Op::If{bt: blocktype, jmp: _} => {
                 self.pop_val_expect_val(I32)?;
                 self.validate_block(context, op, blocktype)?;
             }
             Op::Else(_) => self.validate_else(op)?,
             Op::End => self.validate_end()?,
-            Op::Br(n, _) => self.validate_br(n)?,
-            Op::BrIf(n, _) => self.validate_br_if(n)?,
+            Op::Br{label: n, jmp: _} => self.validate_br(n as u32)?,
+            Op::BrIf{label: n, jmp: _} => self.validate_br_if(n as u32)?,
             Op::Return => self.validate_return(context)?,
-            Op::Call(call_id) => self.validate_call(context, call_id)?,
-            Op::CallIndirect(_, _) => todo!(),
+            Op::Call(call_id) => self.validate_call(context, call_id as u32)?,
+            Op::CallIndirect{table: _, type_id: _} => todo!(),
             Op::Drop => _ = self.pop_val()?,
             Op::Select(t) => self.validate_select(t)?,
-            Op::LocalGet(id) => self.validate_local_get(id)?,
-            Op::LocalSet(id) => self.validate_local_set(id)?,
-            Op::LocalTee(id) => self.validate_local_tee(context, id)?,
-            Op::GlobalGet(id) => self.validate_global_get(context, id)?,
-            Op::GlobalSet(id) => self.validate_global_set(context, id)?,
+            Op::LocalGet(id) => self.validate_local_get(id as u32)?,
+            Op::LocalSet(id) => self.validate_local_set(id as u32)?,
+            Op::LocalTee(id) => self.validate_local_tee(context, id as u32)?,
+            Op::GlobalGet(id) => self.validate_global_get(context, id as u32)?,
+            Op::GlobalSet(id) => self.validate_global_set(context, id as u32)?,
             Op::I32Load(memarg) => self.validate_load(context, memarg, I32)?,
             Op::I64Load(memarg) => self.validate_load(context, memarg, I64)?,
             Op::F32Load(memarg) => self.validate_load(context, memarg, F32)?,
@@ -813,11 +811,11 @@ impl<'src> Validator {
 }
 
 pub fn patch_jumps<'a, I: IntoIterator<Item = &'a JumpTable>>(
-    module: &mut DecodedBytecode,
+    module: &mut Bytecode,
     jumps: I,
 ) -> Result<(), ValidationError> {
     if let Some(funcs) = module.code.as_mut() {
-        for ((func, _), table) in funcs.0.iter_mut().zip(jumps) {
+        for (func, table) in funcs.data.iter_mut().map(|f| &mut f.data).zip(jumps) {
             table.patch(func)?;
         }
     }
@@ -826,7 +824,7 @@ pub fn patch_jumps<'a, I: IntoIterator<Item = &'a JumpTable>>(
 
 #[cfg(test)]
 mod tests {
-    use parser::{error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader};
+    use parser::{op::Op, reader::ParserError};
 
     use crate::{error::ValidationError, validator::patch_jumps};
 
@@ -835,11 +833,11 @@ mod tests {
     #[derive(Debug)]
     enum ValidationTestError {
         Validation(ValidationError),
-        Parsing(ReaderError),
+        Parsing(ParserError),
     }
 
-    impl From<ReaderError> for ValidationTestError {
-        fn from(value: ReaderError) -> Self {
+    impl From<ParserError> for ValidationTestError {
+        fn from(value: ParserError) -> Self {
             Self::Parsing(value)
         }
     }
