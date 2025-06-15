@@ -1,3 +1,4 @@
+
 use core::fmt;
 use std::ops::Range;
 
@@ -50,6 +51,11 @@ impl fmt::Display for ValueStackType {
 impl From<ValueType> for ValueStackType {
     fn from(value: ValueType) -> Self {
         Self::T(value)
+    }
+}
+impl From<&ValueType> for ValueStackType {
+    fn from(value: &ValueType) -> Self {
+        Self::T(*value)
     }
 }
 
@@ -1315,3 +1321,4 @@ mod tests {
         Ok(())
     }
 }
+

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{io::Read};
 
 use byteorder::ReadBytesExt;
 use thiserror::Error;
@@ -59,6 +59,7 @@ impl Leb {
         let mut shift = 7;
         loop {
             let byte = u64::from(reader.read_u8()?);
+              
             result |= (byte & 0x7F) << shift;
             if shift >= 57 && (byte >> (64 - shift)) != 0 {
                 // The continuation bit or unused bits are set.

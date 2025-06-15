@@ -1,3 +1,4 @@
+/*
 use std::ops::Range;
 
 use parser::{
@@ -49,6 +50,7 @@ impl JumpTable {
         self.0.len() - 1
     }
 
+
     pub fn patch(&self, function: &mut Function) -> Result<(), ValidationError> {
         for (i, jmp) in self.iter().enumerate() {
             let op = function
@@ -87,8 +89,8 @@ impl JumpTable {
     pub fn get_jump(&self, id: usize) -> Result<&JumpTableEntry, ValidationError> {
         self.0.get(id).ok_or(ValidationError::InvalidJumpId)
     }
-
     pub fn get_jump_mut(&mut self, id: usize) -> Result<&mut JumpTableEntry, ValidationError> {
         self.0.get_mut(id).ok_or(ValidationError::InvalidJumpId)
     }
 }
+*/

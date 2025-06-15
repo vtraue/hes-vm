@@ -57,6 +57,12 @@ impl fmt::Display for Memarg {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum JumpDirection {
+    Forward,
+    Backward
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Unreachable,
@@ -181,6 +187,7 @@ impl Op {
     pub fn is_terminator(&self) -> bool {
         matches!(self, Self::End)
     }
+
     pub fn continues(&self, depth: u32) -> (u32, bool) {
         if self.needs_end_terminator() {
             (depth + 1, true)
@@ -194,6 +201,11 @@ impl Op {
             (depth, true)
         }
     }
+    pub fn is_branch(&self) -> bool {
+        return matches!(self, Op::If { bt: _, jmp: _}) ||matches!(self, Op::Else(_))  
+    }
+
+
 }
 
 impl FromBytecode for Op {

@@ -2,6 +2,7 @@ use core::fmt::{self, Display}; use std::{io::{Cursor, Read, Seek, SeekFrom}, it
 
 use byteorder::ReadBytesExt;
 use itertools::Itertools;
+use parser_derive::FromBytecode;
 
 use crate::{leb::{Leb, LebError}, op::Op};
 use thiserror::Error;
@@ -130,7 +131,11 @@ impl<T: FromBytecode> FromBytecode for WithPosition<T> {
         parse_with_pos(reader)
     }
 }
-
+impl<T: FromBytecode> From<(T, Range<usize>)> for WithPosition<T> {
+    fn from(value: (T, Range<usize>)) -> Self {
+        WithPosition::new(value.0, value.1)
+    }
+}
 pub fn read_with_pos<R: Read + Seek, T: Sized, F>(reader: &mut R, read_op: F) -> Result<WithPosition<T>, ParserError> 
     where F: FnOnce(&mut R) -> T
 {
@@ -222,6 +227,7 @@ impl FromBytecode for String {
         Ok(parse_string(reader)?)
     }
 }
+
 #[derive(Debug, Clone, Default)]
 pub struct Header {
     header: Range<usize>, 
@@ -399,24 +405,11 @@ impl Display for Type {
     }
 }
 
-macro_rules! default_impl_from_bytecode {
-    ($struct_t: ty {$($field_name: ident : $field_t: ty), + $(,)?} ) => {
-        impl FromBytecode for $struct_t {
-            fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-                Ok(Self {
-                    $($field_name: reader.parse()?),+
-                })
-            }
-        }
-    };
-}
-
-#[derive(Debug, PartialEq, Clone)]
+#[derive(FromBytecode, Debug, PartialEq, Clone)]
 pub struct GlobalType {
     pub t: WithPosition<ValueType>,
     pub mutable: WithPosition<bool>,
 }
-default_impl_from_bytecode! {GlobalType {t: WithPosition<ValueType>, mutable: WithPosition<bool>}}
 
 impl GlobalType {
     pub fn is_mut(&self) -> bool {
@@ -441,16 +434,12 @@ impl FromBytecode for ConstExpr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(FromBytecode, Debug, Clone)]
 pub struct Global {
     pub t: WithPosition<GlobalType>,
     pub init_expr: WithPosition<ConstExpr>,
 }
 
-default_impl_from_bytecode!(Global {
-    t: WithPosition<GlobalType>,
-    init_expr: WithPosition<ConstExpr>,
-});
 
 impl Global {
     pub fn value_type(&self) -> ValueType {
@@ -546,7 +535,7 @@ impl Display for ImportDesc {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(FromBytecode, Debug, Clone)]
 pub struct ImportIdent {
     pub module: WithPosition<String>,
     pub name:   WithPosition<String>,
@@ -557,24 +546,12 @@ impl Display for ImportIdent {
     }
 }
 
-default_impl_from_bytecode!(
-    ImportIdent {
-       module: WithPosition<String>, 
-       name: WithPosition<String>, 
-   }
-);
 
-#[derive(Debug, Clone)]
+#[derive(FromBytecode, Debug, Clone)]
 pub struct Import {
     pub ident: WithPosition<ImportIdent>,
     pub desc: WithPosition<ImportDesc>
 }
-default_impl_from_bytecode!(
-    Import {
-       ident: WithPosition<ImportIdent>, 
-       desc : WithPosition<ImportDesc>, 
-   }
-);
 
 impl Display for Import {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -582,16 +559,11 @@ impl Display for Import {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(FromBytecode, Debug, Clone, PartialEq)]
 pub struct Locals {
     pub n: u32,
     pub t: ValueType,
 }
-
-default_impl_from_bytecode!(Locals {
-        n: u32,
-        t: ValueType,
-});
 
 impl Locals {
     pub fn flat_iter(&self) -> impl Iterator<Item = ValueType> {
@@ -646,18 +618,11 @@ impl Display for ExportDesc {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(FromBytecode, Debug, Clone)]
 pub struct Export {
     pub name: WithPosition<String>,
     pub desc: WithPosition<ExportDesc>
 }
-
-default_impl_from_bytecode!(
-    Export {
-        name: WithPosition<String>,
-        desc: WithPosition<ExportDesc>
-    });
-
 
 impl fmt::Display for Export {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -722,20 +687,13 @@ impl FromBytecode for Expression {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(FromBytecode, Debug, Clone)]
 pub struct Function {
     pub size: usize,
     pub locals: WithPosition<Vec<WithPosition<Locals>>>,
     pub code: WithPosition<Expression>
 }
 
-default_impl_from_bytecode!(
-    Function {
-        size: usize,
-        locals: WithPosition<Vec<WithPosition<Locals>>>,
-        code: WithPosition<Expression>
-    }
-);
 
 impl Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -912,6 +870,25 @@ pub fn iter_sections(reader: &mut impl BytecodeReader) -> impl Iterator<Item = R
     parse_until_eof(reader)
 }
 
+#[derive(Debug, Default)]
+pub struct SortedImports {
+    pub functions: Vec<(usize, usize)>,
+    pub tables: Vec<(usize, Limits)>,
+    pub mems: Vec<(usize, Limits)>,
+    pub globals: Vec<(usize, GlobalType)>
+}
+impl SortedImports {
+    pub fn add(&mut self, import: &Import, id: usize) {
+        match &import.desc.data {
+            ImportDesc::TypeIdx(t_id) => self.functions.push((id, *t_id)),
+            ImportDesc::TableType(limits) => self.tables.push((id, limits.clone())),
+            ImportDesc::MemType(limits) => self.mems.push((id, limits.clone())),
+            ImportDesc::GlobalType(gt) => self.globals.push((id, gt.clone())),
+        }
+        
+    }
+}
+
 type MaybeAt<T> = Option<WithPosition<T>>;
 #[derive(Debug, Default)]
 pub struct Bytecode {
@@ -928,6 +905,7 @@ pub struct Bytecode {
     pub code: MaybeAt<Code>,
     pub data: MaybeAt<ModuleData>,
     pub custom_sections: Vec<WithPosition<CustomSection>>
+
 }
 macro_rules! impl_add_section {
     ($section:ident -> $module:ident {$($case:path => $mod_name:expr),+ $(,)?}) => {
@@ -955,6 +933,7 @@ impl Bytecode {
             }
         );
     }
+
     fn add_custom_section(&mut self, section: WithPosition<CustomSection>) {
         self.custom_sections.push(section); 
     }
@@ -979,26 +958,44 @@ impl FromBytecode for Bytecode {
 
 macro_rules! impl_bytecode_vec_accessor {
     ($($name:ident, $pos_name:ident, $field:ident=> $res_type: ty),+$(,)?) => {
-        $(pub fn $name(&self, id: usize) -> Option<$res_type> {
-            Some(&self.$field.as_ref()?.data.get(id)?.data)
-        })+
-        $(pub fn $pos_name(&self, id: usize) -> Option<WithPosition<$res_type>> {
-            Some(self.$field.as_ref()?.data.get(id)?.as_ref())
-        })+
+        impl Bytecode {
+            $(pub fn $name(&self, id: usize) -> Option<$res_type> {
+                Some(&self.$field.as_ref()?.data.get(id)?.data)
+            })+
+            $(pub fn $pos_name(&self, id: usize) -> Option<WithPosition<$res_type>> {
+                Some(self.$field.as_ref()?.data.get(id)?.as_ref())
+            })+
+        }
     };
 }
 
+impl_bytecode_vec_accessor! {
+    get_type, get_type_pos, types => &Type,
+    get_import, get_import_pos, imports => &Import,
+    get_function, get_function_pos, functions => &usize,
+    get_table, get_table_pos, tables => &Limits,
+    get_memory, get_memory_pos, memories => &Limits,
+    get_global, get_global_pos, globals => &Global,
+    get_export, get_export_pos, exports => &Export,
+    get_code, get_code_pos, code => &Function,
+    get_data, get_data_pos, data => &Data,
+}
+
 impl Bytecode {
-    impl_bytecode_vec_accessor! {
-        get_type, get_type_pos, types => &Type,
-        get_import, get_import_pos, imports => &Import,
-        get_function, get_function_pos, functions => &usize,
-        get_table, get_table_pos, tables => &Limits,
-        get_memory, get_memory_pos, memories => &Limits,
-        get_global, get_global_pos, globals => &Global,
-        get_export, get_export_pos, exports => &Export,
-        get_code, get_code_pos, code => &Function,
-        get_data, get_data_pos, data => &Data,
+    pub fn sort_imports(&self) -> Option<SortedImports> {
+        if let Some(imports) = &self.imports {
+            let mut sorted: SortedImports = Default::default(); 
+
+            imports.data
+                .iter()
+                .enumerate()
+                .for_each(|(id, i)| sorted.add(&i.data, id));
+
+            Some(sorted)
+        } else {
+            None
+        }
+
     }
 }
 
