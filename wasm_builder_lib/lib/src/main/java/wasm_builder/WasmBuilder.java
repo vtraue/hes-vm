@@ -12,6 +12,7 @@ import java.util.Optional;
 
 public class WasmBuilder {
 
+	private BytecodeWriter bw = new BytecodeWriter();
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 	private ArrayList<FuncType> funcTypes = new ArrayList<>();
 	private ArrayList<GlobalType> globals = new ArrayList<>();
@@ -444,7 +445,9 @@ public class WasmBuilder {
 		writeBinaryVersion(out);
 
 		if (!funcTypes.isEmpty()) {
-			writeTypeSection(allFuncTypes, out);
+//			writeTypeSection(allFuncTypes, out);
+			TypeSection ts = new TypeSection(funcTypes);
+			ts.write();
 		}
 		writeImportSection(imports, out);
 		if (!funcTypes.isEmpty()) {
