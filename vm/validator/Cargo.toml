@@ -9,6 +9,9 @@ bytemuck = "1.23.0"
 num-traits = "0.2.19"
 smallvec = "1.15.0"
 parser = {path = "../parser/"}
+thiserror = "2.0.12"
+validator_derive = {path = "../validator_derive/"}
+
 [dev-dependencies]
 wat = "1.227.1"
 

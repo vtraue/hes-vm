@@ -1,22 +1,67 @@
-
-use core::fmt;
-use std::ops::Range;
+use std::{fmt::{Debug, Display}, string::ParseError};
+use thiserror::Error;
 
 use itertools::Itertools;
-
 use parser::{
-    op::{self, Op}, reader::{Bytecode, ValueType},
-};
-
-use super::{
-    ctrl::{CtrlFrame, JumpTable, JumpTableEntry},
-    error::ValidationError,
+    info::{BytecodeInfo, FunctionType},
+    op::{Blocktype, Memarg, Op},
+    reader::{self, parse_binary, parse_wat, Bytecode, BytecodeReader, Code, Function, ParserError, Type, ValueType, WithPosition},
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ValueStackType {
     T(ValueType),
     Unknown,
+}
+
+#[derive(Error, Debug)]
+pub enum ValidationError {
+    #[error("Unexpected empty control stack")]
+    UnexpetedEmptyControlStack,
+    #[error("Underflow in type stack")]
+    TypeStackUnderflow,
+    #[error("Popped an unexpected value from type stack. Expected: {expected}, got: {got}")]
+    PoppedUnexpectedType {
+        got: ValueStackType,
+        expected: ValueStackType,
+    },
+    #[error("Stack is not balaned. Expected size {expected}, got:  {got}")]
+    UnbalancedStack {
+        got: usize,
+        expected: usize,
+    },
+
+    #[error("Label out of scope: Maximum depth: {max}, got {got}")]
+    LabelIndexOutOfScope {
+        got: usize,
+        max: usize,
+    },
+    #[error("Tried using memory instructions but module does not define memory")]
+    UnexpectedNoMemories,
+    #[error("Invalid memory alignment")]
+    InvalidMemoryAlignment,
+    #[error("Invalid local id: {0}")]
+    InvalidLocalId(usize),
+    #[error("Invalid global id: {0}")]
+    InvalidGlobalId(usize),
+    #[error("Expected an numeric type")]
+    ExpectedNumericType,
+    #[error("Got an invalid block type: Got: {0}")]
+    InvalidBlockType(u32),
+    #[error("Invalid Jump Table Destionation: Got {0}")]
+    InvalidJumpTableDestination(usize),
+    #[error("Else instruction is missing if")]
+    ElseMissingIf,
+    #[error("Unexpected emptry jump stack")]
+    UnexpectedEmptyJumpStack,
+    #[error("Invalid Op for ctrl frame: Got: {0}")]
+    InvalidCtrlOp(Op),
+    #[error("Invalid function type id: Got: {0}")]
+    InvalidFunctionTypeId(usize),
+    #[error("Invalid function id: Got: {0}")]
+    InvalidFunctionId(usize),
+    #[error("Invalid jump target: {0}")]
+    InvalidJump(usize),
 }
 
 impl ValueStackType {
@@ -40,7 +85,8 @@ impl ValueStackType {
         }
     }
 }
-impl fmt::Display for ValueStackType {
+
+impl Display for ValueStackType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueStackType::T(value_type) => write!(f, "{value_type}"),
@@ -50,7 +96,7 @@ impl fmt::Display for ValueStackType {
 }
 impl From<ValueType> for ValueStackType {
     fn from(value: ValueType) -> Self {
-        Self::T(value)
+        ValueStackType::T(value)
     }
 }
 impl From<&ValueType> for ValueStackType {
@@ -59,653 +105,660 @@ impl From<&ValueType> for ValueStackType {
     }
 }
 
-#[derive(Debug)]
-pub struct Context<'src> {
-    pub bytecode: &'src Bytecode,
-    pub imports: SortedImports<'src>,
-    pub function_types: Vec<&'src Type>,
-    pub memories: Vec<&'src Limits>,
-    pub globals: Vec<&'src GlobalType>,
+#[derive(Debug, Clone)]
+pub struct CtrlFrame {
+    prev_stack_len: usize,
+    is_unreachable: bool,
+    op: Option<WithPosition<Op>>,
+    in_types: Vec<ValueType>,
+    out_types: Vec<ValueType>,
+    jump_table_entry: Option<usize>,
+    ip: isize,
+}
+impl CtrlFrame {
+    pub fn iter_label_types(&self) -> Option<impl Iterator<Item = ValueType>> {
+        if let Op::Loop(_) = self.op.as_ref()?.data {
+            Some(self.in_types.iter().cloned())
+        } else {
+            Some(self.out_types.iter().cloned())
+        }
+    }
+}
+#[derive(Default, Debug, Clone)]
+pub struct JumpTableEntry {
+    pub ip: isize,
+    pub delta_ip: isize,
+    pub stack_height: usize,
+
+    pub out_count: usize,
 }
 
-impl<'src> Context<'src> {
-    pub fn new(bytecode: &'src DecodedBytecode) -> Result<Context<'src>, ValidationError> {
-        let imports = bytecode.sort_imports()?;
-
-        let mut function_types = imports.functions.clone();
-        if let Some(funcs) = &bytecode.functions {
-            for type_id in &funcs.0 {
-                let (t, _) = bytecode.get_type(type_id.0 as usize)?;
-                function_types.push(t);
-            }
+impl JumpTableEntry {
+    pub fn new(ip: isize, stack_height: usize, out_count: usize) -> Self {
+        JumpTableEntry {
+            ip,
+            delta_ip: ip,
+            stack_height,
+            out_count,
         }
+    }
+}
 
-        let mut memories = imports.memories.clone();
-        if let Some(mems) = bytecode.memories.as_ref() {
-            memories.extend(mems.0.iter().map(|(mem, _)| mem));
+pub fn last_ctrl(stack: &impl AsRef<[CtrlFrame]>) -> Result<&CtrlFrame, ValidationError> {
+    stack
+        .as_ref()
+        .last()
+        .ok_or(ValidationError::UnexpetedEmptyControlStack)
+}
+
+pub fn pop_type(
+    stack: &mut Vec<ValueStackType>,
+    frame_stack_len: usize,
+    unreachable: bool,
+) -> Result<ValueStackType, ValidationError> {
+    if frame_stack_len == stack.len() {
+        if unreachable {
+            Ok(ValueStackType::Unknown)
+        } else {
+            Err(ValidationError::TypeStackUnderflow)
         }
+    } else {
+        let val = stack.pop().ok_or(ValidationError::TypeStackUnderflow)?;
+        println!("Popping: {}", val);
+        Ok(val) 
+    }
+}
 
-        let mut globals = imports.globals.clone();
-        if let Some(internal_globals) = bytecode.globals.as_ref() {
-            globals.extend(internal_globals.0.iter().map(|(g, _)| &g.t.0));
+pub fn pop_type_expect(
+    stack: &mut Vec<ValueStackType>,
+    frame_stack_len: usize,
+    unreachable: bool,
+    expected: impl Into<ValueStackType>,
+) -> Result<ValueStackType, ValidationError> {
+    pop_type(stack, frame_stack_len, unreachable).map(|got| {
+        let expected = expected.into();
+        if got == expected || got == ValueStackType::Unknown || expected == ValueStackType::Unknown
+        {
+            Ok(got)
+        } else {
+            Err(ValidationError::PoppedUnexpectedType { got, expected })
         }
+    })?
+}
 
-        //TODO: Tables
-        let context = Context {
-            bytecode,
-            imports,
-            function_types,
-            memories,
-            globals,
-        };
-        Ok(context)
+pub fn pop_values(
+    stack: &mut Vec<ValueStackType>,
+    frame_stack_len: usize,
+    unreachable: bool,
+    expected: impl Iterator<Item = impl Into<ValueStackType>>,
+) -> Result<(), ValidationError> {
+    for val in expected {
+        pop_type_expect(stack, frame_stack_len, unreachable, val)?;
     }
+    Ok(())
+}
+pub fn push_type(stack: &mut Vec<ValueStackType>, val: impl Into<ValueStackType>) {
+    stack.push(val.into())
+}
 
-    pub fn get_func_type(&self, id: usize) -> Result<&'src Type, ValidationError> {
-        self.function_types
-            .get(id)
-            .ok_or(ValidationError::InvalidFuncId(id))
-            .copied()
-    }
-    pub fn get_internal_func_type(&self, id: usize) -> Result<&'src Type, ValidationError> {
-        self.get_func_type(self.imports.functions.len() + id)
-    }
-    pub fn get_memory(&self, id: usize) -> Result<&'src Limits, ValidationError> {
-        self.memories
-            .get(id)
-            .ok_or(ValidationError::InvalidMemId(id))
-            .copied()
-    }
+pub fn push_all(
+    stack: &mut Vec<ValueStackType>,
+    values: impl IntoIterator<Item = impl Into<ValueStackType>> + Debug,
+) {
+    println!("Pushing: {:?}", values);
+    stack.extend(values.into_iter().map_into());
+}
 
-    pub fn get_global(&self, id: usize) -> Result<&'src GlobalType, ValidationError> {
-        self.globals
-            .get(id)
-            .ok_or(ValidationError::InvalidGlobalID(id))
-            .copied()
-    }
+fn pop_out_values(
+    stack: &mut Vec<ValueStackType>,
+    frame: &CtrlFrame,
+) -> Result<(), ValidationError> {
+    pop_values(
+        stack,
+        frame.prev_stack_len,
+        frame.is_unreachable,
+        frame.out_types.iter(),
+    )
+}
 
-    pub fn get_function_count(&self) -> usize {
-        self.bytecode
-            .functions
-            .as_ref()
-            .map_or(0, |(funcs, _)| funcs.len())
-    }
+fn get_ctrl_peek_id(stack_size: usize, label: usize) -> isize {
+    (stack_size as isize - 1) - label as isize
+}
+
+fn peek_ctrl(stack: &impl AsRef<[CtrlFrame]>, label: usize) -> Result<&CtrlFrame, ValidationError> {
+    let stack = stack.as_ref();
+    let id = get_ctrl_peek_id(stack.len(), label);
+
+    stack
+        .get(id as usize)
+        .ok_or(ValidationError::LabelIndexOutOfScope {
+            got: id as usize,
+            max: stack.len(),
+        })
 }
 
 #[derive(Debug, Default)]
-pub struct Validator {
+pub struct ValidatorContext {
+    ip: isize,
+    func_id: usize,
+    type_stack: Vec<ValueStackType>,
     ctrl_stack: Vec<CtrlFrame>,
-    ctrl_jump_stack: Vec<Vec<usize>>,
-    pub value_stack: Vec<ValueStackType>,
     locals: Vec<ValueType>,
-    jump_table: JumpTable,
-    current_func_id: usize,
-    instruction_pointer: usize,
+    jump_table: Vec<JumpTableEntry>,
+    ctrl_jump_stack: Vec<Vec<usize>>,
 }
 
-impl<'src> Validator {
-    pub fn pop_val(&mut self) -> Result<ValueStackType, ValidationError> {
-        let current_ctrl = &self
-            .ctrl_stack
-            .last()
-            .ok_or(ValidationError::UnexpectedEmptyControlStack)?;
-        if current_ctrl.start_height == self.value_stack.len() {
-            if current_ctrl.is_unreachable {
-                Ok(ValueStackType::Unknown)
-            } else {
-                Err(ValidationError::ValueStackUnderflow)
-            }
+macro_rules! validate_types {
+    ($validator:ident, [$($in_value: expr),*$(,)?] =>[$($out_value: expr),*$(,)?] ) => {
+        $($validator.pop($in_value)?;)*
+        $($validator.push($out_value);)*
+    }
+}
+
+impl ValidatorContext {
+    pub fn get_jump(&self, id: usize) -> Result<&JumpTableEntry, ValidationError> {
+        self.jump_table
+            .get(id)
+            .ok_or(ValidationError::InvalidJumpTableDestination(id))
+    }
+    pub fn get_jump_mut(&mut self, id: usize) -> Result<&mut JumpTableEntry, ValidationError> {
+        self.jump_table
+            .get_mut(id)
+            .ok_or(ValidationError::InvalidJumpTableDestination(id))
+    }
+
+    fn current_ctrl(&self) -> Result<&CtrlFrame, ValidationError> {
+        last_ctrl(&self.ctrl_stack)
+    }
+
+    fn push_branch_op_jte(&mut self, op: Op, out_type_count: usize) -> Option<usize> {
+        if op.is_branch() {
+            let entry = JumpTableEntry::new(self.ip, self.type_stack.len(), out_type_count);
+            self.jump_table.push(entry);
+            Some(self.jump_table.len() - 1)
         } else {
-            let val = self
-                .value_stack
-                .pop()
-                .ok_or(ValidationError::ValueStackUnderflow)?;
+            None
+        }
+    }
+
+    pub fn pop_any(&mut self) -> Result<(), ValidationError> {
+        let len = self.current_ctrl()?.prev_stack_len;
+        let unreachable = self.current_ctrl()?.is_unreachable;
+        let _ = pop_type(&mut self.type_stack, len, unreachable)?;
+        Ok(())
+    }
+    pub fn pop(&mut self, expected: impl Into<ValueStackType>) -> Result<(), ValidationError> {
+        let len = self.current_ctrl()?.prev_stack_len;
+        let unreachable = self.current_ctrl()?.is_unreachable;
+        let _ = pop_type_expect(&mut self.type_stack, len, unreachable, expected)?;
+        Ok(())
+    }
+    pub fn pop_numeric(&mut self) -> Result<ValueStackType, ValidationError> {
+        let len = self.current_ctrl()?.prev_stack_len;
+        let unreachable = self.current_ctrl()?.is_unreachable;
+        let val = pop_type(&mut self.type_stack, len, unreachable)?;
+        if !(val.is_num() || val.is_vec()) {
+            Err(ValidationError::ExpectedNumericType)
+        } else {
             Ok(val)
         }
     }
-    pub fn push_val_t(&mut self, val: ValueType) {
-        self.value_stack.push(val.into());
+
+    pub fn push(&mut self, t: impl Into<ValueStackType> + Display) {
+        println!("Pushing: {t}");
+        self.type_stack.push(t.into());
     }
 
-    pub fn pop_val_expect(
+    pub fn push_ctrl(
         &mut self,
-        expected: ValueStackType,
-    ) -> Result<ValueStackType, ValidationError> {
-        self.pop_val().map(|v| {
-            if v == expected {
-                Ok(v)
-            } else {
-                Err(ValidationError::UnexpectedValueType { got: v, expected })
-            }
-        })?
-    }
-
-    pub fn pop_val_expect_val(
-        &mut self,
-        expected: ValueType,
-    ) -> Result<ValueStackType, ValidationError> {
-        self.pop_val_expect(expected.into())
-    }
-
-    pub fn push_new_ctrl(
-        &mut self,
-        opcode: Option<(Op, Range<usize>)>,
+        op: Option<WithPosition<Op>>,
         in_types: Vec<ValueType>,
         out_types: Vec<ValueType>,
     ) {
-        //TODO: (joh): Das ist nicht sehr elegant
-        let prev_stack_len = self.value_stack.len();
-        in_types.iter().cloned().for_each(|f| self.push_val_t(f));
-
-        let jte = if matches!(opcode, Some((Op::If{bt: _, jmp: _}, _)))
-            || matches!(opcode, Some((Op::Else(_), _)))
+        let jump_table_entry = if let Some(WithPosition {
+            data: op,
+            position: _,
+        }) = op
         {
-            let entry = JumpTableEntry {
-                ip: self.instruction_pointer as isize,
-                delta_ip: self.instruction_pointer as isize,
-                stack_height: prev_stack_len,
-                out_count: out_types.len(),
-            };
-            Some(self.jump_table.push(entry))
+            self.push_branch_op_jte(op, out_types.len())
         } else {
             None
         };
+        let prev_stack_len = self.type_stack.len();
+        push_all(&mut self.type_stack, &in_types);
+
         let ctrl = CtrlFrame {
-            opcode,
-            ip: self.instruction_pointer,
-            jump_table_entry: jte,
+            prev_stack_len,
+            is_unreachable: false,
             in_types,
             out_types,
-            start_height: prev_stack_len,
-            is_unreachable: false,
+            op,
+            ip: self.ip,
+            jump_table_entry,
         };
-
-        self.ctrl_jump_stack.push(Vec::new());
         self.ctrl_stack.push(ctrl);
+        self.ctrl_jump_stack.push(Vec::new());
     }
 
     pub fn pop_ctrl(&mut self) -> Result<CtrlFrame, ValidationError> {
-        let out_types = self
-            .ctrl_stack
-            .last()
-            .ok_or(ValidationError::UnexpectedEmptyControlStack)?
-            .out_types
-            .clone();
-        let start_height = self.ctrl_stack.last().unwrap().start_height;
-        println!("pop ctrl count: {}", out_types.len());
-        out_types
-            .iter()
-            .cloned()
-            .map_into::<ValueStackType>()
-            .try_for_each(|t| {
-                let val = self.pop_val()?;
-                if val != t && val != ValueStackType::Unknown {
-                    Err(ValidationError::ReturnTypesDoNotMatch {
-                        got: val,
-                        expexted: t,
-                    })
-                } else {
-                    Ok(())
-                }
-            })?;
+        let current_ctrl = last_ctrl(&self.ctrl_stack)?;
+        let start_height = current_ctrl.prev_stack_len;
+        pop_out_values(&mut self.type_stack, current_ctrl)?;
+        println!("Popping ctrl to start height: {}", start_height);
 
-        if self.value_stack.len() != start_height {
-            return Err(ValidationError::UnbalancedStack {
-                got: self.value_stack.len(),
+        if self.type_stack.len() != start_height {
+            println!("Type stack: {:?}", self.type_stack);
+            Err(ValidationError::UnbalancedStack {
+                got: self.type_stack.len(),
                 expected: start_height,
-            });
+            })
+        } else {
+            Ok(self.ctrl_stack.pop().unwrap())
         }
-
-        let frame = self.ctrl_stack.pop().unwrap();
-        Ok(frame)
     }
 
-    pub fn peek_ctrl_at_label(&self, label: u32) -> Result<&CtrlFrame, ValidationError> {
-        let id = (self.ctrl_stack.len() as isize - 1) - (label as isize);
+    pub fn get_current_frame_mut(&mut self) -> Result<&mut CtrlFrame, ValidationError> {
         self.ctrl_stack
-            .get(id as usize)
-            .ok_or(ValidationError::LabelIndexOutOfScope(id as u32))
-    }
-
-    pub fn push_ctrl_jump(&mut self, label: u32, jump: usize) -> Result<(), ValidationError> {
-        let id = (self.ctrl_jump_stack.len() as isize - 1) - (label as isize);
-        self.ctrl_jump_stack
-            .get_mut(id as usize)
-            .ok_or(ValidationError::LabelIndexOutOfScope(label))?
-            .push(jump);
-        Ok(())
+            .get_mut(0)
+            .ok_or(ValidationError::UnexpetedEmptyControlStack)
     }
 
     pub fn set_unreachable(&mut self) -> Result<(), ValidationError> {
-        let frame = self
-            .ctrl_stack
-            .last_mut()
-            .ok_or(ValidationError::UnexpectedEmptyControlStack)?;
-        self.value_stack.truncate(frame.start_height);
-        frame.is_unreachable = true;
+        let current_frame = self.get_current_frame_mut()?;
+        current_frame.is_unreachable = true;
         Ok(())
     }
 
     pub fn validate_binop(&mut self, val_type: ValueType) -> Result<(), ValidationError> {
-        self.pop_val_expect_val(val_type)?;
-        self.pop_val_expect_val(val_type)?;
-        self.push_val_t(val_type);
+        validate_types!(self, [val_type, val_type] => [val_type]);
         Ok(())
     }
 
-    pub fn validate_relop(&mut self, t: ValueType) -> Result<(), ValidationError> {
-        self.pop_val_expect_val(t)?;
-        self.pop_val_expect_val(t)?;
-        self.push_val_t(ValueType::I32);
+    pub fn validate_relop(&mut self, val_type: ValueType) -> Result<(), ValidationError> {
+        validate_types!(self, [val_type, val_type] => [ValueType::I32]);
         Ok(())
     }
 
     pub fn check_memarg(
-        &mut self,
-        context: &Context,
-        memarg: op::Memarg,
+        &self,
+        info: &BytecodeInfo,
+        memarg: Memarg,
         n: u32,
     ) -> Result<(), ValidationError> {
-        if context.memories.len() <= 0 {
-            return Err(ValidationError::UnexpectedNoMemories);
-        };
-        let align = 2_i32.pow(memarg.align);
-
-        if align > (n / 8) as i32 {
-            Err(ValidationError::InvalidAlignment)
+        if !info.has_memory() {
+            Err(ValidationError::UnexpectedNoMemories)
         } else {
-            Ok(())
+            let align = 2_i32.pow(memarg.align);
+
+            if align > (n / 8) as i32 {
+                Err(ValidationError::InvalidMemoryAlignment)
+            } else {
+                Ok(())
+            }
         }
     }
 
     pub fn validate_store_n(
         &mut self,
-        context: &Context,
-        memarg: op::Memarg,
+        info: &BytecodeInfo,
+        memarg: Memarg,
         n: u32,
         t: ValueType,
     ) -> Result<(), ValidationError> {
-        self.check_memarg(context, memarg, n)?;
-        self.pop_val_expect_val(t)?;
-        self.pop_val_expect_val(ValueType::I32)?;
+        self.check_memarg(info, memarg, n)?;
+        validate_types!(self, [t, ValueType::I32] => []);
         Ok(())
     }
 
     pub fn validate_store(
         &mut self,
-        context: &Context,
-        memarg: op::Memarg,
+        info: &BytecodeInfo,
+        memarg: Memarg,
         t: ValueType,
     ) -> Result<(), ValidationError> {
         self.check_memarg(
-            context,
+            info,
             memarg,
-            t.bit_width().ok_or(ValidationError::InvalidAlignment)? as u32,
+            t.bit_width()
+                .ok_or(ValidationError::InvalidMemoryAlignment)? as u32,
         )?;
-        self.pop_val_expect_val(t)?;
-        self.pop_val_expect_val(ValueType::I32)?;
+        validate_types!(self, [t, ValueType::I32] => []);
+
         Ok(())
     }
-
     pub fn validate_load(
         &mut self,
-        context: &Context,
-        memarg: op::Memarg,
+        info: &BytecodeInfo,
+        memarg: Memarg,
         t: ValueType,
     ) -> Result<(), ValidationError> {
         self.check_memarg(
-            context,
+            info,
             memarg,
-            t.bit_width().ok_or(ValidationError::InvalidAlignment)? as u32,
+            t.bit_width()
+                .ok_or(ValidationError::InvalidMemoryAlignment)? as u32,
         )?;
-        self.pop_val_expect_val(ValueType::I32)?;
-        self.push_val_t(t);
+        validate_types!(self, [ValueType::I32] => [t]);
         Ok(())
     }
-
     pub fn validate_load_n(
         &mut self,
-        context: &Context,
-        memarg: op::Memarg,
+        info: &BytecodeInfo,
+        memarg: Memarg,
         n: u32,
         t: ValueType,
     ) -> Result<(), ValidationError> {
-        self.check_memarg(context, memarg, n)?;
-        self.pop_val_expect_val(ValueType::I32)?;
-        self.push_val_t(t);
+        self.check_memarg(info, memarg, n)?;
+        validate_types!(self, [ValueType::I32] => [t]);
         Ok(())
     }
 
-    pub fn get_local_type(&self, id: u32) -> Result<ValueType, ValidationError> {
+    pub fn get_local_type(&self, id: usize) -> Result<ValueType, ValidationError> {
         self.locals
             .get(id as usize)
             .ok_or(ValidationError::InvalidLocalId(id))
             .cloned()
     }
 
-    pub fn validate_local_get(&mut self, id: u32) -> Result<(), ValidationError> {
+    pub fn validate_local_get(&mut self, id: usize) -> Result<(), ValidationError> {
         let local_type = self.get_local_type(id)?;
-        self.push_val_t(local_type);
+        self.push(local_type);
         Ok(())
     }
 
-    pub fn validate_local_set(&mut self, id: u32) -> Result<(), ValidationError> {
+    pub fn validate_local_set(&mut self, id: usize) -> Result<(), ValidationError> {
         let local_type = self.get_local_type(id)?;
-        self.pop_val_expect_val(local_type)?;
+        self.pop(local_type)?;
+        Ok(())
+    }
+    pub fn validate_local_tee(&mut self, id: usize) -> Result<(), ValidationError> {
+        let local_type = self.get_local_type(id)?;
+        validate_types!(self, [local_type] => [local_type]);
         Ok(())
     }
 
     pub fn validate_global_get(
         &mut self,
-        context: &Context,
-        id: u32,
+        info: &BytecodeInfo,
+        id: usize,
     ) -> Result<(), ValidationError> {
-        let global_type = context.get_global(id as usize)?;
-        self.push_val_t(global_type.t.0);
+        let global_type = info
+            .globals
+            .get(id)
+            .ok_or(ValidationError::InvalidGlobalId(id))?;
+        self.push(global_type.t);
         Ok(())
     }
-
     pub fn validate_global_set(
         &mut self,
-        context: &Context,
-        id: u32,
+        info: &BytecodeInfo,
+        id: usize,
     ) -> Result<(), ValidationError> {
-        let global_type = context.get_global(id as usize)?;
-        if global_type.is_mut() {
-            self.pop_val_expect_val(global_type.t.0)?;
-            Ok(())
-        } else {
-            Err(ValidationError::CannotSetToImmutableGlobal(id))
-        }
-    }
-
-    pub fn validate_local_tee(
-        &mut self,
-        context: &Context,
-        id: u32,
-    ) -> Result<(), ValidationError> {
-        let local_type = self.get_local_type(id)?;
-        self.pop_val_expect_val(local_type)?;
-        self.push_val_t(local_type);
+        let global_type = info
+            .globals
+            .get(id)
+            .ok_or(ValidationError::InvalidGlobalId(id))?;
+        self.pop(global_type.t)?;
         Ok(())
     }
-
     pub fn validate_select(&mut self, t: Option<ValueType>) -> Result<(), ValidationError> {
         match t {
             Some(v) => {
-                self.pop_val_expect_val(v)?;
-                self.pop_val_expect_val(v)?;
-                self.pop_val_expect_val(ValueType::I32)?;
-                self.push_val_t(v);
+                validate_types!(self, [v, v, ValueType::I32] => [v]);
                 Ok(())
             }
             None => {
-                self.pop_val_expect_val(ValueType::I32)?;
-                let t1 = self.pop_val()?;
-                let t2 = self.pop_val()?;
-                if !(t1.is_num() || t1.is_vec()) {
-                    return Err(ValidationError::ExpectedNumericType);
-                }
-
+                self.pop(ValueType::I32)?;
+                let t1 = self.pop_numeric()?;
+                let t2 = self.pop_numeric()?;
                 if t1 != t2 {
-                    return Err(ValidationError::UnexpectedValueType {
+                    Err(ValidationError::PoppedUnexpectedType {
                         got: t2,
                         expected: t1,
-                    });
+                    })
+                } else {
+                    Ok(())
                 }
-                Ok(())
-            }
-        }
-    }
-    pub fn get_block_types(
-        &self,
-        context: &Context,
-        blocktype: op::Blocktype,
-    ) -> Result<(Vec<ValueType>, Vec<ValueType>), ValidationError> {
-        match blocktype {
-            op::Blocktype::Empty => Ok((vec![], vec![])),
-            op::Blocktype::Value(value_type) => Ok((vec![], vec![value_type])),
-            op::Blocktype::TypeIndex(index) => {
-                let (t, _) = context.bytecode.get_type(index as usize)?;
-                let in_t = t.params.iter().cloned().map(|(v, _)| v).collect::<Vec<_>>();
-                let out_t = t
-                    .results
-                    .iter()
-                    .cloned()
-                    .map(|(v, _)| v)
-                    .collect::<Vec<_>>();
-                Ok((in_t, out_t))
             }
         }
     }
 
     pub fn validate_block(
         &mut self,
-        context: &Context,
-        op: (Op, Range<usize>),
-        blocktype: op::Blocktype,
+        bytecode: &Bytecode,
+        op: &WithPosition<Op>,
+        blocktype: &Blocktype,
     ) -> Result<(), ValidationError> {
-        let (in_types, out_types) = self.get_block_types(context, blocktype)?;
-        println!("block in: {:?}, out: {:?}", in_types, out_types);
-        in_types
-            .iter()
-            .cloned()
-            .try_for_each(|f| self.pop_val_expect_val(f).map(|_| ()))?;
-
-        self.push_new_ctrl(Some(op), in_types, out_types);
-
+        let (in_types, out_types) = match blocktype {
+            Blocktype::Empty => (Vec::new(), Vec::new()),
+            Blocktype::Value(value_type) => {
+                self.push(value_type);
+                (Vec::new(), vec![value_type.clone()])
+            }
+            Blocktype::TypeIndex(id) => {
+                let t = bytecode
+                    .get_type(*id as usize)
+                    .ok_or(ValidationError::InvalidBlockType(*id))?;
+                t.params.data.iter().try_for_each(|p| self.pop(p.data))?;
+                (
+                    t.iter_params().cloned().collect(),
+                    t.iter_results().cloned().collect(),
+                )
+            }
+        };
+        self.push_ctrl(Some(op.clone()), in_types, out_types);
         Ok(())
     }
 
-    pub fn validate_else(&mut self, op: (Op, Range<usize>)) -> Result<(), ValidationError> {
-        /*
-        let jmp = self.jump_table.push_new(self.instruction_pointer);
-        self.ctrl_jump_stack
-            .last_mut()
-            .ok_or(ValidationError::UnexpectedEmptyControlStack)?
-            .push(jmp);
-        */
+    pub fn validate_else(&mut self, op: WithPosition<Op>) -> Result<(), ValidationError> {
         let ctrl = self.pop_ctrl()?;
-
-        if let Some((Op::If{bt: _, jmp:_}, _)) = ctrl.opcode {
-            let if_jmp = self
-                .jump_table
-                .get_jump_mut(ctrl.jump_table_entry.unwrap())?;
-            println!("ctrl: {:?}", ctrl);
-            if_jmp.delta_ip = self.instruction_pointer as isize - ctrl.ip as isize + 1;
-            self.push_new_ctrl(Some(op), ctrl.in_types, ctrl.out_types);
+        if let Some(Op::If { bt: _, jmp: _ }) = ctrl.op.as_ref().map(|d| d.data) {
+            if let Some(jump_id) = ctrl.jump_table_entry {
+                self.get_jump_mut(jump_id)?.delta_ip = self.ip - ctrl.ip;
+            };
+            self.push_ctrl(Some(op), ctrl.in_types, ctrl.out_types);
             Ok(())
         } else {
-            Err(ValidationError::ElseWithoutIf)
+            Err(ValidationError::ElseMissingIf)
+        }
+    }
+
+    fn get_jump_delta_ip(
+        ip: isize,
+        op: &Op,
+        jump_ip: isize,
+        block_ip: isize,
+    ) -> Result<isize, ValidationError> {
+        match op {
+            Op::Loop(_) => Ok(block_ip - jump_ip),
+            Op::Block(_) | Op::If { bt: _, jmp: _ } | Op::Else(_) => Ok(ip - jump_ip),
+            _ => Err(ValidationError::InvalidCtrlOp(op.clone())),
         }
     }
 
     pub fn validate_end(&mut self) -> Result<(), ValidationError> {
+        println!("Validate end");
         let ctrl = self.pop_ctrl()?;
-        ctrl.out_types
-            .iter()
-            .for_each(|t| self.push_val_t(t.clone()));
 
-        if let Some((ctrl_op, _)) = ctrl.opcode {
-            let jumps_idx = self
+        ctrl.out_types.iter().for_each(|t| self.push(t));
+        if let Some(ctrl_op) = ctrl.op {
+            println!("Huh?");
+            println!("Ctrl op: {}", ctrl_op.data);
+            let jump_idx = self
                 .ctrl_jump_stack
                 .pop()
-                .ok_or(ValidationError::UnexpectedEmptyControlStack)?;
-            for idx in jumps_idx {
-                println!("ctrl op: {ctrl_op}");
-                let jump = self.jump_table.get_jump_mut(idx)?;
+                .ok_or(ValidationError::UnexpectedEmptyJumpStack)?;
+            let ip = self.ip;
 
-                let next_ip = match ctrl_op {
-                    Op::Loop(_) => ctrl.ip as isize - jump.ip,
-                    Op::Block(_) | Op::If{bt: _, jmp: _} | Op::Else(_) => {
-                        self.instruction_pointer as isize - jump.ip
-                    }
-                    _ => return Err(ValidationError::InvalidJump),
-                };
-                jump.delta_ip = next_ip;
+            for idx in jump_idx {
+                let jump = self.get_jump_mut(idx)?;
+                let jump_ip = jump.ip;
+                let delta_ip = Self::get_jump_delta_ip(ip, &ctrl_op.data, jump_ip, ctrl.ip)?;
+                jump.delta_ip = delta_ip;
             }
 
-            if let Some(jte) = ctrl.jump_table_entry {
-                let jump = self.jump_table.get_jump_mut(jte)?;
-                jump.delta_ip = self.instruction_pointer as isize - jump.ip
+            if let Some(ctrl_jump) = ctrl.jump_table_entry {
+                let ip = self.ip;
+                let jmp = self.get_jump_mut(ctrl_jump)?;
+                jmp.delta_ip = ip - jmp.ip;  
             }
         }
         Ok(())
     }
 
-    pub fn validate_br(&mut self, n: u32) -> Result<(), ValidationError> {
-        let out_types_len = self.peek_ctrl_at_label(n)?.out_types.len();
+    fn push_jmp(&mut self, entry: JumpTableEntry) -> usize {
+        self.jump_table.push(entry);
+        self.jump_table.len() - 1
+    }
+
+    fn push_ctrl_jump(&mut self, label: usize, jmp: usize) -> Result<(), ValidationError> {
+        let id = get_ctrl_peek_id(self.ctrl_jump_stack.len(), label);
+        let stack_len = self.ctrl_jump_stack.len();
+        self.ctrl_jump_stack
+            .get_mut(id as usize)
+            .ok_or(ValidationError::LabelIndexOutOfScope {
+                got: label,
+                max: stack_len,
+            })?
+            .push(jmp);
+        Ok(())
+    }
+
+    fn push_break_jte(&mut self, n: usize) -> Result<(), ValidationError> {
+        let out_count = peek_ctrl(&self.ctrl_stack, n)?.out_types.len();
         let entry = JumpTableEntry {
-            ip: self.instruction_pointer as isize,
-            delta_ip: self.instruction_pointer as isize,
-            stack_height: self.value_stack.len(),
-            out_count: out_types_len,
+            ip: self.ip,
+            delta_ip: self.ip,
+            stack_height: self.type_stack.len(),
+            out_count,
         };
+        let jmp = self.push_jmp(entry);
+        self.push_ctrl_jump(n, jmp)
+    }
 
-        let jmp = self.jump_table.push(entry);
-        self.push_ctrl_jump(n, jmp)?;
-
-        let vals = self
-            .peek_ctrl_at_label(n)?
-            .label_types()
-            .iter()
-            .cloned()
+    pub fn pop_label_types(&mut self, label: usize) -> Result<(), ValidationError> {
+        let vals = peek_ctrl(&self.ctrl_stack, label)?
+            .iter_label_types()
+            .unwrap()
             .collect::<Vec<_>>();
 
-        //TODO: (joh): Das ist schreklich
-        vals.iter().try_for_each(|t| {
-            _ = self.pop_val_expect_val(t.clone())?;
-            Ok::<_, ValidationError>(())
-        })?;
+        vals.iter().try_for_each(|t| self.pop(t))?;
+        Ok(())
+    }
+    pub fn push_label_types(&mut self, label: usize) -> Result<(), ValidationError> {
+        let vals = peek_ctrl(&self.ctrl_stack, label)?
+            .iter_label_types()
+            .unwrap();
+        self.type_stack.extend(vals.map_into::<ValueStackType>());
+        Ok(())
+    }
+
+    pub fn validate_br(&mut self, n: usize) -> Result<(), ValidationError> {
+        //TODO: ???
+        self.pop_label_types(n)?;
+        self.push_break_jte(n)?;
+        self.push_label_types(n)?;
         self.set_unreachable()?;
-
         Ok(())
     }
 
-    pub fn validate_br_if(&mut self, n: u32) -> Result<(), ValidationError> {
-        self.pop_val_expect_val(ValueType::I32)?;
-
-        let out_types_len = self.peek_ctrl_at_label(n)?.out_types.len();
-        let vals = self
-            .peek_ctrl_at_label(n)?
-            .label_types()
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-
-        vals.iter().try_for_each(|t| {
-            _ = self.pop_val_expect_val(t.clone())?;
-            Ok::<_, ValidationError>(())
-        })?;
-        let prev_stack_len = self.value_stack.len();
-        self.value_stack
-            .extend(vals.iter().cloned().map_into::<ValueStackType>());
-
-        let entry = JumpTableEntry {
-            ip: self.instruction_pointer as isize,
-            delta_ip: self.instruction_pointer as isize,
-            stack_height: prev_stack_len,
-            out_count: out_types_len,
-        };
-
-        let jmp = self.jump_table.push(entry);
-        self.push_ctrl_jump(n, jmp)?;
+    pub fn validate_br_if(&mut self, n: usize) -> Result<(), ValidationError> {
+        self.pop(ValueType::I32)?;
+        self.pop_label_types(n)?;
+        self.push_break_jte(n)?;
+        self.push_label_types(n)?;
         Ok(())
     }
 
-    pub fn validate_return(&mut self, context: &Context) -> Result<(), ValidationError> {
-        let funcs = &context.get_func_type(self.current_func_id).unwrap().results;
-        funcs
-            .iter()
-            .try_for_each(|t| -> Result<(), ValidationError> {
-                _ = self.pop_val_expect_val(t.0)?;
-                Ok(())
-            })?;
+    pub fn validate_return(
+        &mut self,
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+    ) -> Result<(), ValidationError> {
+        let func = info.functions.get(self.func_id).unwrap();
+        let t = bytecode
+            .get_type(func.type_id)
+            .ok_or(ValidationError::InvalidFunctionTypeId(func.type_id))?;
+        t.iter_results().try_for_each(|t| self.pop(t))?;
         self.set_unreachable()
     }
 
     pub fn validate_call(
         &mut self,
-        context: &Context,
-        call_id: u32,
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+        id: usize,
     ) -> Result<(), ValidationError> {
-        let params = &context.get_func_type(call_id as usize)?.params;
-        let results = context.get_func_type(call_id as usize)?.results.clone();
-        params
-            .iter()
-            .cloned()
-            .try_for_each(|(t, _)| -> Result<(), ValidationError> {
-                let _ = self.pop_val_expect_val(t)?;
-
-                Ok(())
-            })?;
-        results.iter().cloned().for_each(|(t, _)| {
-            _ = self.push_val_t(t);
-        });
+        let func = info
+            .functions
+            .get(id)
+            .ok_or(ValidationError::InvalidFunctionId(id))?;
+        let t = bytecode
+            .get_type(func.type_id)
+            .ok_or(ValidationError::InvalidFunctionTypeId(func.type_id))?;
+        t.iter_params().try_for_each(|t| self.pop(t))?;
+        t.iter_results().for_each(|t| self.push(t));
         Ok(())
     }
 
     pub fn validate_op(
         &mut self,
-        context: &Context,
-        op: (Op, Range<usize>),
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+        op: WithPosition<Op>,
     ) -> Result<(), ValidationError> {
         use ValueType::*;
-        match op.0 {
+        println!("Validating op: {}", op.data);
+        match op.data {
             Op::Unreachable => self.set_unreachable()?,
+            Op::Drop => self.pop_any()?,
             Op::Nop => {}
-            Op::Block(blocktype) => self.validate_block(context, op, blocktype)?,
-            Op::Loop(blocktype) => self.validate_block(context, op, blocktype)?,
-            Op::If{bt: blocktype, jmp: _} => {
-                self.pop_val_expect_val(I32)?;
-                self.validate_block(context, op, blocktype)?;
+            Op::Block(blocktype) => self.validate_block(bytecode, &op, &blocktype)?,
+            Op::Loop(blocktype) => self.validate_block(bytecode, &op, &blocktype)?,
+            Op::If { bt, .. } => {
+                self.pop(I32)?;
+                self.validate_block(bytecode, &op, &bt)?;
             }
             Op::Else(_) => self.validate_else(op)?,
             Op::End => self.validate_end()?,
-            Op::Br{label: n, jmp: _} => self.validate_br(n as u32)?,
-            Op::BrIf{label: n, jmp: _} => self.validate_br_if(n as u32)?,
-            Op::Return => self.validate_return(context)?,
-            Op::Call(call_id) => self.validate_call(context, call_id as u32)?,
-            Op::CallIndirect{table: _, type_id: _} => todo!(),
-            Op::Drop => _ = self.pop_val()?,
-            Op::Select(t) => self.validate_select(t)?,
-            Op::LocalGet(id) => self.validate_local_get(id as u32)?,
-            Op::LocalSet(id) => self.validate_local_set(id as u32)?,
-            Op::LocalTee(id) => self.validate_local_tee(context, id as u32)?,
-            Op::GlobalGet(id) => self.validate_global_get(context, id as u32)?,
-            Op::GlobalSet(id) => self.validate_global_set(context, id as u32)?,
-            Op::I32Load(memarg) => self.validate_load(context, memarg, I32)?,
-            Op::I64Load(memarg) => self.validate_load(context, memarg, I64)?,
-            Op::F32Load(memarg) => self.validate_load(context, memarg, F32)?,
-            Op::F64Load(memarg) => self.validate_load(context, memarg, F64)?,
-            Op::I32Load8s(memarg) | Op::I32Load8u(memarg) => {
-                self.validate_load_n(context, memarg, 8, I32)?
-            }
-            Op::I32Load16s(memarg) | Op::I32Load16u(memarg) => {
-                self.validate_load_n(context, memarg, 16, I32)?
-            }
-            Op::I64Load8s(memarg) | Op::I64Load8u(memarg) => {
-                self.validate_load_n(context, memarg, 8, I64)?
-            }
-            Op::I64Load16s(memarg) | Op::I64Load16u(memarg) => {
-                self.validate_load_n(context, memarg, 16, I64)?
-            }
-            Op::I64Load32s(memarg) | Op::I64Load32u(memarg) => {
-                self.validate_load_n(context, memarg, 32, I64)?
-            }
-            Op::I32Store(memarg) => self.validate_store(context, memarg, I32)?,
-            Op::I64Store(memarg) => self.validate_store(context, memarg, I64)?,
-            Op::F32Store(memarg) => self.validate_store(context, memarg, F32)?,
-            Op::F64Store(memarg) => self.validate_store(context, memarg, F64)?,
-            Op::I32Store8(memarg) => self.validate_store_n(context, memarg, 8, I32)?,
-            Op::I32Store16(memarg) => self.validate_store_n(context, memarg, 16, I32)?,
-            Op::I64Store8(memarg) => self.validate_store_n(context, memarg, 8, I64)?,
-            Op::I64Store16(memarg) => self.validate_store_n(context, memarg, 16, I64)?,
-            Op::I64Store32(memarg) => self.validate_store_n(context, memarg, 32, I64)?,
-            Op::I32Const(_) => self.push_val_t(I32),
-            Op::I64Const(_) => self.push_val_t(I64),
-            Op::F32Const(_) => self.push_val_t(F32),
-            Op::F64Const(_) => self.push_val_t(F64),
+            Op::Br { label, .. } => self.validate_br(label)?,
+            Op::BrIf { label, .. } => self.validate_br_if(label)?,
+            Op::Return => self.validate_return(bytecode, info)?,
+            Op::Call(id) => self.validate_call(bytecode, info, id)?,
+            Op::CallIndirect { .. } => todo!(),
+            Op::Select(value_type) => self.validate_select(value_type)?,
+            Op::LocalGet(id) => self.validate_local_get(id)?,
+            Op::LocalSet(id) => self.validate_local_set(id)?,
+            Op::LocalTee(id) => self.validate_local_tee(id)?,
+            Op::GlobalGet(id) => self.validate_global_get(info, id)?,
+            Op::GlobalSet(id) => self.validate_global_set(info, id)?,
+            Op::I32Load(memarg) => self.validate_load(info, memarg, I32)?,
+            Op::I64Load(memarg) => self.validate_load(info, memarg, I64)?,
+            Op::F32Load(memarg) => self.validate_load(info, memarg, F32)?,
+            Op::F64Load(memarg) => self.validate_load(info, memarg, F64)?,
+            Op::I32Load8s(memarg) => self.validate_load_n(info, memarg, 8, I32)?,
+            Op::I32Load8u(memarg) => self.validate_load_n(info, memarg, 8, I32)?,
+            Op::I32Load16s(memarg) => self.validate_load_n(info, memarg, 16, I32)?,
+            Op::I32Load16u(memarg) => self.validate_load_n(info, memarg, 16, I32)?,
+            Op::I64Load8s(memarg) => self.validate_load_n(info, memarg, 8, I64)?,
+            Op::I64Load8u(memarg) => self.validate_load_n(info, memarg, 8, I64)?,
+            Op::I64Load16s(memarg) => self.validate_load_n(info, memarg, 16, I64)?,
+            Op::I64Load16u(memarg) => self.validate_load_n(info, memarg, 16, I64)?,
+            Op::I64Load32s(memarg) => self.validate_load_n(info, memarg, 32, I64)?,
+            Op::I64Load32u(memarg) => self.validate_load_n(info, memarg, 32, I64)?,
+            Op::I32Store(memarg) => self.validate_store(info, memarg, I32)?,
+            Op::I64Store(memarg) => self.validate_store(info, memarg, I64)?,
+            Op::F32Store(memarg) => self.validate_store(info, memarg, F32)?,
+            Op::F64Store(memarg) => self.validate_store(info, memarg, F64)?,
+            Op::I32Store8(memarg) => self.validate_store_n(info, memarg, 8, I32)?,
+            Op::I32Store16(memarg) => self.validate_store_n(info, memarg, 8, I32)?,
+            Op::I64Store8(memarg) => self.validate_store_n(info, memarg, 8, I64)?,
+            Op::I64Store16(memarg) => self.validate_store_n(info, memarg, 16, I64)?,
+            Op::I64Store32(memarg) => self.validate_store_n(info, memarg, 32, I64)?,
+            Op::I32Const(_) => self.push(I32),
+            Op::I64Const(_) => self.push(I64),
+            Op::F32Const(_) => self.push(F32),
+            Op::F64Const(_) => self.push(F64),
             Op::I32Eqz
             | Op::I32Eq
             | Op::I32Ne
@@ -761,157 +814,218 @@ impl<'src> Validator {
             Op::MemoryCopy => todo!(),
             Op::MemoryFill => todo!(),
         };
-        self.instruction_pointer += 1;
+        self.ip += 1;
         Ok(())
     }
-
-    pub fn validate_func(context: &Context, code_id: usize) -> Result<JumpTable, ValidationError> {
-        //TODO: (joh): Code und Typ zusammen um das hier etwas zu vereinfachen?
-        let code = context
-            .bytecode
-            .code
-            .as_ref()
-            .ok_or(ValidationError::UnexpectedNoCode)?
-            .0
-            .get(code_id)
-            .ok_or(ValidationError::InvalidCodeId(code_id))?;
-
-        let func_type = context.get_internal_func_type(code_id)?;
-
-        println!("Validating function: {}", code_id);
-
-        let locals = code
-            .0
-            .locals
-            .iter()
+    pub fn set_locals_from_func_t(&mut self, t: &Type, code: &Function) {
+        self.locals = t
+            .iter_params()
             .cloned()
-            .map(|l| l.0.into_iter())
-            .flatten()
-            .chain(func_type.params.iter().map(|(v, p)| v.clone()))
-            .collect();
-
-        let mut validator = Validator {
-            current_func_id: code_id,
-            locals,
-            ..Default::default()
-        };
-
-        let params: Vec<ValueType> = func_type.params.iter().map(|(v, _)| v.clone()).collect();
-        let results: Vec<ValueType> = func_type.results.iter().map(|(v, _)| v.clone()).collect();
-
-        validator.push_new_ctrl(None, Vec::new(), results.to_vec());
-
-        for op in code.0.code.0.iter() {
-            println!("Validating {}", op.0);
-            validator.validate_op(context, op.clone())?;
-        }
-
-        Ok(validator.jump_table)
+            .chain(code.iter_locals())
+            .collect::<Vec<_>>();
     }
 
-    pub fn validate_all(context: &Context) -> Result<Vec<JumpTable>, ValidationError> {
-        (0..context.get_function_count())
-            .map(|i| Validator::validate_func(context, i))
-            .collect()
+    pub fn validate_code(
+        mut self,
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+        t: &Type,
+        code: &Function,
+    ) -> Result<Vec<JumpTableEntry>, ValidationError> {
+        self.set_locals_from_func_t(t, code);
+
+        let results = t.iter_results().cloned().collect();
+
+        self.push_ctrl(None, Vec::new(), results);
+        code.iter_ops()
+            .try_for_each(|op| self.validate_op(bytecode, info, op))?;
+        Ok(self.jump_table)
+    }
+
+    pub fn validate_func(
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+        func: &parser::info::Function,
+    ) -> Result<Vec<JumpTableEntry>, ValidationError> {
+        match func.t {
+            FunctionType::Internal { code_id, .. } => {
+                let code = bytecode.get_code(code_id).unwrap();
+
+                let validator = ValidatorContext {
+                    func_id: code_id,
+                    ..Default::default()
+                };
+                let t = bytecode.get_type(func.type_id).unwrap();
+                validator.validate_code(bytecode, info, t, code)
+            }
+            FunctionType::Imported { .. } => Ok(Vec::new()),
+        }
+    }
+    pub fn validate_all(
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+    ) -> Result<Vec<Vec<JumpTableEntry>>, ValidationError> {
+        if let Some(ft) = bytecode.iter_function_types() {
+            ft
+                .zip(bytecode.iter_code().unwrap())
+                .enumerate()
+                .map(|(id, (t, code))| {
+                    let validator = ValidatorContext {
+                        func_id: id,
+                        ..Default::default()
+                    };
+                    validator.validate_code(bytecode, info, t, code)
+            }).collect::<Result<Vec<_>, ValidationError>>() 
+        } else {
+            Ok(Vec::new()) 
+        }
     }
 }
 
-pub fn patch_jumps<'a, I: IntoIterator<Item = &'a JumpTable>>(
-    module: &mut Bytecode,
-    jumps: I,
-) -> Result<(), ValidationError> {
-    if let Some(funcs) = module.code.as_mut() {
-        for (func, table) in funcs.data.iter_mut().map(|f| &mut f.data).zip(jumps) {
-            table.patch(func)?;
-        }
+fn patch_op_jump(op: &Op, jump: &JumpTableEntry, jump_id: usize) -> Result<Op, ValidationError> {
+    match op {
+        Op::Else(_) => Ok(Op::Else(jump.delta_ip)),
+        Op::If{bt, jmp: _} => Ok(Op::If{bt: *bt, jmp: jump.delta_ip}),
+        Op::Br{label, jmp: _} => Ok(Op::Br {label: *label, jmp: jump.delta_ip}),
+        Op::BrIf{label, jmp: _} => Ok(Op::BrIf{label: *label, jmp: jump.delta_ip}),
+        _ => return Err(ValidationError::InvalidJump(jump_id)),
     }
-    Ok(())
 }
+
+pub fn patch_function_jumps<'a>(function: &mut Function, jumps: impl IntoIterator<Item = &'a JumpTableEntry>) -> Result<(), ValidationError> {
+    jumps.into_iter().enumerate().try_for_each(|(jump_id, jump)| {
+        let op = function.get_op_mut(jump.ip as usize).unwrap();
+        *op = patch_op_jump(op, jump, jump_id)?; 
+        Ok(())
+    })
+}
+
+
+pub fn valiadate_and_patch_bytecode(bytecode: &mut Bytecode) -> Result<(Vec<Vec<JumpTableEntry>>, BytecodeInfo), ValidationError> {
+    let info = BytecodeInfo::new(bytecode); 
+    let jumps = ValidatorContext::validate_all(bytecode, &info)?;
+    if let Some(code) = bytecode.iter_code_mut() {
+        code.zip(jumps.iter()).try_for_each(|(f, j)| patch_function_jumps(f, j))?;
+    };
+    Ok((jumps, info))
+}
+
+#[derive(Debug)]
+pub struct ValidateResult {
+    bytecode: Bytecode,
+    info: BytecodeInfo,
+    jumps: Vec<Vec<JumpTableEntry>>,
+    //TODO: Jumps?
+}
+#[derive(Error, Debug)]
+pub enum ReadAndValidateError {
+    #[error("Unable to parse bytecode: {0}")]
+    ReadError(#[from] ParserError),
+
+    #[error("Unable to validate bytecode: {0}")]
+    ValidationError(#[from] ValidationError)
+
+}
+
+pub fn read_and_validate(reader: &mut impl BytecodeReader) -> Result<ValidateResult, ReadAndValidateError> {
+    let mut bytecode =  parse_binary(reader)?;
+    let (jumps, info) = valiadate_and_patch_bytecode(&mut bytecode)?; 
+
+    Ok(ValidateResult {
+        jumps,
+        bytecode,
+        info,
+    })
+}
+
+pub fn read_and_validate_wat(source: impl AsRef<str>) -> Result<ValidateResult, ReadAndValidateError> {
+    let mut bytecode =  parse_wat(source)?;
+    let (jumps, info) = valiadate_and_patch_bytecode(&mut bytecode)?; 
+
+    Ok(ValidateResult {
+        jumps,
+        bytecode,
+        info,
+    })
+}
+
 
 #[cfg(test)]
-mod tests {
-    use parser::{op::Op, reader::ParserError};
+mod tests  {
+    use std::io::Read;
 
-    use crate::{error::ValidationError, validator::patch_jumps};
+    use parser::op::Op;
+    use validator_derive::{test_invalid_wast, test_valid_wast};
 
-    use super::{Context, Validator};
-
-    #[derive(Debug)]
-    enum ValidationTestError {
-        Validation(ValidationError),
-        Parsing(ParserError),
+    use super::{read_and_validate_wat, ReadAndValidateError, ValidationError};
+    macro_rules! expect_src_ok {
+        ($src: ident) => {
+            return Ok(_ = read_and_validate_wat($src)?);
+        };
     }
-
-    impl From<ParserError> for ValidationTestError {
-        fn from(value: ParserError) -> Self {
-            Self::Parsing(value)
-        }
+    
+    macro_rules! assert_validation_err {
+        ($src: ident, $err: pat) => {
+            let err = read_and_validate_wat($src);
+            assert!(matches!(err.unwrap_err(), ReadAndValidateError::ValidationError($err)));
+         
+        };
     }
-
-    impl From<ValidationError> for ValidationTestError {
-        fn from(value: ValidationError) -> Self {
-            Self::Validation(value)
-        }
-    }
-
     #[test]
-    fn empty_module() -> Result<(), ValidationTestError> {
+    fn validate_empty_module() -> Result<(), ReadAndValidateError> {
         let src = "(module)";
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        let _ = Validator::validate_all(&context)?;
-
+        _ = read_and_validate_wat(src)?;
         Ok(())
     }
 
     #[test]
-    fn valid_module_simple() -> Result<(), ValidationTestError> {
+    fn validate_simple_add() -> Result<(), ReadAndValidateError> {
+         let src = r#"
+             (module
+                 (func (param $p i32) (result i32)
+                     local.get $p
+                     i32.const 5
+                     i32.add
+                 )
+             )
+         "#;
+        Ok(_ = read_and_validate_wat(src)?)
+    }
+
+    #[test]
+    fn validate_simple_add_unbalanced() -> Result<(), ReadAndValidateError> {
+         let src = r#"
+             (module
+                 (func (param $p i32) (result i32)
+                     i32.const 1
+                     local.get $p
+                     i32.const 5
+                     i32.add
+                 )
+             )
+         "#;
+        assert_validation_err!(src, ValidationError::UnbalancedStack { ..});
+        Ok(())
+    }
+    #[test]
+    fn invalid_local_id() -> Result<(), ReadAndValidateError> {
         let src = r#"
-            (module
-                (func (param $p i32) (result i32)
-                    local.get $p
-                    i32.const 5
-                    i32.add
-                )
-            )
+             (module
+                 (func (param $p i32) (result i32)
+                     local.get 1
+                     i32.const 5
+                     i32.add
+                 )
+             )
         "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        let _ = Validator::validate_all(&context)?;
-
+        assert_validation_err!(src, ValidationError::InvalidLocalId(1));
         Ok(())
     }
-
     #[test]
-    fn invalid_local_id() -> Result<(), ValidationTestError> {
+    fn valid_local_id_tee() -> Result<(), ReadAndValidateError> {
         let src = r#"
             (module
-                (func (param $p i32) (result i32)
-                    local.get 1
-                    i32.const 5
-                    i32.add
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        let res = Validator::validate_all(&context);
-        assert_eq!(res.unwrap_err(), ValidationError::InvalidLocalId(1));
-
-        Ok(())
-    }
-
-    #[test]
-    fn valid_local_id_tee() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (func (param $p i32) (result i32) (local i32) 
+                (func (param $p i32) (result i32) (local i32)
                     local.get 0
                     i32.const 5
                     i32.add
@@ -919,406 +1033,242 @@ mod tests {
                 )
             )
         "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        let res = Validator::validate_all(&context)?;
-
-        //assert_eq!(res.unwrap_err(), ValidationError::InvalidLocalId(1));
-
-        Ok(())
+        Ok(_ = read_and_validate_wat(src)?)
     }
-
     #[test]
-    fn valid_multiple_functions() -> Result<(), ValidationTestError> {
+    fn valid_multiple_functions() -> Result<(), ReadAndValidateError> {
         let src = r#"
             (module
-                (func (param $p i32) (result i32) (local i32) 
+                (func (param $p i32) (result i32) (local i32)
                     local.get 0
                     i32.const 5
                     i32.add
                     local.tee 1
                 )
-                (func (param i32) (result i32) 
-                    i32.const 5 
+                (func (param i32) (result i32)
+                    i32.const 5
                     call 0
                     i32.const 10
                     i32.add
                 )
-                (func (param i32) (result i32) 
-                    i32.const 5 
-                    call 0
+                (func (param i32) (result i32)
+                    i32.const 5
+                    call 2
                     i32.const 10
                     i32.add
                 )
             )
         "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        let res = Validator::validate_all(&context)?;
-        Ok(())
+        Ok(_ = read_and_validate_wat(src)?)
     }
 
-    #[test]
-    fn invalid_multiple_functions() -> Result<(), ValidationTestError> {
-        let src = r#"
+    test_invalid_wast! {
+        invalid_multiple_functions,
+            r#"
             (module
-                (func (param $p i32) (result i32) (local i32) 
+                (func (param $p i32) (result i32) (local i32)
                     local.get 0
                     i32.const 5
                     i32.add
                     local.tee 1
                 )
-                (func (param i32) (result i32) 
-                    i32.const 5 
+                (func (param i32) (result i32)
+                    i32.const 5
                     call 0
                     i32.const 10
                     i32.add
                 )
-                (func (param i32) (result i32) 
-                    i32.const 5 
+                (func (param i32) (result i32)
+                    i32.const 5
                     call 3
                     i32.const 10
                     i32.add
                 )
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let res = Validator::validate_all(&context);
-        assert_eq!(res.unwrap_err(), ValidationError::InvalidFuncId(3));
-
-        Ok(())
+        "#,
+        ValidationError::InvalidFunctionId(3)
     }
 
-    #[test]
-    fn valid_param_count() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (func (param i32) (param i32) (param i32) (result i32) (local i32) 
-                    local.get 0
-                    i32.const 5
-                    i32.add
-                    local.tee 1
-                )
-                (func (param i32) (result i32) 
-                    i32.const 1  
-                    i32.const 2  
-                    i32.const 3  
-                    call 0  
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let res = Validator::validate_all(&context)?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn invalid_param_count() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (func (param i32) (param i32) (param i32) (result i32) (local i32) 
-                    local.get 0
-                    i32.const 5
-                    i32.add
-                    local.tee 1
-                )
-                (func (param i32) (result i32) 
-                    i32.const 1  
-                    i32.const 2  
-                    i32.const 3  
-                    i32.const 4  
-                    call 0  
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let res = Validator::validate_all(&context);
-        assert!(matches!(
-            res.unwrap_err(),
-            ValidationError::UnbalancedStack {
-                got: _,
-                expected: _
-            }
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn call_imported_function() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (import "console" "log" (func $log (param i32))) 
-                (func (param i32 i32)
-                    i32.const 1  
-                    call 0 
-                )
-
-                (func (param i32 i32) (result i32) 
-                    i32.const 1  
-                    call 0  
-                    i32.const 2
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let _ = Validator::validate_all(&context)?;
-        Ok(())
-    }
-
-    #[test]
-    fn jump_table_block_works() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (import "console" "log" (func $log (param i32))) 
-                (func (param i32)
-                    (block $block
+    test_valid_wast! {
+        valid_param_count, 
+        r#"
+                (module
+                    (func (param i32) (param i32) (param i32) (result i32) (local i32)
+                        local.get 0
+                        i32.const 5
+                        i32.add
+                        local.tee 1
+                    )
+                    (func (param i32) (result i32)
                         i32.const 1
                         i32.const 2
-                        i32.add
-                        i32.const 10
-                        i32.lt_s
-                        br_if $block
-                        i32.const 5
-                        i32.const 10
-                        i32.add
-                        drop   
+                        i32.const 3
+                        call 0
                     )
-                    i32.const 100
-                    call $log
                 )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
+            "#
+    }
+    test_valid_wast! {
+        call_imported_function,
+             r#"
+             (module
+                 (import "console" "log" (func $log (param i32)))
+                 (func (param i32 i32)
+                     i32.const 1
+                     call 0
+                 )
 
-        let jump_table = Validator::validate_all(&context)?;
-
-        patch_jumps(&mut module, jump_table.iter())?;
-        let func = &module.code.unwrap().0[0].0.code.0;
-        let Op::BrIf(_, jmp) = func[6].0.clone() else {
-            panic!("Unexpected instruction");
-        };
-        let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
-        let after_block = func[7 + cont as usize].0.clone();
-
-        assert_eq!(after_block, Op::I32Const(100));
-        Ok(())
+                 (func (param i32 i32) (result i32)
+                     i32.const 1
+                     call 0
+                     i32.const 2
+                 )
+             )
+         "#
+    }
+    test_invalid_wast! {
+        memory_instructions_without_memory,
+            r#"
+             (module
+                 (func (param $p i32) (result i32)
+                     i32.const 1
+                     i32.load
+                 )
+             )
+         "#,
+         ValidationError::UnexpectedNoMemories
     }
 
+    test_valid_wast! {
+        basic_memory,
+            r#"
+             (module
+                 (memory 1)
+                 (func (param $p i32) (result i32)
+                     i32.const 1
+                     i32.load
+                 )
+             )
+         "#
+    }
+    
     #[test]
-    fn jump_table_if_else_work() -> Result<(), ValidationTestError> {
+    pub fn jump_block() -> Result<(), ReadAndValidateError> {
+         let src = r#"
+             (module
+                 (import "console" "log" (func $log (param i32)))
+                 (func (param i32)
+                     (block $block
+                         i32.const 1
+                         i32.const 2
+                         i32.add
+                         i32.const 10
+                         i32.lt_s
+                         br_if $block
+                         i32.const 5
+                         i32.const 10
+                         i32.add
+                         drop
+                     )
+                     i32.const 100
+                     call $log
+                 )
+             )
+         "#;
+        let code = read_and_validate_wat(src)?;
+        let func = code.bytecode.get_code(0).unwrap();
+        let after_block = func.get_op_after(6).unwrap();
+        println!("after: {}", after_block.0);
+        assert!(matches!(after_block.0, Op::End));
+        Ok(())
+    }
+    
+    #[test]
+    pub fn jump_table_if_else() -> Result<(), ReadAndValidateError> {
+        let src = r#"
+             (module
+                 (import "console" "log" (func $log (param i32)))
+                 (func (param i32)
+                     i32.const 0
+                     (if
+                         (then
+                             i32.const 1
+                             call $log
+                         )
+                         (else
+                             i32.const 100
+                             call $log
+                         )
+                     )
+                 )
+             )
+        "#;
+        let code = read_and_validate_wat(src)?;
+        let func = code.bytecode.get_code(0).unwrap();
+        let (after_block_op, after_block_ip)  = func.get_op_after(1).unwrap();
+        assert!(matches!(after_block_op, Op::Else(_)));  
+        assert!(matches!(func.get_op((after_block_ip + 1) as usize).unwrap(), Op::I32Const(100)));  
+
+        let after_else = func.get_op_after(after_block_ip).unwrap();
+        assert!(matches!(after_else.0, Op::End));
+        Ok(())
+    }
+        
+    #[test]
+    pub fn if_no_else() -> Result<(), ReadAndValidateError> {
         let src = r#"
             (module
-                (import "console" "log" (func $log (param i32))) 
+                (import "console" "log" (func $log (param i32)))
                 (func (param i32)
                     i32.const 0
                     (if
-                        (then 
+                        (then
                             i32.const 1
-                            call $log 
-                        )
-                        (else
-                            i32.const 100
                             call $log
                         )
                     )
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let jump_table = Validator::validate_all(&context)?;
-
-        patch_jumps(&mut module, jump_table.iter())?;
-
-        let func = &module.code.unwrap().0[0].0.code.0;
-        let Op::If(_, jmp) = func[1].0.clone() else {
-            panic!("Unexpected instruction");
-        };
-        let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
-
-        let after_else = func[1 + cont as usize].0.clone();
-        assert_eq!(after_else, Op::I32Const(100));
-
-        let else_pos = (cont) as usize;
-        let op_at = func[else_pos].0.clone();
-        let Op::Else(else_jmp) = op_at else {
-            panic!("Unexpected instruction: {:?}", op_at);
-        };
-
-        let after_else_block = func[(else_pos as isize + else_jmp) as usize].0.clone();
-        assert_eq!(after_else_block, Op::End);
-        Ok(())
-    }
-
-    #[test]
-    fn if_no_else() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (import "console" "log" (func $log (param i32))) 
-                (func (param i32)
-                    i32.const 0
-                    (if
-                        (then 
-                            i32.const 1
-                            call $log 
-                        )
-                    )
                     i32.const 100
                     call $log
                 )
             )
         "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let jump_table = Validator::validate_all(&context)?;
-
-        for (func, jump_table) in module
-            .code
-            .as_mut()
-            .unwrap()
-            .0
-            .iter_mut()
-            .zip(jump_table.iter())
-        {
-            jump_table.patch(&mut func.0);
-        }
-
-        let func = &module.code.unwrap().0[0].0.code.0;
-        let Op::If(_, jmp) = func[1].0.clone() else {
-            panic!("Unexpected instruction");
-        };
-        let cont = jump_table[0].get_jump(jmp as usize)?.delta_ip;
-
-        let after_if = func[2 + cont as usize].0.clone();
-        assert_eq!(after_if, Op::I32Const(100));
+        let code = read_and_validate_wat(src)?;
+        let func = code.bytecode.get_code(0).unwrap();
+        let after_if_op = func.get_op_after(1).unwrap();
+        let after_end_op = func.get_op(after_if_op.1 as usize + 1).unwrap();
+        println!("after if: {}", after_if_op.0);
+        assert!(matches!(after_if_op.0, Op::End));
+        assert!(matches!(after_end_op, Op::I32Const(100)));
         Ok(())
     }
-
+    
     #[test]
-    fn loop_jumps() -> Result<(), ValidationTestError> {
+    pub fn loop_jumps() -> Result<(), ReadAndValidateError> {
         let src = r#"
             (module
-                (import "console" "log" (func $log (param i32))) 
-                (func (param i32)
-                    (loop $loop
-                        i32.const 50
-                        br_if $loop
-                        i32.const 5
-                        i32.const 6 
-                        i32.add
-                        br_if $loop 
-                    )
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
+                 (import "console" "log" (func $log (param i32)))
+                 (func (param i32)
+                     (loop $loop
+                         i32.const 50
+                         br_if $loop
+                         i32.const 5
+                         i32.const 6
+                         i32.add
+                         br_if $loop
+                     )
+                 )
+             )
+         "#;
+        let code = read_and_validate_wat(src)?;     
+        let func = code.bytecode.get_code(0).unwrap();
+        let jmp1 = func.get_op_after(2).unwrap();
+        let jmp2 = func.get_op_after(6).unwrap();
+        println!("jmp1: {}", jmp1.0);
+        println!("jmp1: {}", jmp2.0);
 
-        let jump_table = Validator::validate_all(&context)?;
-
-        for (func, jump_table) in module
-            .code
-            .as_mut()
-            .unwrap()
-            .0
-            .iter_mut()
-            .zip(jump_table.iter())
-        {
-            jump_table.patch(&mut func.0)?;
-        }
-
-        let func = &module.code.unwrap().0[0].0.code.0;
-
-        let jmp1_ip: isize = 2;
-        let Op::BrIf(_, jmp1) = func[jmp1_ip as usize].0.clone() else {
-            panic!("Unexpected instruction");
-        };
-        let cont1 = jump_table[0].get_jump(jmp1 as usize)?.delta_ip;
-
-        println!("jump 1: {jmp1}");
-        let after_jmp1 = func[(jmp1_ip + cont1 + 1) as usize].0.clone();
-        assert_eq!(after_jmp1, Op::I32Const(50));
-
-        let jmp2_ip: isize = 6;
-        let Op::BrIf(_, jmp2) = func[jmp2_ip as usize].0.clone() else {
-            panic!("Unexpected instruction");
-        };
-        println!("jump 2: {jmp2}");
-        let cont2 = jump_table[0].get_jump(jmp2 as usize)?.delta_ip;
-        let after_jmp2 = func[(jmp2_ip + cont2 + 1) as usize].0.clone();
-        assert_eq!(after_jmp2, Op::I32Const(50));
-
+        assert!(matches!(jmp1.0, Op::Loop(_)));
+        assert!(matches!(jmp2.0, Op::Loop(_)));
         Ok(())
     }
 
-    #[test]
-    fn memory_instructions_without_memory() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (func (param $p i32) (result i32)
-                    i32.const 1
-                    i32.load 
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        let res = Validator::validate_all(&context);
-        assert_eq!(res.unwrap_err(), ValidationError::UnexpectedNoMemories);
-        Ok(())
-    }
-
-    #[test]
-    fn basic_memory() -> Result<(), ValidationTestError> {
-        let src = r#"
-            (module
-                (memory 1)
-                (func (param $p i32) (result i32)
-                    i32.const 1
-                    i32.load 
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        let res = Validator::validate_all(&context)?;
-        Ok(())
-    }
 }
-

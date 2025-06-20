@@ -15,8 +15,8 @@ pub enum FunctionType {
 
 #[derive(Debug, Clone)]
 pub struct Function {
-    type_id: usize,
-    t: FunctionType, 
+    pub type_id: usize,
+    pub t: FunctionType, 
 }
 impl Function {
     pub fn new_internal(type_id: usize, code_id: usize, export_id: Option<usize>) -> Self {
@@ -32,6 +32,7 @@ impl Function {
             t: FunctionType::Imported {import_id}
         }
     }
+
 }
 #[derive(Debug, Clone)]
 pub enum GlobalInfo {
@@ -103,9 +104,45 @@ impl BytecodeInfo {
             info.memories.extend(imports.mems.iter().map(|(id, limits)| Memory::new_imported(*id, limits.clone())));  
             info.imports = Some(imports);  
         };
+        //TODO: (joh): Exports
+        if let Some(funcs) = bytecode.iter_functions() {
+            info.functions.extend(funcs.cloned().enumerate().map(|(code_id, type_id)| Function { type_id, t: FunctionType::Internal { code_id, export_id: None }}));
+        }
+        if let Some(globals) = bytecode.iter_globals() {
+            //TODO: (joh): Exports
+            info.globals.extend(globals.cloned().enumerate().map(|(global_id, global)| {
+                let t = global.value_type(); 
+                let mutable = global.is_mut(); 
+                Global {
+                    t,
+                    mutable,
+                    info: GlobalInfo::Internal { global_id, export_id: None },
+                }
+            }));
+        }
+        if let Some(memories) = bytecode.iter_memories() {
+            info.memories.extend(memories.cloned().map(|limits| Memory { limits, info: MemoryInfo::Internal { export_id: None } }));
+        }
         info
     }
+
+    pub fn imported_function_count(&self) -> usize {
+        self.imports.as_ref().map_or(0, |i| i.functions.len())
+    }
+    
     pub fn has_memory(&self) -> bool {
         self.memories.len() > 0 
+    }
+
+    pub fn iter_code_locals(&self, bytecode: &Bytecode, func_id: usize) -> Option<impl Iterator<Item = ValueType>> {
+        let func = self.functions.get(func_id)?;
+        match func.t {
+            FunctionType::Internal { code_id, ..} => {
+                let t = bytecode.get_type(func.type_id).unwrap(); 
+                let code = bytecode.get_code(code_id).unwrap();
+                Some(t.iter_params().cloned().chain(code.iter_locals()))
+            },
+            FunctionType::Imported { .. } => None,
+        }
     }
 }

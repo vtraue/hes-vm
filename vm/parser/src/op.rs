@@ -70,14 +70,14 @@ pub enum Op {
     Block(Blocktype),
 
     Loop(Blocktype),
-    If {bt: Blocktype, jmp: usize},
+    If {bt: Blocktype, jmp: isize},
     Else(isize),
     End,
-    Br {label: usize, jmp: usize},
-    BrIf{label: usize, jmp: usize},
+    Br {label: usize, jmp: isize},
+    BrIf{label: usize, jmp: isize},
     Return,
     Call(usize),
-    CallIndirect{table: usize, type_id: usize},
+    CallIndirect{table: usize, type_id: isize},
     Drop,
     Select(Option<ValueType>),
     LocalGet(usize),
@@ -188,7 +188,7 @@ impl Op {
         matches!(self, Self::End)
     }
 
-    pub fn continues(&self, depth: u32) -> (u32, bool) {
+    pub fn continues(&self, depth: i32) -> (i32, bool) {
         if self.needs_end_terminator() {
             (depth + 1, true)
         } else if self.is_terminator() {
@@ -205,6 +205,17 @@ impl Op {
         return matches!(self, Op::If { bt: _, jmp: _}) ||matches!(self, Op::Else(_))  
     }
 
+    pub fn get_jmp(&self) -> Option<isize> {
+        match self {
+            Op::If { jmp, .. }  => Some(*jmp),
+            Op::Else(jmp) => Some(*jmp),
+            Op::Br { jmp, .. } => Some(*jmp),
+            Op::BrIf { jmp , ..} => Some(*jmp),
+            _ => None
+        }
+    }
+    
+    
 
 }
 

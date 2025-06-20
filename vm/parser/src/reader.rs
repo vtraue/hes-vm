@@ -100,6 +100,11 @@ impl FromBytecode for usize {
         Ok(Leb::read_u32(reader)? as usize)
     }
 }
+impl FromBytecode for isize {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        Ok(Leb::read_u32(reader)? as isize)
+    }
+}
 
 impl FromBytecode for bool {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
@@ -207,15 +212,14 @@ pub fn iter_const_expr<R: BytecodeReader>(reader: &mut R) -> impl Iterator<Item 
 
 pub fn iter_expr<R: BytecodeReader>(reader: &mut R) -> impl Iterator<Item = Result<WithPosition<Op>, ParserError>> {
     (0..)
-        .map(|_| reader.parse::<WithPosition<Op>>())
-        .scan(0, |depth, op| {
-            let cont = op.as_ref().is_ok_and(|op| {
-                let (new_depth, should_terminate) = op.data.continues(*depth);
-                *depth = new_depth;
-                should_terminate
-            });
-            if cont || op.is_err() {
-                Some(op)
+        .scan((0, true), |(depth, cont), _| {
+            if *cont {
+                let op = reader.parse::<WithPosition<Op>>();
+                Some(op.inspect(|op| {
+                    let (new_depth, should_cont) = op.data.continues(*depth);
+                    *depth = new_depth;
+                    *cont = should_cont;
+                }))
             } else {
                 None
             }
@@ -227,7 +231,6 @@ impl FromBytecode for String {
         Ok(parse_string(reader)?)
     }
 }
-
 #[derive(Debug, Clone, Default)]
 pub struct Header {
     header: Range<usize>, 
@@ -415,6 +418,9 @@ impl GlobalType {
     pub fn is_mut(&self) -> bool {
         self.mutable.data
     }
+    pub fn value_type(&self) -> ValueType {
+        self.t.data
+    }
 }
 impl Display for GlobalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -443,7 +449,10 @@ pub struct Global {
 
 impl Global {
     pub fn value_type(&self) -> ValueType {
-        self.t.data.t.data
+        self.t.data.value_type()
+    }
+    pub fn is_mut(&self) -> bool {
+        self.t.data.is_mut()
     }
 
     pub fn iter_init_expr(&self) -> impl Iterator<Item = &Op> {
@@ -624,8 +633,7 @@ pub struct Export {
     pub desc: WithPosition<ExportDesc>
 }
 
-impl fmt::Display for Export {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Export { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.name.data, self.desc.data)
     }
 }
@@ -710,14 +718,30 @@ impl Function {
     pub fn iter_locals(&self) -> impl Iterator<Item = ValueType> {
         self.locals.data.iter().map(|l| l.data.flat_iter()).flatten()
     }
+
     pub fn get_local(&self, id: usize) -> Option<ValueType> {
         //TODO: (joh): Langsam!
         let mut locals = self.iter_locals();
         locals.nth(id) 
     }
 
+    pub fn get_op(&self, index: usize) -> Option<&Op> {
+        self.code.data.data.get(index).map(|op| &op.data) 
+    }
     pub fn get_op_mut(&mut self, index: usize) -> Option<&mut Op> {
         self.code.data.data.get_mut(index).map(|op| &mut op.data) 
+    }
+    pub fn iter_ops(&self) -> impl Iterator<Item = WithPosition<Op>> {
+        self.code.data.data.iter().cloned()
+    }
+    pub fn iter_ops_mut(&mut self) -> impl Iterator<Item = &mut WithPosition<Op>> {
+        self.code.data.data.iter_mut()
+    }
+    pub fn get_op_after(&self, ip: isize) -> Option<(&Op, isize)> {
+        let op = self.get_op(ip as usize)?;
+        let jmp = op.get_jmp()?;
+        let next = ip + jmp;
+        Some((self.get_op(next as usize)?, next))
     }
 }
 
@@ -969,6 +993,15 @@ macro_rules! impl_bytecode_vec_accessor {
     };
 }
 
+macro_rules! impl_bytecode_iter {
+    ($($name:ident, $field:ident=> $res_type: ty),+$(,)?) => {
+        impl Bytecode {
+            $(pub fn $name(&self) -> Option<impl Iterator<Item = &$res_type>> {
+                Some(self.$field.as_ref()?.data.iter().map(|d| &d.data))
+            })+ 
+        }
+    }
+}
 impl_bytecode_vec_accessor! {
     get_type, get_type_pos, types => &Type,
     get_import, get_import_pos, imports => &Import,
@@ -980,7 +1013,17 @@ impl_bytecode_vec_accessor! {
     get_code, get_code_pos, code => &Function,
     get_data, get_data_pos, data => &Data,
 }
-
+impl_bytecode_iter! {
+    iter_types, types => Type,
+    iter_imports, imports => Import,
+    iter_functions, functions => usize,
+    iter_tables, tables => Limits,
+    iter_memories, memories => Limits,
+    iter_globals, globals => Global,
+    iter_exports,  exports => Export,
+    iter_code, code => Function,
+    iter_data, data => Data,
+}
 impl Bytecode {
     pub fn sort_imports(&self) -> Option<SortedImports> {
         if let Some(imports) = &self.imports {
@@ -995,15 +1038,22 @@ impl Bytecode {
         } else {
             None
         }
-
     }
+    pub fn iter_function_types(&self) -> Option<impl Iterator<Item = &Type>> {
+        Some(self.iter_functions()?.map(|id| self.get_type(*id).unwrap()))
+    }
+
+    pub fn iter_code_mut(&mut self) -> Option<impl Iterator<Item = &mut Function>> {
+        Some(self.code.as_mut()?.data.iter_mut().map(|f| &mut f.data))
+    }
+    
 }
 
 pub fn parse_binary(reader: &mut impl BytecodeReader) -> Result<Bytecode, ParserError> {
     reader.parse()
 }
 
-pub fn parse_wat(code: &str) -> Result<Bytecode, ParserError> {
+pub fn parse_wat(code: impl AsRef<str>) -> Result<Bytecode, ParserError> {
     let data = wat::parse_str(code)?;
     let mut reader = Cursor::new(data);
 
@@ -1042,6 +1092,8 @@ mod tests {
                     local.get 0
                     local.get 1
                     local.get 2
+                    i32.add 
+                    global.get 5
                 )
             )
         "#;
