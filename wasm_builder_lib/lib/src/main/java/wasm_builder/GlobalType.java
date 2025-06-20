@@ -1,3 +1,3 @@
 package wasm_builder;
 
-public record GlobalType(WasmValueType valtype, boolean mutable) implements Importable{};
+public record GlobalType(ValueType valtype, boolean mutable) implements Importable{};

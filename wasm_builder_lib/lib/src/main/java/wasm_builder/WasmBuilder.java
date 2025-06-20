@@ -26,63 +26,12 @@ public class WasmBuilder {
   private ArrayList<byte[]> stringLiterals = new ArrayList<>();
   private int stringLiteralMemIndex = 0;
 
-  public void fillFuncTypes(List<Func> funcs) {
+  private void fillFuncTypes(List<Func> funcs) {
 	  for (Func f : funcs) {
 		  this.funcTypes.add(f.getFuncType());
 	  }
   }
-	public void build(List<Func> funcs) throws IOException {
-		fillFuncTypes(funcs);
-		ArrayList<FuncType> allFuncTypes = new ArrayList<>(importedFuncTypes);
-		allFuncTypes.addAll(funcTypes);
-		ArrayList<GlobalType> allGlobals = new ArrayList<>(importedGlobals);
-		allGlobals.addAll(globals);
-		writeBinaryMagic(out);
-		writeBinaryVersion(out);
 
-		if (!funcTypes.isEmpty()) {
-			writeTypeSection(allFuncTypes, out);
-		}
-		writeImportSection(imports, out);
-		if (!funcTypes.isEmpty()) {
-			writeFuncSection(funcTypes, out);
-		}
-		writeMemSection(out);
-		if(!globals.isEmpty()){
-			writeGlobalSection(globals, out);
-		}
-		if(!exportedFuncs.isEmpty()) {
-			writeExportSection(this.exportedFuncs, out);
-		}
-		if(this.startFunctionId.isPresent()) {
-			writeStartSection(this.startFunctionId.get(), out);	
-		}
-
-    if(!stringLiterals.isEmpty()) {
-      writeDataCountSection(out);
-    }
-    
-		if (!funcTypes.isEmpty()) {
-			writeCodeSection(funcs, out);
-		}
-
-    if(!stringLiterals.isEmpty()) {
-      writeDataSection(out);
-    }
-
-	writeNameSection(out);
-
-	}
-
-  public int addStringData(List<String> strings) {
-    int currentIndex = this.stringLiteralMemIndex;
-    for(String s : strings) {
-      var literal = getStringLiteralBytes(s);
-      this.stringLiteralMemIndex += literal.length;
-      this.stringLiterals.add(literal);
-    }
-    return currentIndex;
-  }
 
 	private void writeStartSection(int id, ByteArrayOutputStream os) throws IOException {
 		ByteArrayOutputStream s = new ByteArrayOutputStream();
@@ -93,53 +42,7 @@ public class WasmBuilder {
 		
 		os.write(s.toByteArray());
 	}	
-	public void setStartFunction(int id) {
-		this.startFunctionId = Optional.of(id);	
-	}
 
-	public Func addFunc(FuncType funcType, List<Local> locals) {
-		return new Func(this,funcType, locals);
-	}
-
-	public Func addFunc(FuncType funcType) {
-		return new Func(this,funcType );
-	}
-
-	public void setGlobals(List<GlobalType> globals) {
-		this.globals.addAll(globals);
-	}
-
-	public void addGlobal(GlobalType global) {
-		this.globals.add(global);
-	}
-
-	public void addExport(Export export) {
-		this.exportedFuncs.add(export);
-	}
-
-	public void setImports(List<Import> imports) {
-		for (Import im : imports) {
-			addImport(im);
-		}
-	}
-
-	public void addImport(Import im) {
-		this.imports.add(im);
-		switch (im.getDesc()){
-			case FuncType funcType -> {
-				this.importedFuncTypes.add(funcType);
-			}
-            case GlobalType globalType -> {
-				this.importedGlobals.add(globalType);
-            }
-            case MemType ignored -> {
-				//TODO
-            }
-            case TableType ignored -> {
-				//TODO
-            }
-        }
-	}
 
 	public byte[] getByteArray() {
 		return out.toByteArray();
@@ -399,7 +302,7 @@ public class WasmBuilder {
 			nameSection.addLocalName(funcIdx, 0, locals.getFirst().name());
 		} else {
 			int declCount = 0, typeCount = 0;
-			WasmValueType lastType = locals.getFirst().type();
+			ValueType lastType = locals.getFirst().type();
 			ByteArrayOutputStream declsBytes = new ByteArrayOutputStream();
 
 			// i32 i32 i64 i32 i32 -> 2 i32 1 i64 2 i32
@@ -436,6 +339,7 @@ public class WasmBuilder {
 
 		// Module Name Subsection
 		ByteArrayOutputStream moduleName = new ByteArrayOutputStream();
+		moduleName.write(nameSection.getModuleName().length());
 		moduleName.write(this.nameSection.getModuleName().getBytes(StandardCharsets.UTF_8));
 
 		// Function Names Subsection
@@ -529,4 +433,119 @@ public class WasmBuilder {
 
 	}
 
+	// API
+	public void build(List<Func> funcs) throws IOException {
+		fillFuncTypes(funcs);
+		ArrayList<FuncType> allFuncTypes = new ArrayList<>(importedFuncTypes);
+		allFuncTypes.addAll(funcTypes);
+		ArrayList<GlobalType> allGlobals = new ArrayList<>(importedGlobals);
+		allGlobals.addAll(globals);
+		writeBinaryMagic(out);
+		writeBinaryVersion(out);
+
+		if (!funcTypes.isEmpty()) {
+			writeTypeSection(allFuncTypes, out);
+		}
+		writeImportSection(imports, out);
+		if (!funcTypes.isEmpty()) {
+			writeFuncSection(funcTypes, out);
+		}
+		writeMemSection(out);
+		if(!globals.isEmpty()){
+			writeGlobalSection(globals, out);
+		}
+		if(!exportedFuncs.isEmpty()) {
+			writeExportSection(this.exportedFuncs, out);
+		}
+		if(this.startFunctionId.isPresent()) {
+			writeStartSection(this.startFunctionId.get(), out);
+		}
+
+		if(!stringLiterals.isEmpty()) {
+			writeDataCountSection(out);
+		}
+
+		if (!funcTypes.isEmpty()) {
+			writeCodeSection(funcs, out);
+		}
+
+		if(!stringLiterals.isEmpty()) {
+			writeDataSection(out);
+		}
+
+		writeNameSection(out);
+	}
+
+	public int addStringData(List<String> strings) {
+		int currentIndex = this.stringLiteralMemIndex;
+		for(String s : strings) {
+			var literal = getStringLiteralBytes(s);
+			this.stringLiteralMemIndex += literal.length;
+			this.stringLiterals.add(literal);
+		}
+		return currentIndex;
+	}
+
+	public void importFunc(String module, String name, FuncType funcType) {
+		Import im = new Import(module, name, funcType);
+		addImport(im);
+	}
+
+	public void addImport(Import im) {
+		this.imports.add(im);
+		switch (im.getDesc()){
+			case FuncType funcType -> {
+				this.importedFuncTypes.add(funcType);
+			}
+			case GlobalType globalType -> {
+				this.importedGlobals.add(globalType);
+			}
+			case MemType ignored -> {
+				//TODO
+			}
+			case TableType ignored -> {
+				//TODO
+			}
+		}
+	}
+
+	public void setStartFunction(int id) {
+		this.startFunctionId = Optional.of(id);
+	}
+
+	public Func createFunction(FuncType funcType, List<Local> locals) {
+		ArrayList<GlobalType> allGlobals = new ArrayList<>(importedGlobals);
+		allGlobals.addAll(globals);
+		return new Func(funcType, locals, allGlobals);
+	}
+
+	public Func createFunction(FuncType funcType) {
+		return new Func(funcType );
+	}
+
+	public void setGlobals(List<GlobalType> globals) {
+		this.globals.addAll(globals);
+	}
+
+	public void addGlobal(GlobalType global) {
+		this.globals.add(global);
+	}
+
+	public void addExport(Export export) {
+		this.exportedFuncs.add(export);
+	}
+
+	public void exportFunction(String name, int id) {
+		addExport(new Export(name, id));
+	}
+
+	public void setImports(List<Import> imports) {
+		for (Import im : imports) {
+			addImport(im);
+		}
+	}
+
+	public void setModuleName(String name) {
+	  this.nameSection.setModuleName(name);
+	}
 }

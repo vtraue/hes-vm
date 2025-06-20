@@ -9,17 +9,17 @@ public final class FuncType implements Importable {
 	private ArrayList<Integer> results;
 	private String name = "";
 
-	public FuncType(List<WasmValueType> params, List<WasmValueType> results) {
+	public FuncType(List<ValueType> params, List<ValueType> results) {
 		this();
-		for (WasmValueType wasmValueType : params) {
-			this.params.add((int) wasmValueType.code);
+		for (ValueType valueType : params) {
+			this.params.add((int) valueType.code);
 		}
-		for (WasmValueType wasmValueType : results) {
-			this.results.add((int) wasmValueType.code);
+		for (ValueType valueType : results) {
+			this.results.add((int) valueType.code);
 		}
 	}
 
-	public FuncType(List<WasmValueType> params, List<WasmValueType> results, String name) {
+	public FuncType(List<ValueType> params, List<ValueType> results, String name) {
 		this(params, results);
 		this.name = name;
 	}
