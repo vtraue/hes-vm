@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use parser::types::ValueType;
+use parser::reader::ValueType;
 
-use super::slow_vm::{LocalValue, Vm};
+use crate::slow_vm::{InstanceError, LocalValue, Vm};
 
 pub type ExternalFunctionHandler = fn(&mut Vm, params: &[LocalValue]) -> Result<(), usize>;
 
@@ -27,3 +27,31 @@ pub struct Module<'a> {
 }
 
 pub type Modules<'a> = HashMap<&'a str, Module<'a>>;
+
+pub fn get_env_func<'a>(
+    modules: &'a Modules,
+    module_name: impl AsRef<str>,
+    name: impl AsRef<str>,
+) -> Result<&'a ExternalFunction, InstanceError> {
+    let module = modules
+        .get(module_name.as_ref())
+        .ok_or(InstanceError::ImportModuleNameDoesNotMatch)?;
+    module
+        .functions
+        .get(name.as_ref())
+        .ok_or(InstanceError::ImportFunctionNameDoesNotMatch)
+}
+
+pub fn get_env_global<'a>(
+    modules: &'a Modules,
+    module_name: impl AsRef<str>,
+    name: impl AsRef<str>,
+) -> Result<&'a ExternalGlobal, InstanceError> {
+    let module = modules
+        .get(module_name.as_ref())
+        .ok_or(InstanceError::ImportModuleNameDoesNotMatch)?;
+    module
+        .globals
+        .get(name.as_ref())
+        .ok_or(InstanceError::ImportGlobalNameDoesNotMatch)
+}

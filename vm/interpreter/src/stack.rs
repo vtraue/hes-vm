@@ -1,3 +1,5 @@
+use core::fmt;
+
 use bytemuck::cast;
 
 #[derive(Copy, Clone)]
@@ -7,37 +9,29 @@ pub union StackValue {
     pub f32: f32,
     pub f64: f64,
 }
+impl fmt::Debug for StackValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AnyStackValue")
+    }
+}
+macro_rules! impl_from_num_stackval {
+    ($field_name: ident, $type: tt) => {
+        impl From<$type> for StackValue {
+            fn from(value: $type) -> Self {
+                Self {
+                    $field_name: cast(value),
+                }
+            }
+        }
+    };
+}
 
-impl From<u32> for StackValue {
-    fn from(value: u32) -> Self {
-        Self { i32: value }
-    }
-}
-impl From<i32> for StackValue {
-    fn from(value: i32) -> Self {
-        Self { i32: cast(value) }
-    }
-}
-impl From<u64> for StackValue {
-    fn from(value: u64) -> Self {
-        Self { i64: value }
-    }
-}
-impl From<i64> for StackValue {
-    fn from(value: i64) -> Self {
-        Self { i64: cast(value) }
-    }
-}
-impl From<f32> for StackValue {
-    fn from(value: f32) -> Self {
-        Self { f32: value }
-    }
-}
-impl From<f64> for StackValue {
-    fn from(value: f64) -> Self {
-        Self { f64: value }
-    }
-}
+impl_from_num_stackval!(i32, u32);
+impl_from_num_stackval!(i32, i32);
+impl_from_num_stackval!(i64, u64);
+impl_from_num_stackval!(i64, i64);
+impl_from_num_stackval!(f32, f32);
+impl_from_num_stackval!(f64, f64);
 
 impl From<bool> for StackValue {
     fn from(value: bool) -> Self {

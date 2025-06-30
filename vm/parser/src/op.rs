@@ -1,7 +1,10 @@
 use byteorder::ReadBytesExt;
 use core::fmt;
 
-use crate::{leb::Leb, reader::{BytecodeReader, FromBytecode, ParserError, ValueType}};
+use crate::{
+    leb::Leb,
+    reader::{BytecodeReader, FromBytecode, ParserError, ValueType},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocktype {
@@ -60,7 +63,7 @@ impl fmt::Display for Memarg {
 #[derive(Debug, Clone)]
 pub enum JumpDirection {
     Forward,
-    Backward
+    Backward,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,14 +73,14 @@ pub enum Op {
     Block(Blocktype),
 
     Loop(Blocktype),
-    If {bt: Blocktype, jmp: isize},
+    If { bt: Blocktype, jmp: isize },
     Else(isize),
     End,
-    Br {label: usize, jmp: isize},
-    BrIf{label: usize, jmp: isize},
+    Br { label: usize, jmp: isize },
+    BrIf { label: usize, jmp: isize },
     Return,
     Call(usize),
-    CallIndirect{table: usize, type_id: isize},
+    CallIndirect { table: usize, type_id: isize },
     Drop,
     Select(Option<ValueType>),
     LocalGet(usize),
@@ -173,7 +176,7 @@ pub enum Op {
 
 impl Op {
     pub fn needs_end_terminator(&self) -> bool {
-        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If {bt: _,  jmp: _} )
+        matches!(self, Op::Block(_) | Op::Loop(_) | Op::If { bt: _, jmp: _ })
     }
 
     pub fn is_const(&self) -> bool {
@@ -202,21 +205,18 @@ impl Op {
         }
     }
     pub fn is_branch(&self) -> bool {
-        return matches!(self, Op::If { bt: _, jmp: _}) ||matches!(self, Op::Else(_))  
+        return matches!(self, Op::If { bt: _, jmp: _ }) || matches!(self, Op::Else(_));
     }
 
     pub fn get_jmp(&self) -> Option<isize> {
         match self {
-            Op::If { jmp, .. }  => Some(*jmp),
+            Op::If { jmp, .. } => Some(*jmp),
             Op::Else(jmp) => Some(*jmp),
             Op::Br { jmp, .. } => Some(*jmp),
-            Op::BrIf { jmp , ..} => Some(*jmp),
-            _ => None
+            Op::BrIf { jmp, .. } => Some(*jmp),
+            _ => None,
         }
     }
-    
-    
-
 }
 
 impl FromBytecode for Op {
@@ -227,14 +227,26 @@ impl FromBytecode for Op {
             0x01 => Self::Nop,
             0x02 => Self::Block(reader.parse()?),
             0x03 => Self::Loop(reader.parse()?),
-            0x04 => Self::If {bt: reader.parse()?, jmp: 0},
+            0x04 => Self::If {
+                bt: reader.parse()?,
+                jmp: 0,
+            },
             0x05 => Self::Else(0),
             0x0B => Self::End,
-            0x0C => Self::Br {label: reader.parse()?, jmp: 0},
-            0x0D => Self::BrIf {label: reader.parse()?, jmp: 0},
+            0x0C => Self::Br {
+                label: reader.parse()?,
+                jmp: 0,
+            },
+            0x0D => Self::BrIf {
+                label: reader.parse()?,
+                jmp: 0,
+            },
             0x0F => Self::Return,
             0x10 => Self::Call(reader.parse()?),
-            0x11 => Self::CallIndirect {table: reader.parse()?, type_id: reader.parse()?},
+            0x11 => Self::CallIndirect {
+                table: reader.parse()?,
+                type_id: reader.parse()?,
+            },
             0x1A => Self::Drop,
             0x1B => Self::Select(None),
             0x1C => Self::Select(Some(reader.parse()?)),
@@ -342,14 +354,14 @@ impl fmt::Display for Op {
             Op::Nop => write!(f, "nop"),
             Op::Block(blocktype) => write!(f, "block {blocktype}"),
             Op::Loop(blocktype) => write!(f, "loop {blocktype}"),
-            Op::If{bt, jmp} => write!(f, "if {bt} (jmp: {jmp})"),
+            Op::If { bt, jmp } => write!(f, "if {bt} (jmp: {jmp})"),
             Op::Else(jmp) => write!(f, "else (delta ip: {jmp}"),
             Op::End => write!(f, "end"),
-            Op::Br{label, jmp} => write!(f, "br {label} (jmp: {jmp})"),
-            Op::BrIf{label, jmp}  => write!(f, "br_if {label} (jmp: {jmp})"),
+            Op::Br { label, jmp } => write!(f, "br {label} (jmp: {jmp})"),
+            Op::BrIf { label, jmp } => write!(f, "br_if {label} (jmp: {jmp})"),
             Op::Return => write!(f, "return"),
             Op::Call(func_id) => write!(f, "call {func_id}"),
-            Op::CallIndirect{table, type_id} => write!(f, "call_indirect {table} {type_id}"),
+            Op::CallIndirect { table, type_id } => write!(f, "call_indirect {table} {type_id}"),
             Op::Drop => write!(f, "drop"),
             Op::Select(_) => write!(f, "select"), //TODO: (joh): Argumente fuer Select
             Op::LocalGet(id) => write!(f, "local.get {id}"),

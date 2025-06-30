@@ -1,43 +1,53 @@
 use crate::reader::{Bytecode, GlobalType, Limits, SortedImports, ValueType};
+const WASM_PAGE_SIZE: usize = 65536;
 
 #[derive(Debug, Clone)]
 pub enum IncludeMode {
     Internal,
     Exported,
-    Imported
+    Imported,
 }
 
 #[derive(Debug, Clone)]
 pub enum FunctionType {
-    Internal {code_id: usize, export_id: Option<usize>},   
-    Imported {import_id: usize},
+    Internal {
+        code_id: usize,
+        export_id: Option<usize>,
+    },
+    Imported {
+        import_id: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct Function {
     pub type_id: usize,
-    pub t: FunctionType, 
+    pub t: FunctionType,
 }
 impl Function {
     pub fn new_internal(type_id: usize, code_id: usize, export_id: Option<usize>) -> Self {
         Function {
             type_id,
-            t: FunctionType::Internal { code_id, export_id }
+            t: FunctionType::Internal { code_id, export_id },
         }
     }
 
     pub fn new_imported(type_id: usize, import_id: usize) -> Self {
         Function {
             type_id,
-            t: FunctionType::Imported {import_id}
+            t: FunctionType::Imported { import_id },
         }
     }
-
 }
 #[derive(Debug, Clone)]
 pub enum GlobalInfo {
-    Internal {global_id: usize, export_id: Option<usize>},
-    Imported {import_id: usize} 
+    Internal {
+        global_id: usize,
+        export_id: Option<usize>,
+    },
+    Imported {
+        import_id: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -57,19 +67,18 @@ impl Global {
             info,
         }
     }
-    
 }
 
 #[derive(Debug, Clone)]
 pub enum MemoryInfo {
-    Internal {export_id: Option<usize>},
-    Imported {import_id: usize}
+    Internal { export_id: Option<usize> },
+    Imported { import_id: usize },
 }
 
 #[derive(Debug, Clone)]
 pub struct Memory {
     limits: Limits,
-    info: MemoryInfo, 
+    info: MemoryInfo,
 }
 
 impl Memory {
@@ -78,14 +87,13 @@ impl Memory {
             limits,
             info: MemoryInfo::Imported { import_id },
         }
-
     }
 }
 #[derive(Debug, Default)]
 pub struct BytecodeInfo {
     pub imports: Option<SortedImports>,
-    pub functions: Vec<Function>,    
-    pub globals: Vec<Global>, 
+    pub functions: Vec<Function>,
+    pub globals: Vec<Global>,
     pub memories: Vec<Memory>,
 }
 
@@ -93,35 +101,64 @@ impl BytecodeInfo {
     pub fn new(bytecode: &Bytecode) -> Self {
         let mut info: BytecodeInfo = Default::default();
         if let Some(imports) = bytecode.sort_imports() {
-            info.functions.extend(imports.functions
-                .iter()
-                .map(|(id, t_id)| Function::new_imported(*id, *t_id)));
+            info.functions.extend(
+                imports
+                    .functions
+                    .iter()
+                    .map(|(id, t_id)| Function::new_imported(*id, *t_id)),
+            );
 
-            info.globals.extend(imports.globals
-                .iter()
-                .map(|(id, gt)| Global::new_imported(gt, *id)));
+            info.globals.extend(
+                imports
+                    .globals
+                    .iter()
+                    .map(|(id, gt)| Global::new_imported(gt, *id)),
+            );
 
-            info.memories.extend(imports.mems.iter().map(|(id, limits)| Memory::new_imported(*id, limits.clone())));  
-            info.imports = Some(imports);  
+            info.memories.extend(
+                imports
+                    .mems
+                    .iter()
+                    .map(|(id, limits)| Memory::new_imported(*id, limits.clone())),
+            );
+            info.imports = Some(imports);
         };
         //TODO: (joh): Exports
         if let Some(funcs) = bytecode.iter_functions() {
-            info.functions.extend(funcs.cloned().enumerate().map(|(code_id, type_id)| Function { type_id, t: FunctionType::Internal { code_id, export_id: None }}));
+            info.functions.extend(
+                funcs
+                    .cloned()
+                    .enumerate()
+                    .map(|(code_id, type_id)| Function {
+                        type_id,
+                        t: FunctionType::Internal {
+                            code_id,
+                            export_id: None,
+                        },
+                    }),
+            );
         }
         if let Some(globals) = bytecode.iter_globals() {
             //TODO: (joh): Exports
-            info.globals.extend(globals.cloned().enumerate().map(|(global_id, global)| {
-                let t = global.value_type(); 
-                let mutable = global.is_mut(); 
-                Global {
-                    t,
-                    mutable,
-                    info: GlobalInfo::Internal { global_id, export_id: None },
-                }
-            }));
+            info.globals
+                .extend(globals.cloned().enumerate().map(|(global_id, global)| {
+                    let t = global.value_type();
+                    let mutable = global.is_mut();
+                    Global {
+                        t,
+                        mutable,
+                        info: GlobalInfo::Internal {
+                            global_id,
+                            export_id: None,
+                        },
+                    }
+                }));
         }
         if let Some(memories) = bytecode.iter_memories() {
-            info.memories.extend(memories.cloned().map(|limits| Memory { limits, info: MemoryInfo::Internal { export_id: None } }));
+            info.memories.extend(memories.cloned().map(|limits| Memory {
+                limits,
+                info: MemoryInfo::Internal { export_id: None },
+            }));
         }
         info
     }
@@ -129,20 +166,30 @@ impl BytecodeInfo {
     pub fn imported_function_count(&self) -> usize {
         self.imports.as_ref().map_or(0, |i| i.functions.len())
     }
-    
+
     pub fn has_memory(&self) -> bool {
-        self.memories.len() > 0 
+        self.memories.len() > 0
     }
 
-    pub fn iter_code_locals(&self, bytecode: &Bytecode, func_id: usize) -> Option<impl Iterator<Item = ValueType>> {
+    pub fn iter_code_locals(
+        &self,
+        bytecode: &Bytecode,
+        func_id: usize,
+    ) -> Option<impl Iterator<Item = ValueType>> {
         let func = self.functions.get(func_id)?;
         match func.t {
-            FunctionType::Internal { code_id, ..} => {
-                let t = bytecode.get_type(func.type_id).unwrap(); 
+            FunctionType::Internal { code_id, .. } => {
+                let t = bytecode.get_type(func.type_id).unwrap();
                 let code = bytecode.get_code(code_id).unwrap();
                 Some(t.iter_params().cloned().chain(code.iter_locals()))
-            },
+            }
             FunctionType::Imported { .. } => None,
         }
+    }
+
+    pub fn inital_mem_size_pages(&self) -> Option<usize> {
+        self.memories
+            .get(0)
+            .map(|l| l.limits.min.data as usize * WASM_PAGE_SIZE)
     }
 }

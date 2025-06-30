@@ -1,10 +1,20 @@
-use core::fmt::{self, Display}; use std::{io::{Cursor, Read, Seek, SeekFrom}, iter::repeat, ops::Range, string::FromUtf8Error, usize};
+use core::fmt::{self, Display};
+use std::{
+    io::{Cursor, Read, Seek, SeekFrom},
+    iter::repeat,
+    ops::Range,
+    string::FromUtf8Error,
+    usize,
+};
 
 use byteorder::ReadBytesExt;
 use itertools::Itertools;
 use parser_derive::FromBytecode;
 
-use crate::{leb::{Leb, LebError}, op::Op};
+use crate::{
+    leb::{Leb, LebError},
+    op::Op,
+};
 use thiserror::Error;
 const TYPE_MAGIC: u8 = 0x60;
 
@@ -12,18 +22,26 @@ const TYPE_MAGIC: u8 = 0x60;
 pub enum ParserError {
     #[error("Unable to read from reader: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Invalid LEB encoding: {0}\n
-        See: https://webassembly.github.io/spec/core/binary/values.html#integers")] 
+    #[error(
+        "Invalid LEB encoding: {0}\n
+        See: https://webassembly.github.io/spec/core/binary/values.html#integers"
+    )]
     Leb(#[from] LebError),
-    #[error("Invalid wasm header. 
-        Got: {0:?}\nSee: https://webassembly.github.io/spec/core/binary/modules.html#binary-module")] 
+    #[error(
+        "Invalid wasm header. 
+        Got: {0:?}\nSee: https://webassembly.github.io/spec/core/binary/modules.html#binary-module"
+    )]
     InvalidHeader([u8; 4]),
-    #[error("Invalid wasm version. 
-        Got: {0:?}\nSee: https://webassembly.github.io/spec/core/binary/modules.html#binary-module")] 
+    #[error(
+        "Invalid wasm version. 
+        Got: {0:?}\nSee: https://webassembly.github.io/spec/core/binary/modules.html#binary-module"
+    )]
     InvalidVersion([u8; 4]),
 
-    #[error("Invalid value type. 
-        Got: {0:?}\nSee: https://webassembly.github.io/spec/core/binary/types.html#number-types")] 
+    #[error(
+        "Invalid value type. 
+        Got: {0:?}\nSee: https://webassembly.github.io/spec/core/binary/types.html#number-types"
+    )]
     InvalidValueTypeId(u8),
 
     #[error("Invalid function type encoding. Expected: 0x60 got: {0}")]
@@ -54,7 +72,7 @@ pub enum ParserError {
     InvalidSectionId(u8),
 
     #[error("Unable to parse wat source code: {0}")]
-    WatParseError(#[from] wat::Error)  
+    WatParseError(#[from] wat::Error),
 }
 impl ParserError {
     pub fn is_eof(&self) -> bool {
@@ -63,7 +81,6 @@ impl ParserError {
         } else {
             false
         }
-        
     }
 }
 
@@ -73,15 +90,14 @@ pub trait BytecodeReader: Read + Seek + Sized {
     }
 }
 impl<T: Read + Seek> BytecodeReader for T {}
-    
 
-pub trait FromBytecode : Sized {
-    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError>;  
+pub trait FromBytecode: Sized {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError>;
 }
 
 impl<T: FromBytecode> FromBytecode for Vec<T> {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        parse_vec(reader)  
+        parse_vec(reader)
     }
 }
 impl FromBytecode for u32 {
@@ -119,12 +135,12 @@ impl FromBytecode for bool {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct WithPosition<T> {
     pub data: T,
-    pub position: Range<usize>
+    pub position: Range<usize>,
 }
 
 impl<T> WithPosition<T> {
-    pub fn new(data: T, position: Range<usize>) -> Self{
-        Self {data, position}
+    pub fn new(data: T, position: Range<usize>) -> Self {
+        Self { data, position }
     }
     pub fn as_ref(&self) -> WithPosition<&T> {
         WithPosition::new(&self.data, self.position.clone())
@@ -141,89 +157,111 @@ impl<T: FromBytecode> From<(T, Range<usize>)> for WithPosition<T> {
         WithPosition::new(value.0, value.1)
     }
 }
-pub fn read_with_pos<R: Read + Seek, T: Sized, F>(reader: &mut R, read_op: F) -> Result<WithPosition<T>, ParserError> 
-    where F: FnOnce(&mut R) -> T
+pub fn read_with_pos<R: Read + Seek, T: Sized, F>(
+    reader: &mut R,
+    read_op: F,
+) -> Result<WithPosition<T>, ParserError>
+where
+    F: FnOnce(&mut R) -> T,
 {
-    let start = reader.seek(SeekFrom::Current(0))? as usize;    
-    let data = read_op(reader); 
+    let start = reader.seek(SeekFrom::Current(0))? as usize;
+    let data = read_op(reader);
     let end = reader.seek(SeekFrom::Current(0))? as usize;
 
-    let range = start .. end - start;  
+    let range = start..end - start;
     Ok(WithPosition::new(data, range))
 }
 
-pub fn try_read_with_pos<R: Read + Seek, T: Sized, F>(reader: &mut R, read_op: F) -> Result<WithPosition<T>, ParserError> 
-    where F: FnOnce(&mut R) -> Result<T, ParserError>
+pub fn try_read_with_pos<R: Read + Seek, T: Sized, F>(
+    reader: &mut R,
+    read_op: F,
+) -> Result<WithPosition<T>, ParserError>
+where
+    F: FnOnce(&mut R) -> Result<T, ParserError>,
 {
-    let start = reader.seek(SeekFrom::Current(0))? as usize;    
-    let data = read_op(reader)?; 
+    let start = reader.seek(SeekFrom::Current(0))? as usize;
+    let data = read_op(reader)?;
     let end = reader.seek(SeekFrom::Current(0))? as usize;
 
-    let range = start .. end - start;  
+    let range = start..end - start;
     Ok(WithPosition::new(data, range))
 }
 
-pub fn parse_with_pos<R: BytecodeReader, T: FromBytecode>(reader: &mut R) -> Result<WithPosition<T>, ParserError> {  
+pub fn parse_with_pos<R: BytecodeReader, T: FromBytecode>(
+    reader: &mut R,
+) -> Result<WithPosition<T>, ParserError> {
     try_read_with_pos(reader, |r| r.parse())
 }
 
-pub fn iter_vec<R: BytecodeReader, T: FromBytecode>(reader: &mut R) -> Result<impl Iterator<Item = Result<T, ParserError>>, ParserError> {
-    let count = Leb::read_u32(reader)?; 
+pub fn iter_vec<R: BytecodeReader, T: FromBytecode>(
+    reader: &mut R,
+) -> Result<impl Iterator<Item = Result<T, ParserError>>, ParserError> {
+    let count = Leb::read_u32(reader)?;
     Ok((0..count).map(|_| reader.parse::<T>()))
-
 }
-pub fn iter_vec_with_pos<R: BytecodeReader, T: FromBytecode>(reader: &mut R) -> Result<impl Iterator<Item = Result<WithPosition<T>, ParserError>>, ParserError> {
-    let count = Leb::read_u32(reader)?; 
+pub fn iter_vec_with_pos<R: BytecodeReader, T: FromBytecode>(
+    reader: &mut R,
+) -> Result<impl Iterator<Item = Result<WithPosition<T>, ParserError>>, ParserError> {
+    let count = Leb::read_u32(reader)?;
     Ok((0..count).map(|_| parse_with_pos(reader)))
 }
 
-pub fn parse_vec<R: BytecodeReader, T: FromBytecode>(reader: &mut R) -> Result<Vec<T>, ParserError> {
+pub fn parse_vec<R: BytecodeReader, T: FromBytecode>(
+    reader: &mut R,
+) -> Result<Vec<T>, ParserError> {
     iter_vec(reader)?.collect()
 }
-pub fn parse_vec_pos<R: BytecodeReader, T: FromBytecode>(reader: &mut R) -> Result<WithPosition<Vec<WithPosition<T>>>, ParserError> {
-    let start = reader.seek(SeekFrom::Current(0))? as usize;    
-    let data =  iter_vec_with_pos(reader)?.collect::<Result<Vec<WithPosition<T>>, _>>()?;
+pub fn parse_vec_pos<R: BytecodeReader, T: FromBytecode>(
+    reader: &mut R,
+) -> Result<WithPosition<Vec<WithPosition<T>>>, ParserError> {
+    let start = reader.seek(SeekFrom::Current(0))? as usize;
+    let data = iter_vec_with_pos(reader)?.collect::<Result<Vec<WithPosition<T>>, _>>()?;
     let end = reader.seek(SeekFrom::Current(0))? as usize;
-    let range = start .. end - start;  
-    Ok(WithPosition::new(data, range)) 
+    let range = start..end - start;
+    Ok(WithPosition::new(data, range))
 }
 
 pub fn parse_string<R: BytecodeReader>(reader: &mut R) -> Result<String, ParserError> {
-    let len = reader.parse::<usize>()?; 
-    let mut buffer= vec![0; len]; 
-    reader.read_exact(&mut buffer)?; 
+    let len = reader.parse::<usize>()?;
+    let mut buffer = vec![0; len];
+    reader.read_exact(&mut buffer)?;
 
-    Ok(String::from_utf8(buffer)?) 
-
+    Ok(String::from_utf8(buffer)?)
 }
 
-pub fn parse_data_with_pos<R: BytecodeReader>(reader: &mut R) -> Result<WithPosition<Vec<u8>>, ParserError> {
+pub fn parse_data_with_pos<R: BytecodeReader>(
+    reader: &mut R,
+) -> Result<WithPosition<Vec<u8>>, ParserError> {
     try_read_with_pos(reader, |r| {
-                    let data_size: usize = r.parse()?;
-                    let mut buffer = vec![0; data_size];
-                    r.read_exact(&mut buffer)?; 
-                    Ok(buffer)})
+        let data_size: usize = r.parse()?;
+        let mut buffer = vec![0; data_size];
+        r.read_exact(&mut buffer)?;
+        Ok(buffer)
+    })
 }
-pub fn iter_const_expr<R: BytecodeReader>(reader: &mut R) -> impl Iterator<Item = Result<WithPosition<Op>, ParserError>>{
+pub fn iter_const_expr<R: BytecodeReader>(
+    reader: &mut R,
+) -> impl Iterator<Item = Result<WithPosition<Op>, ParserError>> {
     repeat(0)
         .map(|_| reader.parse::<WithPosition<Op>>())
-        .take_while(|op|op.as_ref().is_ok_and(|op| !op.data.is_terminator()) || op.is_err())
+        .take_while(|op| op.as_ref().is_ok_and(|op| !op.data.is_terminator()) || op.is_err())
 }
 
-pub fn iter_expr<R: BytecodeReader>(reader: &mut R) -> impl Iterator<Item = Result<WithPosition<Op>, ParserError>> {
-    (0..)
-        .scan((0, true), |(depth, cont), _| {
-            if *cont {
-                let op = reader.parse::<WithPosition<Op>>();
-                Some(op.inspect(|op| {
-                    let (new_depth, should_cont) = op.data.continues(*depth);
-                    *depth = new_depth;
-                    *cont = should_cont;
-                }))
-            } else {
-                None
-            }
-        })
+pub fn iter_expr<R: BytecodeReader>(
+    reader: &mut R,
+) -> impl Iterator<Item = Result<WithPosition<Op>, ParserError>> {
+    (0..).scan((0, true), |(depth, cont), _| {
+        if *cont {
+            let op = reader.parse::<WithPosition<Op>>();
+            Some(op.inspect(|op| {
+                let (new_depth, should_cont) = op.data.continues(*depth);
+                *depth = new_depth;
+                *cont = should_cont;
+            }))
+        } else {
+            None
+        }
+    })
 }
 
 impl FromBytecode for String {
@@ -233,8 +271,8 @@ impl FromBytecode for String {
 }
 #[derive(Debug, Clone, Default)]
 pub struct Header {
-    header: Range<usize>, 
-    version: Range<usize>
+    header: Range<usize>,
+    version: Range<usize>,
 }
 
 pub const WASM_HEADER_MAGIC: &[u8; 4] = b"\0asm";
@@ -243,18 +281,18 @@ pub const WASM_HEADER_VERSION: &[u8; 4] = &[1, 0, 0, 0];
 impl FromBytecode for Header {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         let header = try_read_with_pos(reader, |reader| {
-            let mut header: [u8; 4] = [0; 4]; 
+            let mut header: [u8; 4] = [0; 4];
             reader.read_exact(&mut header)?;
             Ok(header)
         })?;
 
         if header.data != *WASM_HEADER_MAGIC {
-            return Err(ParserError::InvalidHeader(header.data))
+            return Err(ParserError::InvalidHeader(header.data));
         }
 
         let version = try_read_with_pos(reader, |reader| {
-            let mut version: [u8; 4] = [0; 4]; 
-            
+            let mut version: [u8; 4] = [0; 4];
+
             reader.read_exact(&mut version)?;
             if version != *WASM_HEADER_VERSION {
                 Err(ParserError::InvalidVersion(version))
@@ -265,13 +303,13 @@ impl FromBytecode for Header {
 
         Ok(Header {
             header: header.position,
-            version: version.position
+            version: version.position,
         })
     }
 }
 
 pub fn read_wasm_header(reader: &mut impl BytecodeReader) -> Result<Header, ParserError> {
-    reader.parse() 
+    reader.parse()
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Copy, Clone, Eq)]
@@ -360,7 +398,7 @@ impl ValueType {
 
 impl FromBytecode for ValueType {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        reader.read_u8()?.try_into()     
+        reader.read_u8()?.try_into()
     }
 }
 
@@ -377,7 +415,7 @@ impl FromBytecode for Type {
             Err(ParserError::InvalidFunctionTypeEncoding(magic))
         } else {
             Ok(Self {
-                params: reader.parse()?, 
+                params: reader.parse()?,
                 results: reader.parse()?,
             })
         }
@@ -397,7 +435,6 @@ impl Type {
     pub fn get_result(&self, id: usize) -> Option<ValueType> {
         self.results.data.get(id).map(|id| id.data)
     }
-
 }
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -429,14 +466,22 @@ impl Display for GlobalType {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ConstExpr {
-    expr: Vec<WithPosition<Op>>
+    expr: Vec<WithPosition<Op>>,
 }
+
 impl FromBytecode for ConstExpr {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        Ok(ConstExpr {expr: iter_const_expr(reader).collect::<Result<Vec<_>,_>>()?})
+        Ok(ConstExpr {
+            expr: iter_const_expr(reader).collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+impl ConstExpr {
+    pub fn iter_ops(&self) -> impl Iterator<Item = Op> {
+        self.expr.iter().map(|op| op.data)
     }
 }
 
@@ -445,7 +490,6 @@ pub struct Global {
     pub t: WithPosition<GlobalType>,
     pub init_expr: WithPosition<ConstExpr>,
 }
-
 
 impl Global {
     pub fn value_type(&self) -> ValueType {
@@ -480,14 +524,17 @@ impl Limits {
         if self.min.data as i32 > i {
             return false;
         }
-        if let Some(WithPosition {data: max, position: _}) = &self.max {
+        if let Some(WithPosition {
+            data: max,
+            position: _,
+        }) = &self.max
+        {
             if i > *max as i32 || *max < self.min.data {
                 return false;
             }
         }
         true
     }
-
 }
 impl FromBytecode for Limits {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
@@ -507,7 +554,10 @@ impl FromBytecode for Limits {
 impl Display for Limits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.max {
-            Some(WithPosition {data: m, position: _}) => write!(f, "({}..{})", self.min.data, m),
+            Some(WithPosition {
+                data: m,
+                position: _,
+            }) => write!(f, "({}..{})", self.min.data, m),
             None => write!(f, "({}..)", self.min.data),
         }
     }
@@ -543,25 +593,31 @@ impl Display for ImportDesc {
     }
 }
 
-
 #[derive(FromBytecode, Debug, Clone)]
 pub struct ImportIdent {
     pub module: WithPosition<String>,
-    pub name:   WithPosition<String>,
+    pub name: WithPosition<String>,
 }
 impl Display for ImportIdent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "module: {}, name: {}", self.module.data, self.name.data) 
+        write!(f, "module: {}, name: {}", self.module.data, self.name.data)
     }
 }
-
 
 #[derive(FromBytecode, Debug, Clone)]
 pub struct Import {
     pub ident: WithPosition<ImportIdent>,
-    pub desc: WithPosition<ImportDesc>
+    pub desc: WithPosition<ImportDesc>,
 }
 
+impl Import {
+    pub fn get_name(&self) -> &str {
+        &self.ident.data.name.data
+    }
+    pub fn get_mod_name(&self) -> &str {
+        &self.ident.data.module.data
+    }
+}
 impl Display for Import {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({}): {}", self.ident.data, self.desc.data)
@@ -586,7 +642,6 @@ impl Display for Locals {
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExportDesc {
     FuncId(usize),
@@ -601,15 +656,14 @@ impl ExportDesc {
             0x01 => Ok(Self::TableId(id)),
             0x02 => Ok(Self::MemId(id)),
             0x03 => Ok(Self::GlobalId(id)),
-            _ => Err(ParserError::InvalidExportDesc(export_type)) 
+            _ => Err(ParserError::InvalidExportDesc(export_type)),
         }
     }
 }
 
-
 impl FromBytecode for ExportDesc {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        let t =  reader.read_u8()?;
+        let t = reader.read_u8()?;
         let id = reader.parse::<usize>()?;
 
         Self::new(t, id)
@@ -630,10 +684,11 @@ impl Display for ExportDesc {
 #[derive(FromBytecode, Debug, Clone)]
 pub struct Export {
     pub name: WithPosition<String>,
-    pub desc: WithPosition<ExportDesc>
+    pub desc: WithPosition<ExportDesc>,
 }
 
-impl fmt::Display for Export { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Export {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.name.data, self.desc.data)
     }
 }
@@ -641,25 +696,24 @@ impl fmt::Display for Export { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) ->
 #[derive(Debug, Clone)]
 pub enum Data {
     Active {
-        mem_id: usize, 
+        mem_id: usize,
         expr: WithPosition<Vec<WithPosition<Op>>>,
-        data: WithPosition<Vec<u8>>, 
+        data: WithPosition<Vec<u8>>,
     },
-    Passive(WithPosition<Vec<u8>>)
+    Passive(WithPosition<Vec<u8>>),
 }
 impl Data {
-    fn parse_active<R: BytecodeReader>(reader: &mut R, mem_id: usize) -> Result<Data, ParserError>{
+    fn parse_active<R: BytecodeReader>(reader: &mut R, mem_id: usize) -> Result<Data, ParserError> {
         let expr = try_read_with_pos(reader, |r| {
             iter_const_expr(r).collect::<Result<Vec<_>, _>>()
         })?;
-        let buffer = parse_data_with_pos(reader)?; 
+        let buffer = parse_data_with_pos(reader)?;
 
         Ok(Self::Active {
             mem_id,
-            expr, 
+            expr,
             data: buffer,
         })
-
     }
 }
 
@@ -671,7 +725,7 @@ impl FromBytecode for Data {
             2 => {
                 let id: usize = reader.parse()?;
                 Data::parse_active(reader, id)
-            },
+            }
             n => Err(ParserError::InvalidDataMode(n)),
         }
     }
@@ -679,7 +733,7 @@ impl FromBytecode for Data {
 
 #[derive(Debug, Clone)]
 pub struct Expression {
-    data: Vec<WithPosition<Op>> 
+    data: Vec<WithPosition<Op>>,
 }
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -699,9 +753,8 @@ impl FromBytecode for Expression {
 pub struct Function {
     pub size: usize,
     pub locals: WithPosition<Vec<WithPosition<Locals>>>,
-    pub code: WithPosition<Expression>
+    pub code: WithPosition<Expression>,
 }
-
 
 impl Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -716,20 +769,24 @@ impl Display for Function {
 
 impl Function {
     pub fn iter_locals(&self) -> impl Iterator<Item = ValueType> {
-        self.locals.data.iter().map(|l| l.data.flat_iter()).flatten()
+        self.locals
+            .data
+            .iter()
+            .map(|l| l.data.flat_iter())
+            .flatten()
     }
 
     pub fn get_local(&self, id: usize) -> Option<ValueType> {
         //TODO: (joh): Langsam!
         let mut locals = self.iter_locals();
-        locals.nth(id) 
+        locals.nth(id)
     }
 
     pub fn get_op(&self, index: usize) -> Option<&Op> {
-        self.code.data.data.get(index).map(|op| &op.data) 
+        self.code.data.data.get(index).map(|op| &op.data)
     }
     pub fn get_op_mut(&mut self, index: usize) -> Option<&mut Op> {
-        self.code.data.data.get_mut(index).map(|op| &mut op.data) 
+        self.code.data.data.get_mut(index).map(|op| &mut op.data)
     }
     pub fn iter_ops(&self) -> impl Iterator<Item = WithPosition<Op>> {
         self.code.data.data.iter().cloned()
@@ -737,34 +794,39 @@ impl Function {
     pub fn iter_ops_mut(&mut self) -> impl Iterator<Item = &mut WithPosition<Op>> {
         self.code.data.data.iter_mut()
     }
-    pub fn get_op_after(&self, ip: isize) -> Option<(&Op, isize)> {
+    pub fn get_op_after_offset(&self, ip: isize, offset: isize) -> Option<(&Op, isize)> {
         let op = self.get_op(ip as usize)?;
         let jmp = op.get_jmp()?;
-        let next = ip + jmp;
-        Some((self.get_op(next as usize)?, next))
+        let next = (ip + jmp) + offset;
+        println!("jmp: {}", next);
+        let op = self.get_op(next as usize)?;
+
+        Some((op, next))
+    }
+    pub fn get_op_after(&self, ip: isize) -> Option<(&Op, isize)> {
+        self.get_op_after_offset(ip, -1)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct CustomSection {
     pub name: WithPosition<String>,
-    pub data: WithPosition<Vec<u8>>, 
+    pub data: WithPosition<Vec<u8>>,
 }
 impl CustomSection {
-    pub fn init(reader: &mut impl BytecodeReader, section_size: usize) -> Result<Self, ParserError> {
-        let name: WithPosition<String> = reader.parse()?; 
+    pub fn init(
+        reader: &mut impl BytecodeReader,
+        section_size: usize,
+    ) -> Result<Self, ParserError> {
+        let name: WithPosition<String> = reader.parse()?;
         let data_size = section_size - name.position.clone().count();
         let data = try_read_with_pos(reader, |r| {
-            let mut buffer = vec![0; data_size]; 
+            let mut buffer = vec![0; data_size];
             r.read_exact(&mut buffer)?;
             Ok(buffer)
         })?;
 
-        Ok(Self {
-            name,
-            data,
-        }) 
-
+        Ok(Self { name, data })
     }
 }
 
@@ -784,9 +846,9 @@ pub enum SectionId {
 }
 
 pub type Types = Vec<WithPosition<Type>>;
-pub type Imports = Vec<WithPosition<Import>>; 
-pub type Functions = Vec<WithPosition<usize>>; 
-pub type Tables = Vec<WithPosition<Limits>>; 
+pub type Imports = Vec<WithPosition<Import>>;
+pub type Functions = Vec<WithPosition<usize>>;
+pub type Tables = Vec<WithPosition<Limits>>;
 pub type Memories = Vec<WithPosition<Limits>>;
 pub type Globals = Vec<WithPosition<Global>>;
 pub type Exports = Vec<WithPosition<Export>>;
@@ -798,9 +860,9 @@ pub type ModuleData = Vec<WithPosition<Data>>;
 #[derive(Debug, Clone)]
 pub enum SectionData {
     Type(Types),
-    Import(Imports), 
-    Function(Functions), 
-    Table(Tables), 
+    Import(Imports),
+    Function(Functions),
+    Table(Tables),
     Memory(Memories),
     Global(Globals),
     Export(Exports),
@@ -812,18 +874,18 @@ pub enum SectionData {
 macro_rules! impl_match_sec_data {
     ($reader:ident, $id:ident, $($case:literal => $section_type:path), + $(,)?) => {
         match $id {
-            $($case => Ok($section_type($reader.parse()?))),+,    
+            $($case => Ok($section_type($reader.parse()?))),+,
             num => Err(ParserError::InvalidSectionId(num))
         }
     };
 }
 
 impl SectionData {
-   pub fn init<R: BytecodeReader>(reader: &mut R, id: u8) -> Result<Self, ParserError> {
+    pub fn init<R: BytecodeReader>(reader: &mut R, id: u8) -> Result<Self, ParserError> {
         impl_match_sec_data! {
             reader,
             id,
-            0x01 => Self::Type, 
+            0x01 => Self::Type,
             0x02 => Self::Import,
             0x03 => Self::Function,
             0x04 => Self::Table,
@@ -842,7 +904,7 @@ impl SectionData {
 pub struct Section {
     pub id: u8,
     pub size: usize,
-    pub data: WithPosition<SectionDataOrCustom>
+    pub data: WithPosition<SectionDataOrCustom>,
 }
 impl Section {
     pub fn new_section(id: u8, size: usize, data: WithPosition<SectionData>) -> Self {
@@ -853,8 +915,11 @@ impl Section {
         }
     }
 
-    pub fn new_custom(reader: &mut impl BytecodeReader, id: u8, size: usize) -> Result<Self, ParserError> {
-
+    pub fn new_custom(
+        reader: &mut impl BytecodeReader,
+        id: u8,
+        size: usize,
+    ) -> Result<Self, ParserError> {
         let section = try_read_with_pos(reader, |r| CustomSection::init(r, size))?;
 
         Ok(Self {
@@ -875,22 +940,26 @@ impl FromBytecode for Section {
         let id = reader.read_u8()?;
         let size = reader.parse::<usize>()?;
         match id {
-            0x00 => Section::new_custom(reader, id, size),  
+            0x00 => Section::new_custom(reader, id, size),
             _ => {
-                let data = try_read_with_pos(reader,|r| SectionData::init(r, id))?; 
-                Ok(Section::new_section(id, size, data)) 
+                let data = try_read_with_pos(reader, |r| SectionData::init(r, id))?;
+                Ok(Section::new_section(id, size, data))
             }
         }
     }
 }
 
-pub fn parse_until_eof<T: FromBytecode>(reader: &mut impl BytecodeReader) -> impl Iterator<Item = Result<T, ParserError>> {
+pub fn parse_until_eof<T: FromBytecode>(
+    reader: &mut impl BytecodeReader,
+) -> impl Iterator<Item = Result<T, ParserError>> {
     (0..)
-        .map(|_| reader.parse()) 
+        .map(|_| reader.parse())
         .take_while(|op| op.as_ref().is_err_and(|e| !e.is_eof()) || op.is_ok())
 }
 
-pub fn iter_sections(reader: &mut impl BytecodeReader) -> impl Iterator<Item = Result<WithPosition<Section>, ParserError>> {
+pub fn iter_sections(
+    reader: &mut impl BytecodeReader,
+) -> impl Iterator<Item = Result<WithPosition<Section>, ParserError>> {
     parse_until_eof(reader)
 }
 
@@ -899,7 +968,7 @@ pub struct SortedImports {
     pub functions: Vec<(usize, usize)>,
     pub tables: Vec<(usize, Limits)>,
     pub mems: Vec<(usize, Limits)>,
-    pub globals: Vec<(usize, GlobalType)>
+    pub globals: Vec<(usize, GlobalType)>,
 }
 impl SortedImports {
     pub fn add(&mut self, import: &Import, id: usize) {
@@ -909,7 +978,6 @@ impl SortedImports {
             ImportDesc::MemType(limits) => self.mems.push((id, limits.clone())),
             ImportDesc::GlobalType(gt) => self.globals.push((id, gt.clone())),
         }
-        
     }
 }
 
@@ -918,18 +986,17 @@ type MaybeAt<T> = Option<WithPosition<T>>;
 pub struct Bytecode {
     pub header: Header,
     pub types: MaybeAt<Types>,
-    pub imports: MaybeAt<Imports>, 
+    pub imports: MaybeAt<Imports>,
     pub functions: MaybeAt<Functions>,
     pub tables: MaybeAt<Tables>,
-    pub memories: MaybeAt<Memories>, 
+    pub memories: MaybeAt<Memories>,
     pub globals: MaybeAt<Globals>,
     pub exports: MaybeAt<Exports>,
     pub start: MaybeAt<Start>,
     pub data_count: MaybeAt<DataCount>,
     pub code: MaybeAt<Code>,
     pub data: MaybeAt<ModuleData>,
-    pub custom_sections: Vec<WithPosition<CustomSection>>
-
+    pub custom_sections: Vec<WithPosition<CustomSection>>,
 }
 macro_rules! impl_add_section {
     ($section:ident -> $module:ident {$($case:path => $mod_name:expr),+ $(,)?}) => {
@@ -959,21 +1026,25 @@ impl Bytecode {
     }
 
     fn add_custom_section(&mut self, section: WithPosition<CustomSection>) {
-        self.custom_sections.push(section); 
+        self.custom_sections.push(section);
     }
 }
 impl FromBytecode for Bytecode {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        let mut module: Bytecode = Default::default();  
+        let mut module: Bytecode = Default::default();
         module.header = reader.parse()?;
         for section in iter_sections(reader) {
             let section = section?;
-            let section_data= section.data; 
+            let section_data = section.data;
             println!("SECTION:\n {:?}", section_data);
             let pos = section.position;
-            match section_data.data.data{
-                SectionDataOrCustom::Section(section_data) => module.add_section(WithPosition::new(section_data, pos)) ,
-                SectionDataOrCustom::Custom(custom_section) => module.add_custom_section(WithPosition::new(custom_section, pos)),
+            match section_data.data.data {
+                SectionDataOrCustom::Section(section_data) => {
+                    module.add_section(WithPosition::new(section_data, pos))
+                }
+                SectionDataOrCustom::Custom(custom_section) => {
+                    module.add_custom_section(WithPosition::new(custom_section, pos))
+                }
             }
         }
         Ok(module)
@@ -998,7 +1069,7 @@ macro_rules! impl_bytecode_iter {
         impl Bytecode {
             $(pub fn $name(&self) -> Option<impl Iterator<Item = &$res_type>> {
                 Some(self.$field.as_ref()?.data.iter().map(|d| &d.data))
-            })+ 
+            })+
         }
     }
 }
@@ -1027,9 +1098,10 @@ impl_bytecode_iter! {
 impl Bytecode {
     pub fn sort_imports(&self) -> Option<SortedImports> {
         if let Some(imports) = &self.imports {
-            let mut sorted: SortedImports = Default::default(); 
+            let mut sorted: SortedImports = Default::default();
 
-            imports.data
+            imports
+                .data
                 .iter()
                 .enumerate()
                 .for_each(|(id, i)| sorted.add(&i.data, id));
@@ -1046,7 +1118,6 @@ impl Bytecode {
     pub fn iter_code_mut(&mut self) -> Option<impl Iterator<Item = &mut Function>> {
         Some(self.code.as_mut()?.data.iter_mut().map(|f| &mut f.data))
     }
-    
 }
 
 pub fn parse_binary(reader: &mut impl BytecodeReader) -> Result<Bytecode, ParserError> {
@@ -1062,7 +1133,7 @@ pub fn parse_wat(code: impl AsRef<str>) -> Result<Bytecode, ParserError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::reader::{parse_wat, ValueType};
+    use crate::reader::{ValueType, parse_wat};
 
     use super::{Data, ParserError};
 
@@ -1099,10 +1170,20 @@ mod tests {
         "#;
         let module = parse_wat(src)?;
         println!("module: {:?}", module);
-        assert_eq!(module.get_type(0).unwrap().get_param(0).unwrap(), ValueType::I32);
-        assert_eq!(module.get_type(0).unwrap().get_param(1).unwrap(), ValueType::F32);
-         
-        let locals = module.get_code(0).unwrap().iter_locals().collect::<Vec<_>>(); 
+        assert_eq!(
+            module.get_type(0).unwrap().get_param(0).unwrap(),
+            ValueType::I32
+        );
+        assert_eq!(
+            module.get_type(0).unwrap().get_param(1).unwrap(),
+            ValueType::F32
+        );
+
+        let locals = module
+            .get_code(0)
+            .unwrap()
+            .iter_locals()
+            .collect::<Vec<_>>();
         assert_eq!(*locals.get(0).unwrap(), ValueType::F64);
 
         Ok(())
@@ -1114,9 +1195,9 @@ mod tests {
                 (import "console" "log" (func $log (param i32 i32)))
                 (import "js" "mem" (memory 1)))
         "#;
-        let module= parse_wat(src)?;
-        let imports = module.imports.unwrap().data; 
-        assert_eq!(imports.len(), 2); 
+        let module = parse_wat(src)?;
+        let imports = module.imports.unwrap().data;
+        assert_eq!(imports.len(), 2);
         Ok(())
     }
 
@@ -1144,9 +1225,7 @@ mod tests {
         } else {
             unreachable!();
         }
-        
+
         Ok(())
     }
-
 }
-

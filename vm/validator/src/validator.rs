@@ -1,11 +1,17 @@
-use std::{fmt::{Debug, Display}, string::ParseError};
+use std::{
+    fmt::{Debug, Display},
+    string::ParseError,
+};
 use thiserror::Error;
 
 use itertools::Itertools;
 use parser::{
     info::{BytecodeInfo, FunctionType},
     op::{Blocktype, Memarg, Op},
-    reader::{self, parse_binary, parse_wat, Bytecode, BytecodeReader, Code, Function, ParserError, Type, ValueType, WithPosition},
+    reader::{
+        self, Bytecode, BytecodeReader, Code, Function, ParserError, Type, ValueType, WithPosition,
+        parse_binary, parse_wat,
+    },
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -26,16 +32,10 @@ pub enum ValidationError {
         expected: ValueStackType,
     },
     #[error("Stack is not balaned. Expected size {expected}, got:  {got}")]
-    UnbalancedStack {
-        got: usize,
-        expected: usize,
-    },
+    UnbalancedStack { got: usize, expected: usize },
 
     #[error("Label out of scope: Maximum depth: {max}, got {got}")]
-    LabelIndexOutOfScope {
-        got: usize,
-        max: usize,
-    },
+    LabelIndexOutOfScope { got: usize, max: usize },
     #[error("Tried using memory instructions but module does not define memory")]
     UnexpectedNoMemories,
     #[error("Invalid memory alignment")]
@@ -165,7 +165,7 @@ pub fn pop_type(
     } else {
         let val = stack.pop().ok_or(ValidationError::TypeStackUnderflow)?;
         println!("Popping: {}", val);
-        Ok(val) 
+        Ok(val)
     }
 }
 
@@ -554,7 +554,7 @@ impl ValidatorContext {
         let ctrl = self.pop_ctrl()?;
         if let Some(Op::If { bt: _, jmp: _ }) = ctrl.op.as_ref().map(|d| d.data) {
             if let Some(jump_id) = ctrl.jump_table_entry {
-                self.get_jump_mut(jump_id)?.delta_ip = self.ip - ctrl.ip;
+                self.get_jump_mut(jump_id)?.delta_ip = (self.ip - ctrl.ip) + 1;
             };
             self.push_ctrl(Some(op), ctrl.in_types, ctrl.out_types);
             Ok(())
@@ -571,7 +571,7 @@ impl ValidatorContext {
     ) -> Result<isize, ValidationError> {
         match op {
             Op::Loop(_) => Ok(block_ip - jump_ip),
-            Op::Block(_) | Op::If { bt: _, jmp: _ } | Op::Else(_) => Ok(ip - jump_ip),
+            Op::Block(_) | Op::If { bt: _, jmp: _ } | Op::Else(_) => Ok((ip - jump_ip) + 1),
             _ => Err(ValidationError::InvalidCtrlOp(op.clone())),
         }
     }
@@ -582,8 +582,6 @@ impl ValidatorContext {
 
         ctrl.out_types.iter().for_each(|t| self.push(t));
         if let Some(ctrl_op) = ctrl.op {
-            println!("Huh?");
-            println!("Ctrl op: {}", ctrl_op.data);
             let jump_idx = self
                 .ctrl_jump_stack
                 .pop()
@@ -600,7 +598,7 @@ impl ValidatorContext {
             if let Some(ctrl_jump) = ctrl.jump_table_entry {
                 let ip = self.ip;
                 let jmp = self.get_jump_mut(ctrl_jump)?;
-                jmp.delta_ip = ip - jmp.ip;  
+                jmp.delta_ip = (ip - jmp.ip) + 1;
             }
         }
         Ok(())
@@ -866,8 +864,7 @@ impl ValidatorContext {
         info: &BytecodeInfo,
     ) -> Result<Vec<Vec<JumpTableEntry>>, ValidationError> {
         if let Some(ft) = bytecode.iter_function_types() {
-            ft
-                .zip(bytecode.iter_code().unwrap())
+            ft.zip(bytecode.iter_code().unwrap())
                 .enumerate()
                 .map(|(id, (t, code))| {
                     let validator = ValidatorContext {
@@ -875,9 +872,10 @@ impl ValidatorContext {
                         ..Default::default()
                     };
                     validator.validate_code(bytecode, info, t, code)
-            }).collect::<Result<Vec<_>, ValidationError>>() 
+                })
+                .collect::<Result<Vec<_>, ValidationError>>()
         } else {
-            Ok(Vec::new()) 
+            Ok(Vec::new())
         }
     }
 }
@@ -885,36 +883,53 @@ impl ValidatorContext {
 fn patch_op_jump(op: &Op, jump: &JumpTableEntry, jump_id: usize) -> Result<Op, ValidationError> {
     match op {
         Op::Else(_) => Ok(Op::Else(jump.delta_ip)),
-        Op::If{bt, jmp: _} => Ok(Op::If{bt: *bt, jmp: jump.delta_ip}),
-        Op::Br{label, jmp: _} => Ok(Op::Br {label: *label, jmp: jump.delta_ip}),
-        Op::BrIf{label, jmp: _} => Ok(Op::BrIf{label: *label, jmp: jump.delta_ip}),
+        Op::If { bt, jmp: _ } => Ok(Op::If {
+            bt: *bt,
+            jmp: jump.delta_ip,
+        }),
+        Op::Br { label, jmp: _ } => Ok(Op::Br {
+            label: *label,
+            jmp: jump.delta_ip,
+        }),
+        Op::BrIf { label, jmp: _ } => Ok(Op::BrIf {
+            label: *label,
+            jmp: jump.delta_ip,
+        }),
         _ => return Err(ValidationError::InvalidJump(jump_id)),
     }
 }
 
-pub fn patch_function_jumps<'a>(function: &mut Function, jumps: impl IntoIterator<Item = &'a JumpTableEntry>) -> Result<(), ValidationError> {
-    jumps.into_iter().enumerate().try_for_each(|(jump_id, jump)| {
-        let op = function.get_op_mut(jump.ip as usize).unwrap();
-        *op = patch_op_jump(op, jump, jump_id)?; 
-        Ok(())
-    })
+pub fn patch_function_jumps<'a>(
+    function: &mut Function,
+    jumps: impl IntoIterator<Item = &'a JumpTableEntry>,
+) -> Result<(), ValidationError> {
+    jumps
+        .into_iter()
+        .enumerate()
+        .try_for_each(|(jump_id, jump)| {
+            let op = function.get_op_mut(jump.ip as usize).unwrap();
+            *op = patch_op_jump(op, jump, jump_id)?;
+            Ok(())
+        })
 }
 
-
-pub fn valiadate_and_patch_bytecode(bytecode: &mut Bytecode) -> Result<(Vec<Vec<JumpTableEntry>>, BytecodeInfo), ValidationError> {
-    let info = BytecodeInfo::new(bytecode); 
+pub fn valiadate_and_patch_bytecode(
+    bytecode: &mut Bytecode,
+) -> Result<(Vec<Vec<JumpTableEntry>>, BytecodeInfo), ValidationError> {
+    let info = BytecodeInfo::new(bytecode);
     let jumps = ValidatorContext::validate_all(bytecode, &info)?;
     if let Some(code) = bytecode.iter_code_mut() {
-        code.zip(jumps.iter()).try_for_each(|(f, j)| patch_function_jumps(f, j))?;
+        code.zip(jumps.iter())
+            .try_for_each(|(f, j)| patch_function_jumps(f, j))?;
     };
     Ok((jumps, info))
 }
 
 #[derive(Debug)]
 pub struct ValidateResult {
-    bytecode: Bytecode,
-    info: BytecodeInfo,
-    jumps: Vec<Vec<JumpTableEntry>>,
+    pub bytecode: Bytecode,
+    pub info: BytecodeInfo,
+    pub jumps: Vec<Vec<JumpTableEntry>>,
     //TODO: Jumps?
 }
 #[derive(Error, Debug)]
@@ -923,13 +938,14 @@ pub enum ReadAndValidateError {
     ReadError(#[from] ParserError),
 
     #[error("Unable to validate bytecode: {0}")]
-    ValidationError(#[from] ValidationError)
-
+    ValidationError(#[from] ValidationError),
 }
 
-pub fn read_and_validate(reader: &mut impl BytecodeReader) -> Result<ValidateResult, ReadAndValidateError> {
-    let mut bytecode =  parse_binary(reader)?;
-    let (jumps, info) = valiadate_and_patch_bytecode(&mut bytecode)?; 
+pub fn read_and_validate(
+    reader: &mut impl BytecodeReader,
+) -> Result<ValidateResult, ReadAndValidateError> {
+    let mut bytecode = parse_binary(reader)?;
+    let (jumps, info) = valiadate_and_patch_bytecode(&mut bytecode)?;
 
     Ok(ValidateResult {
         jumps,
@@ -938,9 +954,11 @@ pub fn read_and_validate(reader: &mut impl BytecodeReader) -> Result<ValidateRes
     })
 }
 
-pub fn read_and_validate_wat(source: impl AsRef<str>) -> Result<ValidateResult, ReadAndValidateError> {
-    let mut bytecode =  parse_wat(source)?;
-    let (jumps, info) = valiadate_and_patch_bytecode(&mut bytecode)?; 
+pub fn read_and_validate_wat(
+    source: impl AsRef<str>,
+) -> Result<ValidateResult, ReadAndValidateError> {
+    let mut bytecode = parse_wat(source)?;
+    let (jumps, info) = valiadate_and_patch_bytecode(&mut bytecode)?;
 
     Ok(ValidateResult {
         jumps,
@@ -948,27 +966,28 @@ pub fn read_and_validate_wat(source: impl AsRef<str>) -> Result<ValidateResult, 
         info,
     })
 }
-
 
 #[cfg(test)]
-mod tests  {
+mod tests {
     use std::io::Read;
 
     use parser::op::Op;
     use validator_derive::{test_invalid_wast, test_valid_wast};
 
-    use super::{read_and_validate_wat, ReadAndValidateError, ValidationError};
+    use super::{ReadAndValidateError, ValidationError, read_and_validate_wat};
     macro_rules! expect_src_ok {
         ($src: ident) => {
             return Ok(_ = read_and_validate_wat($src)?);
         };
     }
-    
+
     macro_rules! assert_validation_err {
         ($src: ident, $err: pat) => {
             let err = read_and_validate_wat($src);
-            assert!(matches!(err.unwrap_err(), ReadAndValidateError::ValidationError($err)));
-         
+            assert!(matches!(
+                err.unwrap_err(),
+                ReadAndValidateError::ValidationError($err)
+            ));
         };
     }
     #[test]
@@ -980,7 +999,7 @@ mod tests  {
 
     #[test]
     fn validate_simple_add() -> Result<(), ReadAndValidateError> {
-         let src = r#"
+        let src = r#"
              (module
                  (func (param $p i32) (result i32)
                      local.get $p
@@ -994,7 +1013,7 @@ mod tests  {
 
     #[test]
     fn validate_simple_add_unbalanced() -> Result<(), ReadAndValidateError> {
-         let src = r#"
+        let src = r#"
              (module
                  (func (param $p i32) (result i32)
                      i32.const 1
@@ -1004,7 +1023,7 @@ mod tests  {
                  )
              )
          "#;
-        assert_validation_err!(src, ValidationError::UnbalancedStack { ..});
+        assert_validation_err!(src, ValidationError::UnbalancedStack { .. });
         Ok(())
     }
     #[test]
@@ -1090,7 +1109,7 @@ mod tests  {
     }
 
     test_valid_wast! {
-        valid_param_count, 
+        valid_param_count,
         r#"
                 (module
                     (func (param i32) (param i32) (param i32) (result i32) (local i32)
@@ -1151,10 +1170,10 @@ mod tests  {
              )
          "#
     }
-    
+
     #[test]
     pub fn jump_block() -> Result<(), ReadAndValidateError> {
-         let src = r#"
+        let src = r#"
              (module
                  (import "console" "log" (func $log (param i32)))
                  (func (param i32)
@@ -1182,7 +1201,7 @@ mod tests  {
         assert!(matches!(after_block.0, Op::End));
         Ok(())
     }
-    
+
     #[test]
     pub fn jump_table_if_else() -> Result<(), ReadAndValidateError> {
         let src = r#"
@@ -1205,15 +1224,18 @@ mod tests  {
         "#;
         let code = read_and_validate_wat(src)?;
         let func = code.bytecode.get_code(0).unwrap();
-        let (after_block_op, after_block_ip)  = func.get_op_after(1).unwrap();
-        assert!(matches!(after_block_op, Op::Else(_)));  
-        assert!(matches!(func.get_op((after_block_ip + 1) as usize).unwrap(), Op::I32Const(100)));  
+        let (after_block_op, after_block_ip) = func.get_op_after(1).unwrap();
+        assert!(matches!(after_block_op, Op::Else(_)));
+        assert!(matches!(
+            func.get_op((after_block_ip + 1) as usize).unwrap(),
+            Op::I32Const(100)
+        ));
 
         let after_else = func.get_op_after(after_block_ip).unwrap();
         assert!(matches!(after_else.0, Op::End));
         Ok(())
     }
-        
+
     #[test]
     pub fn if_no_else() -> Result<(), ReadAndValidateError> {
         let src = r#"
@@ -1241,7 +1263,7 @@ mod tests  {
         assert!(matches!(after_end_op, Op::I32Const(100)));
         Ok(())
     }
-    
+
     #[test]
     pub fn loop_jumps() -> Result<(), ReadAndValidateError> {
         let src = r#"
@@ -1259,10 +1281,10 @@ mod tests  {
                  )
              )
          "#;
-        let code = read_and_validate_wat(src)?;     
+        let code = read_and_validate_wat(src)?;
         let func = code.bytecode.get_code(0).unwrap();
-        let jmp1 = func.get_op_after(2).unwrap();
-        let jmp2 = func.get_op_after(6).unwrap();
+        let jmp1 = func.get_op_after_offset(2, 0).unwrap();
+        let jmp2 = func.get_op_after_offset(6, 0).unwrap();
         println!("jmp1: {}", jmp1.0);
         println!("jmp1: {}", jmp2.0);
 
@@ -1270,5 +1292,4 @@ mod tests  {
         assert!(matches!(jmp2.0, Op::Loop(_)));
         Ok(())
     }
-
 }

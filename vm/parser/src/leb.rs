@@ -1,4 +1,4 @@
-use std::{io::Read};
+use std::io::Read;
 
 use byteorder::ReadBytesExt;
 use thiserror::Error;
@@ -29,7 +29,7 @@ impl Leb {
         }
     }
 
-    fn read_u32_big(reader: &mut impl Read, first: u8) -> Result<u32, LebError>  {
+    fn read_u32_big(reader: &mut impl Read, first: u8) -> Result<u32, LebError> {
         let mut result = (first & 0x7F) as u32;
         let mut shift = 7;
         loop {
@@ -59,7 +59,7 @@ impl Leb {
         let mut shift = 7;
         loop {
             let byte = u64::from(reader.read_u8()?);
-              
+
             result |= (byte & 0x7F) << shift;
             if shift >= 57 && (byte >> (64 - shift)) != 0 {
                 // The continuation bit or unused bits are set.
@@ -158,4 +158,3 @@ impl Leb {
         Ok((result << ashift) >> ashift)
     }
 }
-

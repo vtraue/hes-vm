@@ -1,23 +1,53 @@
-use std::fmt::Debug;
+use core::error;
+use std::{fmt::Debug, ops::Range};
+use thiserror::Error;
 
 use itertools::Itertools;
-use smallvec::SmallVec;
-use tests::run_const_expr;
-
-const WASM_PAGE_SIZE: usize = 65536;
-
 use parser::{
-    self,
-    module::DecodedBytecode,
+    info::BytecodeInfo,
     op::{Blocktype, Memarg, Op},
-    types::{Global, ImportDesc, TypeId, ValueType},
+    reader::{Bytecode, BytecodeReader, ValueType},
+};
+use smallvec::SmallVec;
+use validator::validator::{
+    JumpTableEntry, ReadAndValidateError, ValidateResult, read_and_validate, read_and_validate_wat,
 };
 
-use super::{
-    env::{ExternalFunctionHandler, Modules},
+use crate::{
+    env::{ExternalFunctionHandler, Modules, get_env_func, get_env_global},
     stack::StackValue,
 };
-use validator::ctrl::JumpTable;
+
+#[derive(Error, Debug)]
+pub enum InstanceError {
+    #[error("Unable to read bytecode: {0}")]
+    ReadError(#[from] ReadAndValidateError),
+    #[error("Import module name does not match")]
+    ImportModuleNameDoesNotMatch,
+    #[error("Import function name does not match")]
+    ImportFunctionNameDoesNotMatch,
+    #[error("Import global name does not match")]
+    ImportGlobalNameDoesNotMatch,
+    #[error("{0} is not a valid const op")]
+    InvalidConstOp(Op),
+    #[error("Expected 1 return value in const expr, got {0}")]
+    InvalidReturnCountInConstExpr(usize),
+    #[error("Invalid return type in const expr: {0}")]
+    InvalidReturnTypeInConstExpr(ValueType),
+}
+#[derive(Error, Debug)]
+pub enum RuntimeError {
+    #[error("Memory address out of scope")]
+    MemoryAddressOutOfScope,
+    #[error("Native function returned error code: {0}")]
+    NativeFuncCallError(usize),
+    #[error("Unreachable reached")]
+    UnreachableReached,
+    #[error("No function to execute")]
+    NoFunctionToExecute,
+    #[error("Tried entering a start function, but module does not define one")]
+    UnexpectedNoStartFunction,
+}
 
 #[derive(Debug, Clone)]
 pub struct ActivationFrame {
@@ -28,106 +58,67 @@ pub struct ActivationFrame {
     stack_height: usize,
 }
 
+#[derive(Debug, Clone)]
 pub struct Label {
     stack_height: usize,
+    out_count: usize,
 }
 
-pub struct Function {
-    t: TypeId,
+#[derive(Debug, Clone)]
+pub struct InternalFunctionInstance {
     locals: Vec<ValueType>,
     code_offset: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct Type {
+    pub params: Vec<ValueType>,
+    pub results: Vec<ValueType>,
+}
+impl From<parser::reader::Type> for Type {
+    fn from(value: parser::reader::Type) -> Self {
+        Self {
+            params: value.iter_params().cloned().collect(),
+            results: value.iter_results().cloned().collect(),
+        }
+    }
+}
+impl From<&parser::reader::Type> for Type {
+    fn from(value: &parser::reader::Type) -> Self {
+        Self {
+            params: value.iter_params().cloned().collect(),
+            results: value.iter_results().cloned().collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeFunctionInstance {
+    module: String,
+    name: String,
+    func: ExternalFunctionHandler,
+}
+
+#[derive(Debug, Clone)]
+pub enum FunctionType {
+    Wasm(InternalFunctionInstance),
+    Native(NativeFunctionInstance),
+}
+
+#[derive(Debug, Clone)]
+pub struct Function {
+    t: Type,
+    kind: FunctionType,
+}
+
+#[derive(Debug, Clone)]
 pub struct Code {
     instructions: Vec<Op>,
     functions: Vec<Function>,
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum InstanceError {
-    UnexpectedEmptyConstInitExpression,
-    ImportMissingModule,
-    ImportMissingFunction,
-    ImportMissingGlobal,
-    NoCodeInModule,
-    NoTypesInModule,
-    ImportFunctionTypeDoesNotMatch,
-    ImportGlobalTypeDoesNotMatch,
-    InvalidReturnCountInConstExpr,
-    InvalidReturnTypeInConstExpr,
-    InvalidConstOp,
-}
-
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum RuntimeError {
-    MemoryAddressOutOfScope,
-    UnreachableReached,
-    NativeFuncCallError(usize),
-}
-
-impl Code {
-    pub fn from_module(module: &DecodedBytecode) -> Option<Self> {
-        let mut offset: usize = 0;
-        let mut code: Vec<Op> = Vec::new();
-        let mut functions: Vec<Function> = Vec::new();
-
-        let funcs = module.iter_function_types()?.zip(module.iter_code()?);
-        for (t, func) in funcs {
-            let locals = func.iter_local_types().collect::<Vec<_>>();
-            let ops = func.iter_ops().collect::<Vec<_>>();
-            code.extend(ops);
-
-            let entry = Function {
-                t,
-                locals,
-                code_offset: offset,
-            };
-            offset = code.len();
-            functions.push(entry);
-        }
-
-        Some(Self {
-            instructions: code,
-            functions,
-        })
-    }
-}
 pub trait PopFromValueStack {
     unsafe fn pop(vm: &mut Vm) -> Self;
-}
-
-impl PopFromValueStack for u32 {
-    unsafe fn pop(vm: &mut Vm) -> Self {
-        unsafe { vm.pop_u32() }
-    }
-}
-impl PopFromValueStack for u64 {
-    unsafe fn pop(vm: &mut Vm) -> Self {
-        unsafe { vm.pop_u64() }
-    }
-}
-
-impl PopFromValueStack for i64 {
-    unsafe fn pop(vm: &mut Vm) -> Self {
-        unsafe { vm.pop_i64() }
-    }
-}
-
-impl PopFromValueStack for i32 {
-    unsafe fn pop(vm: &mut Vm) -> Self {
-        unsafe { vm.pop_i32() }
-    }
-}
-
-impl PopFromValueStack for f32 {
-    unsafe fn pop(vm: &mut Vm) -> Self {
-        unsafe { vm.pop_f32() }
-    }
-}
-impl PopFromValueStack for f64 {
-    unsafe fn pop(vm: &mut Vm) -> Self {
-        unsafe { vm.pop_f64() }
-    }
 }
 
 impl PopFromValueStack for bool {
@@ -136,7 +127,129 @@ impl PopFromValueStack for bool {
         val != 0
     }
 }
-#[derive(Debug, Copy, Clone)]
+
+macro_rules! impl_pop_from_value_stack {
+    ($t: tt, $func_name: ident) => {
+        impl PopFromValueStack for $t {
+            unsafe fn pop(vm: &mut Vm) -> Self {
+                unsafe { vm.$func_name() }
+            }
+        }
+    };
+}
+
+macro_rules! impl_vm_pop {
+    ($func_name: ident, $t: tt, $var_name: ident) => {
+        impl Vm {
+            pub unsafe fn $func_name(&mut self) -> $t {
+                let val = unsafe { self.value_stack.pop().unwrap().$var_name };
+                bytemuck::cast(val)
+            }
+        }
+        impl_pop_from_value_stack!($t, $func_name);
+    };
+}
+
+impl_vm_pop!(pop_u32, u32, i32);
+impl_vm_pop!(pop_i32, i32, i32);
+impl_vm_pop!(pop_u64, u64, i64);
+impl_vm_pop!(pop_i64, i64, i64);
+impl_vm_pop!(pop_f32, f32, f32);
+impl_vm_pop!(pop_f64, f64, f64);
+
+impl Code {
+    fn append_internal_code(
+        module: &Bytecode,
+        linear_code: &mut Vec<Op>,
+        t: usize,
+        code_id: usize,
+        _export_id: Option<usize>,
+        code_offset: usize,
+    ) -> (Function, usize) {
+        let code = module.get_code(code_id).unwrap();
+        linear_code.extend(code.iter_ops().map(|o| o.data));
+        let ft = InternalFunctionInstance {
+            locals: code.iter_locals().collect(),
+            code_offset,
+        };
+        let t = module.get_type(t).unwrap().clone().into();
+        (
+            Function {
+                t,
+                kind: FunctionType::Wasm(ft),
+            },
+            linear_code.len(),
+        )
+    }
+
+    fn get_function_instances(
+        module: &Bytecode,
+        info: &BytecodeInfo,
+        env: &Modules,
+    ) -> Result<(Vec<Function>, Vec<Op>), InstanceError> {
+        let mut linear_code: Vec<Op> = Vec::new();
+        let mut code_offset: usize = 0;
+
+        Ok((
+            info.functions
+                .iter()
+                .map(|f| -> Result<Function, InstanceError> {
+                    match f.t {
+                        parser::info::FunctionType::Internal { code_id, export_id } => {
+                            let (func, next_code_offset) = Self::append_internal_code(
+                                module,
+                                &mut linear_code,
+                                f.type_id,
+                                code_id,
+                                export_id,
+                                code_offset,
+                            );
+
+                            code_offset = next_code_offset;
+                            Ok(func)
+                        }
+                        parser::info::FunctionType::Imported { import_id } => {
+                            let import = module.get_import(import_id).unwrap();
+
+                            let module_name = import.get_mod_name();
+                            let name = import.get_name();
+
+                            let func = get_env_func(&env, module_name, name)?;
+
+                            Ok(Function {
+                                t: Type {
+                                    params: func.params.clone(),
+                                    results: func.result.clone(),
+                                },
+                                kind: FunctionType::Native(NativeFunctionInstance {
+                                    module: module_name.to_string(),
+                                    name: name.to_string(),
+                                    func: func.handler,
+                                }),
+                            })
+                        }
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            linear_code,
+        ))
+    }
+
+    pub fn from_module(
+        module: &Bytecode,
+        info: &BytecodeInfo,
+        env: &Modules,
+    ) -> Result<Self, InstanceError> {
+        let (functions, instructions) = Self::get_function_instances(module, info, &env)?;
+
+        Ok(Self {
+            instructions,
+            functions,
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum LocalValue {
     I32(u32),
     I64(u64),
@@ -172,7 +285,6 @@ impl LocalValue {
             LocalValue::F64(v) => *v = unsafe { val.f64 },
         };
     }
-
     pub fn init_from_type(t: ValueType) -> Self {
         match t {
             ValueType::I32 => Self::I32(0),
@@ -184,7 +296,6 @@ impl LocalValue {
             ValueType::Vectype => todo!(),
         }
     }
-
     pub fn init_from_type_and_val(t: ValueType, val: StackValue) -> Self {
         match t {
             ValueType::I32 => Self::I32(unsafe { val.i32 }),
@@ -196,231 +307,76 @@ impl LocalValue {
             ValueType::Vectype => todo!(),
         }
     }
-    #[inline]
-    pub fn u32(&self) -> u32 {
-        let Self::I32(val) = self else { unreachable!() };
-        *val
-    }
-    #[inline]
-    pub fn u64(&self) -> u64 {
-        let Self::I64(val) = self else { unreachable!() };
-        *val
-    }
-    #[inline]
-    pub fn f32(&self) -> f32 {
-        let Self::F32(val) = self else { unreachable!() };
-        *val
-    }
+}
+macro_rules! impl_local_value_conversion {
+    ($($type: ty => $field_name:ident),+$(,)?) => {
+        $(impl From<$type> for LocalValue {
+            fn from(value: $type) -> Self {
+                Self::$field_name(value)
+            }
+        })+
+    };
+}
+impl_local_value_conversion! {
+    u32 => I32,
+    u64 => I64,
+    f32 => F32,
+    f64 => F64
+}
 
-    #[inline]
-    pub fn f64(&self) -> f64 {
-        let Self::F64(val) = self else { unreachable!() };
-        *val
-    }
+macro_rules! impl_local_value_acc {
+    ($fn_name: ident, $field_name: ident, $type: tt) => {
+        impl LocalValue {
+            pub fn $fn_name(&self) -> $type {
+                let Self::$field_name(val) = self else {
+                    unreachable!()
+                };
+                bytemuck::cast(*val)
+            }
+        }
+    };
 }
-impl From<u32> for LocalValue {
-    fn from(value: u32) -> Self {
-        Self::I32(value)
-    }
-}
-impl From<u64> for LocalValue {
-    fn from(value: u64) -> Self {
-        Self::I64(value)
-    }
-}
-impl From<f32> for LocalValue {
-    fn from(value: f32) -> Self {
-        Self::F32(value)
-    }
-}
-impl From<f64> for LocalValue {
-    fn from(value: f64) -> Self {
-        Self::F64(value)
-    }
-}
+impl_local_value_acc!(u32, I32, u32);
+impl_local_value_acc!(i32, I32, i32);
+impl_local_value_acc!(u64, I64, u64);
+impl_local_value_acc!(i64, I64, i64);
+impl_local_value_acc!(f32, F32, f32);
+impl_local_value_acc!(f64, F64, f64);
 
 #[derive(Debug, Clone)]
-pub struct Type {
-    pub params: Vec<ValueType>,
-    pub results: Vec<ValueType>,
-}
-
-impl From<parser::types::Type> for Type {
-    fn from(value: parser::types::Type) -> Self {
-        let params = value.params.iter().cloned().map(|(t, _)| t).collect();
-        let results = value.results.iter().cloned().map(|(t, _)| t).collect();
-        Self { params, results }
-    }
-}
-
-pub enum FunctionType {
-    Native(ImportedFunctionInfo),
-    Internal(usize),
-}
-
-impl FunctionType {
-    pub fn get_type<'a>(&self, vm: &'a Vm) -> &'a Type {
-        match self {
-            FunctionType::Native(info) => &vm.types[info.t],
-            FunctionType::Internal(id) => &vm.types[*id],
-        }
-    }
-    pub fn get_type_id(&self) -> usize {
-        match self {
-            FunctionType::Native(info) => info.t,
-            FunctionType::Internal(id) => *id,
-        }
-    }
-}
-pub struct ImportedFunctionInfo {
-    //TODO: (joh): Referenz auf Hostcode
-    module: String,
-    name: String,
-    t: usize,
-    func: ExternalFunctionHandler,
-}
-
 pub struct Vm {
+    ip: usize,
     value_stack: Vec<StackValue>,
     activation_stack: Vec<ActivationFrame>,
     labels: Vec<Label>,
-    types: Vec<Type>,
-    ip: usize,
-    func_id: Option<usize>,
-    local_offset: usize,
+    types: Option<Vec<Type>>,
     code: Code,
     locals: Vec<LocalValue>,
     globals: Vec<LocalValue>,
-    memory: Vec<u8>,
-    jump_table: Vec<JumpTable>,
-    //external_func_args: Vec<LocalValue>, //TODO: (joh): Anderer Typ als LocalVal
+    mem: Option<Vec<u8>>,
     start_func_id: Option<usize>,
-    functions: Vec<FunctionType>,
+    local_offset: usize,
+    func_id: Option<usize>,
 }
 
 impl Vm {
-    //NOTE: (joh): Vielleicht sollten wir ownership uebernehmen?
-    pub fn init_from_bytecode(
-        bytecode: &DecodedBytecode,
-        jump_table: Vec<JumpTable>,
-        env: Modules,
-    ) -> Result<Self, InstanceError> {
-        //NOTE: (joh): Sollte es moeglich sein ein Modul ohne Code zu erstellen?
-        let code = Code::from_module(bytecode).ok_or(InstanceError::NoCodeInModule)?;
-        //TODO: (joh): Checke imports/exports
-
-        let inital_memory_pages = bytecode.inital_memory_size(0).unwrap_or(0);
-        let memory = vec![0; WASM_PAGE_SIZE * inital_memory_pages];
-        let locals = Vec::new();
-        let start_func_id = bytecode.start.map(|i| i as usize);
-        let types = bytecode
-            .iter_types()
-            .ok_or(InstanceError::NoCodeInModule)?
-            .cloned()
-            .map_into::<Type>()
-            .collect::<Vec<_>>();
-
-        let mut functions = Vec::new();
-        let mut globals = Vec::new();
-
-        let mut imported_func_count = 0;
-        if let Some(imports) = bytecode.iter_imports() {
-            for import in imports {
-                let module_name = import.ident.module.0;
-                let import_name = import.ident.name.0;
-                println!("Looking for module: {}", module_name);
-                println!("Looking for import: {}", import_name);
-                let module = env
-                    .get(module_name.as_str())
-                    .ok_or(InstanceError::ImportMissingModule)?;
-
-                match import.desc.0 {
-                    ImportDesc::TypeIdx(t) => {
-                        let func_info = module
-                            .functions
-                            .get(import_name.as_str())
-                            .ok_or(InstanceError::ImportMissingFunction)?;
-                        let real_t = types.get(t as usize).unwrap();
-                        println!("expecting function: {:?}", real_t);
-
-                        if !real_t.params.eq(&func_info.params)
-                            || !real_t.results.eq(&func_info.result)
-                        {
-                            return Err(InstanceError::ImportFunctionTypeDoesNotMatch);
-                        }
-
-                        let info = ImportedFunctionInfo {
-                            module: module_name,
-                            name: import_name,
-                            t: t as usize,
-                            func: func_info.handler,
-                        };
-
-                        imported_func_count += 1;
-                        functions.push(FunctionType::Native(info));
-                    }
-
-                    ImportDesc::TableType(limits) => todo!(),
-                    ImportDesc::MemType(limits) => todo!(),
-
-                    ImportDesc::GlobalType(global_type) => {
-                        let env_global = module
-                            .globals
-                            .get(import_name.as_str())
-                            .ok_or(InstanceError::ImportMissingGlobal)?;
-
-                        if env_global.mutable != global_type.mutable.0
-                            || env_global.value.get_value_type() != global_type.t.0
-                        {
-                            return Err(InstanceError::ImportGlobalTypeDoesNotMatch);
-                        }
-
-                        globals.push(env_global.value);
-                    }
-                }
-            }
-        }
-
-        functions.extend((0..code.functions.len()).map(|i| FunctionType::Internal(i)));
-
-        if let Some(internal_globals) = bytecode.iter_globals() {
-            for global in internal_globals {
-                let global_value = Self::get_global_init_value(global)?;
-                globals.push(global_value);
-            }
-        }
-
-        let vm = Self {
-            globals,
-            jump_table,
-            labels: Vec::new(),
-            value_stack: Vec::new(),
-            types,
-            activation_stack: Vec::new(),
-            ip: 0,
-            func_id: None,
-            code,
-            locals,
-            memory,
-            start_func_id,
-            local_offset: 0,
-            functions,
-        };
-
-        Ok(vm)
-    }
-
-    fn get_global_init_value(global: &Global) -> Result<LocalValue, InstanceError> {
-        let expr = &global.init_expr;
-        let result_stack = run_const_expr(expr.iter().cloned())?;
+    fn get_global_init_value(
+        module: &Bytecode,
+        global_id: usize,
+    ) -> Result<LocalValue, InstanceError> {
+        let global = module.get_global(global_id).unwrap();
+        let result_stack = Self::run_const_expr(global.init_expr.data.iter_ops())?;
         if result_stack.len() > 1 {
-            Err(InstanceError::InvalidReturnCountInConstExpr)
+            Err(InstanceError::InvalidReturnCountInConstExpr(
+                result_stack.len(),
+            ))
         } else {
             if let Some(res) = result_stack.get(0) {
+                let res_type = res.get_value_type();
                 if res.get_value_type() == global.value_type() {
                     Ok(res.clone())
                 } else {
-                    Err(InstanceError::InvalidReturnTypeInConstExpr)
+                    Err(InstanceError::InvalidReturnTypeInConstExpr(res_type))
                 }
             } else {
                 Ok(LocalValue::init_from_type(global.value_type()))
@@ -428,68 +384,106 @@ impl Vm {
         }
     }
 
-    pub fn enter_function(
-        &mut self,
-        func_id: usize,
-        params: &[LocalValue],
-    ) -> Result<(), RuntimeError> {
-        match &self.functions[func_id] {
-            FunctionType::Native(imported_function_info) => {
-                println!("native call");
-                (imported_function_info.func)(self, params)
-                    .map_err(|e| RuntimeError::NativeFuncCallError(e))
+    pub fn get_global_instances(
+        module: &Bytecode,
+        info: &BytecodeInfo,
+        env: &Modules,
+    ) -> Result<Vec<LocalValue>, InstanceError> {
+        info.globals
+            .iter()
+            .map(|g| match g.info {
+                parser::info::GlobalInfo::Internal { global_id, .. } => {
+                    Self::get_global_init_value(module, global_id)
+                }
+
+                parser::info::GlobalInfo::Imported { import_id } => {
+                    let import = module.get_import(import_id).unwrap();
+                    let module_name = import.get_mod_name();
+                    let name = import.get_name();
+
+                    let func = get_env_global(&env, module_name, name)?;
+                    Ok(func.value)
+                }
+            })
+            .collect()
+    }
+    pub fn run_const_expr(
+        expr: impl Iterator<Item = Op>,
+    ) -> Result<Vec<LocalValue>, InstanceError> {
+        let mut stack = Vec::new();
+        for op in expr {
+            match op {
+                Op::I32Const(val) => stack.push(val.into()),
+                Op::I64Const(val) => stack.push(val.into()),
+                Op::F32Const(val) => stack.push(val.into()),
+                Op::F64Const(val) => stack.push(val.into()),
+                Op::GlobalGet(_) => todo!(),
+                Op::End => break,
+                _ => return Err(InstanceError::InvalidConstOp(op)),
             }
-            FunctionType::Internal(id) => Ok(self.enter_wasm_function(*id, params)),
         }
+        Ok(stack)
     }
 
-    pub fn enter_wasm_function(&mut self, func_id: usize, params: &[LocalValue]) {
-        println!("Entering func: {func_id}");
-        let func = &self.code.functions[func_id];
-        let t = &self.types[func.t as usize];
-        println!("expecting t: {:?}", t);
-        let locals_offset = self.locals.len();
-        //TODO: (joh) Besseres Error Handling falls wir das hier von aussen aufrufen
-        if params.len() != t.params.len() {
-            panic!("Invalid param count supplied");
-        }
+    fn make_memory(bytecode: &Bytecode, info: &BytecodeInfo) -> Option<Vec<u8>> {
+        info.inital_mem_size_pages().map(|s| vec![0; s])
+    }
 
-        let empty_locals = func
-            .locals
+    fn init(bytecode: &Bytecode, info: &BytecodeInfo, env: Modules) -> Result<Self, InstanceError> {
+        let code = Code::from_module(bytecode, info, &env)?;
+        let mem = Self::make_memory(bytecode, info);
+        let locals = Vec::new();
+        let start_func_id = bytecode.start.as_ref().map(|i| i.data as usize);
+        let value_stack = Vec::with_capacity(20);
+        let globals = Self::get_global_instances(bytecode, info, &env)?;
+        let types = bytecode
+            .iter_types()
+            .map(|i| i.map_into::<Type>().collect());
+        Ok(Self {
+            types,
+            ip: 0,
+            globals,
+            value_stack,
+            code,
+            locals,
+            mem,
+            start_func_id,
+            activation_stack: Vec::new(),
+            labels: Vec::new(),
+            local_offset: 0,
+            func_id: None,
+        })
+    }
+
+    pub fn init_from_validation_result(
+        res: &ValidateResult,
+        env: Modules,
+    ) -> Result<Self, InstanceError> {
+        Vm::init(&res.bytecode, &res.info, env)
+    }
+
+    fn push_func_locals<'a>(
+        &mut self,
+        locals: &[ValueType],
+        params: impl Iterator<Item = LocalValue>,
+    ) -> usize {
+        let empty_locals = locals
             .iter()
             .cloned()
             .map(|t| LocalValue::init_from_type(t));
 
-        let new_locals = params.iter().cloned().chain(empty_locals);
-
+        let new_locals = params.chain(empty_locals);
+        let locals_offset = self.locals.len();
         self.locals.extend(new_locals);
-        let ip = func.code_offset;
-
-        let new_frame = ActivationFrame {
-            locals_offset,
-            func_id,
-            arity: t.results.len(),
-            ip,
-            stack_height: self.value_stack.len(),
-        };
-        println!("entering: {func_id} with frame {:?}", new_frame);
-
-        self.local_offset = new_frame.locals_offset;
-        self.func_id = Some(func_id);
-        self.ip = ip;
-
-        self.activation_stack.push(new_frame);
+        println!("all locals: {:?}", self.locals);
+        locals_offset
     }
 
-    pub fn leave_wasm_function(&mut self) -> bool {
-        debug_assert!(self.activation_stack.len() > 0);
-        println!("Leaving wasm function");
+    fn leave_wasm_function(&mut self) -> bool {
+        assert!(self.activation_stack.len() > 0);
         let prev = self.activation_stack.pop().unwrap();
-        println!("this frame: {:?}", prev);
-
         match self.activation_stack.last() {
             Some(frame) => {
-                println!("prev frame: {:?}", frame);
                 self.func_id = Some(frame.func_id);
                 self.ip = frame.ip;
                 self.locals.truncate(prev.locals_offset);
@@ -498,7 +492,6 @@ impl Vm {
             None => false,
         }
     }
-
     pub fn get_local(&self, id: usize) -> LocalValue {
         self.locals[id + self.local_offset]
     }
@@ -506,6 +499,7 @@ impl Vm {
     pub fn push_any(&mut self, val: StackValue) {
         self.value_stack.push(val);
     }
+
     pub fn push_value(&mut self, val: impl Into<StackValue> + Debug) {
         println!("Pushing value: {:?}", val);
         self.value_stack.push(val.into());
@@ -519,32 +513,6 @@ impl Vm {
         self.value_stack.truncate(self.value_stack.len() - count);
     }
 
-    pub unsafe fn pop_u32(&mut self) -> u32 {
-        unsafe { self.value_stack.pop().unwrap().i32 }
-    }
-    pub unsafe fn pop_i32(&mut self) -> i32 {
-        let val = unsafe { self.value_stack.pop().unwrap().i32 };
-        bytemuck::cast(val)
-    }
-    pub unsafe fn pop_u64(&mut self) -> u64 {
-        unsafe { self.value_stack.pop().unwrap().i64 }
-    }
-
-    pub unsafe fn pop_i64(&mut self) -> i64 {
-        let val = unsafe { self.value_stack.pop().unwrap().i64 };
-        bytemuck::cast(val)
-    }
-
-    pub unsafe fn pop_f32(&mut self) -> f32 {
-        let val = unsafe { self.value_stack.pop().unwrap().f32 };
-        bytemuck::cast(val)
-    }
-
-    pub unsafe fn pop_f64(&mut self) -> f64 {
-        let val = unsafe { self.value_stack.pop().unwrap().f64 };
-        bytemuck::cast(val)
-    }
-
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
@@ -553,6 +521,7 @@ impl Vm {
         }
     }
 
+    #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
         println!("fetching: {:?}", op);
@@ -565,108 +534,19 @@ impl Vm {
 
     pub fn exec_local_get(&mut self, id: usize) {
         let local_val = self.locals[self.local_offset + id];
-        println!("local get: {:?}", local_val);
+        dbg!("local get: {:?}", local_val);
         self.push_value(local_val);
         self.ip += 1;
     }
-
     pub fn exec_global_get(&mut self, id: usize) {
-        println!("global get");
+        dbg!("global get");
         let global_val = self.globals[id];
         self.push_value(global_val);
         self.ip += 1;
     }
 
     pub fn is_mem_index_valid(&self, n: usize, offset: usize, addr: usize) -> bool {
-        self.memory.len() > offset + addr + n
-    }
-
-    pub fn try_mem_load_n<const BYTES: usize>(
-        &mut self,
-        arg: Memarg,
-    ) -> Result<[u8; BYTES], RuntimeError> {
-        debug_assert!(self.memory.len() > 0);
-
-        let addr = unsafe { self.pop_value::<u32>() as usize };
-        let addr_start = addr + arg.offset as usize;
-        let range = addr_start..addr + BYTES;
-
-        //Laaangsam...
-        Ok(self
-            .memory
-            .get(range)
-            .ok_or(RuntimeError::MemoryAddressOutOfScope)?
-            .try_into()
-            .unwrap())
-    }
-
-    //TODO: (joh): Ein Makro
-    pub fn i32_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<4>(arg)?;
-        self.push_value(u32::from_le_bytes(data));
-        self.ip += 1;
-        Ok(())
-    }
-    pub fn i64_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<8>(arg)?;
-        self.push_value(u64::from_le_bytes(data));
-        self.ip += 1;
-        Ok(())
-    }
-    pub fn f32_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<4>(arg)?;
-        self.push_value(f32::from_le_bytes(data));
-        self.ip += 1;
-        Ok(())
-    }
-    pub fn f64_load(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = self.try_mem_load_n::<8>(arg)?;
-        self.push_value(f64::from_le_bytes(data));
-        self.ip += 1;
-        Ok(())
-    }
-
-    pub fn try_mem_store<const BYTES: usize>(
-        &mut self,
-        arg: Memarg,
-        data: &[u8; BYTES],
-    ) -> Result<(), RuntimeError> {
-        debug_assert!(self.memory.len() > 0);
-
-        let addr = unsafe { self.pop_value::<u32>() as usize };
-        let addr_start = addr + arg.offset as usize;
-        let range = addr_start..addr_start + BYTES;
-        self.memory[range].copy_from_slice(data);
-        Ok(())
-    }
-    pub fn i32_store(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = unsafe { self.pop_value::<i32>() };
-        let data_buffer = data.to_le_bytes();
-        self.try_mem_store::<4>(arg, &data_buffer)?;
-        self.ip += 1;
-        Ok(())
-    }
-
-    pub fn i64_store(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = unsafe { self.pop_value::<i64>() };
-        let data_buffer = data.to_le_bytes();
-        self.try_mem_store::<8>(arg, &data_buffer)?;
-        self.ip += 1;
-        Ok(())
-    }
-    pub fn f32_store(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = unsafe { self.pop_value::<f32>() };
-        let data_buffer = data.to_le_bytes();
-        self.try_mem_store::<4>(arg, &data_buffer)?;
-        self.ip += 1;
-        Ok(())
-    }
-    pub fn f64_store(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-        let data = unsafe { self.pop_value::<f64>() };
-        let data_buffer = data.to_le_bytes();
-        self.try_mem_store::<8>(arg, &data_buffer)?;
-        self.ip += 1;
-        Ok(())
+        self.mem.as_ref().unwrap().len() > offset + addr + n
     }
 
     pub fn exec_local_set(&mut self, id: usize) {
@@ -674,24 +554,21 @@ impl Vm {
         let local_val = &mut self.locals[self.local_offset + id];
 
         unsafe { local_val.set_inner_from_stack_val(val) };
-        println!("local set: {:?}", local_val);
+        dbg!("local set: {:?}", local_val);
         self.ip += 1;
     }
-
     pub fn exec_global_set(&mut self, id: usize) {
         let val = self.pop_any();
         let global_val = &mut self.globals[id];
         unsafe { global_val.set_inner_from_stack_val(val) };
         self.ip += 1;
     }
-
     pub fn exec_local_tee(&mut self, id: usize) {
         let val = self.value_stack.last().unwrap();
         let local_val = &mut self.locals[self.local_offset + id];
         unsafe { local_val.set_inner_from_stack_val(*val) };
         self.ip += 1;
     }
-
     pub fn exec_unop_push<T, F, R>(&mut self, op: F)
     where
         T: PopFromValueStack + Debug,
@@ -727,13 +604,12 @@ impl Vm {
 
     pub fn exec_end(&mut self) -> bool {
         if self.labels.len() > 0 {
-            println!("popping label");
+            dbg!("popping label");
             self.labels.pop();
             self.ip += 1;
             false
         } else {
             if self.activation_stack.len() > 1 {
-                println!("end of function");
                 self.leave_wasm_function();
                 false
             } else {
@@ -741,43 +617,86 @@ impl Vm {
             }
         }
     }
+    fn get_return_frame(&self) -> Option<ActivationFrame> {
+        self.activation_stack.last().cloned().map(|mut f| {
+            f.ip = self.ip + 1;
+            f.stack_height = self.value_stack.len();
+            f
+        })
+    }
+
+    pub fn enter_function(
+        &mut self,
+        func_id: usize,
+        params: impl Iterator<Item = LocalValue>,
+    ) -> Result<(), RuntimeError> {
+        let next_frame = self.get_return_frame();
+
+        match &self.code.functions[func_id].kind {
+            FunctionType::Wasm(internal_function_instance) => {
+                if let Some(f) = next_frame {
+                    let frame = self.activation_stack.last_mut().unwrap();
+                    *frame = f
+                }
+
+                dbg!("internal call");
+                self.ip = internal_function_instance.code_offset;
+                let locals = internal_function_instance.locals.clone();
+
+                let locals_offset = self.push_func_locals(&locals, params);
+                let arity = self.code.functions[func_id].t.results.len();
+                let new_frame = ActivationFrame {
+                    locals_offset,
+                    func_id,
+                    arity,
+                    ip: self.ip,
+                    stack_height: self.value_stack.len(),
+                };
+
+                self.local_offset = locals_offset;
+                self.activation_stack.push(new_frame);
+
+                self.func_id = Some(func_id);
+                Ok(())
+            }
+            FunctionType::Native(native_function_instance) => {
+                let params: SmallVec<[LocalValue; 16]> = params.collect();
+                (native_function_instance.func)(self, &params)
+                    .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
+                self.ip += 1;
+                Ok(())
+            }
+        }
+    }
+    pub fn pop_type_params<'a>(
+        &mut self,
+        params: impl IntoIterator<Item = &'a ValueType>,
+    ) -> SmallVec<[LocalValue; 16]> {
+        params
+            .into_iter()
+            .cloned()
+            .map(|t| LocalValue::init_from_type_and_val(t, self.pop_any()))
+            .collect()
+    }
 
     pub fn exec_call(&mut self, id: usize) -> Result<(), RuntimeError> {
-        println!("calling: {id}");
-        let func = &self.functions[id];
-        let t_id = func.get_type_id();
-        let param_count = self.types[t_id].params.len();
-        //TODO: (joh): Collects hier vermeiden
+        dbg!("calling: {id}");
+        let func = &self.code.functions[id];
+        let params = &func.t.params.clone(); //TODO: (joh): Ich hasse das
 
-        //Das ist schreklich macht aber den Borrow-Checker happy.
-        let in_stack_vals = (0..param_count)
-            .map(|_| self.pop_any())
-            .collect::<SmallVec<[StackValue; 8]>>();
-
-        let params = &self.types[t_id].params;
-        let params: SmallVec<[LocalValue; 8]> = params
-            .iter()
+        let params = params
+            .into_iter()
             .cloned()
-            .zip(in_stack_vals)
-            .map(|(param, stack_val)| LocalValue::init_from_type_and_val(param, stack_val))
-            .collect();
-        println!("params: {:?}", params);
-
-        let this_frame = self.activation_stack.last_mut().unwrap();
-        this_frame.ip = self.ip + 1;
-        this_frame.stack_height = self.value_stack.len();
-
-        self.enter_function(id, &params)?;
-        Ok(())
+            .map(|t| LocalValue::init_from_type_and_val(t, self.pop_any()))
+            .collect::<Vec<_>>();
+        self.enter_function(id, params.iter().cloned())
     }
 
     pub fn exec_return(&mut self) {
         let current_frame = self.activation_stack.last().cloned().unwrap();
-
         let return_values = (0..current_frame.arity)
             .map(|_| self.pop_any())
             .collect::<SmallVec<[StackValue; 4]>>();
-
         self.value_stack.truncate(current_frame.stack_height);
         self.value_stack.extend(return_values.as_slice());
         self.leave_wasm_function();
@@ -786,13 +705,18 @@ impl Vm {
     pub fn label_from_blocktype(&self, blocktype: &Blocktype) -> Label {
         match blocktype {
             Blocktype::TypeIndex(t_id) => {
-                let t = &self.types[*t_id as usize];
+                let t = &self.types.as_ref().unwrap()[*t_id as usize];
                 let in_count = t.params.len();
+                let out_count = t.results.len();
                 let stack_height = self.value_stack.len() - in_count;
-                Label { stack_height }
+                Label {
+                    stack_height,
+                    out_count,
+                }
             }
             _ => Label {
                 stack_height: self.value_stack.len(),
+                out_count: 0,
             },
         }
     }
@@ -807,37 +731,31 @@ impl Vm {
         self.ip += 1;
     }
 
-    pub fn exec_if(&mut self, blocktype: Blocktype, table_index: usize) {
+    pub fn jump(&mut self, jmp: isize) {
+        self.ip = (self.ip as isize + jmp) as usize;
+    }
+    pub fn exec_if(&mut self, jump: isize, blocktype: Blocktype) {
         let cond = unsafe { self.pop_value::<bool>() };
         let label = self.label_from_blocktype(&blocktype);
         if cond {
             self.ip += 1
         } else {
-            //NOTE: (joh): Laaaaangsam
-            let jte = &self.jump_table[self.func_id.unwrap()];
-            self.ip = (self.ip as isize + jte.0[table_index].delta_ip) as usize;
+            self.jump(jump);
         }
         self.push_label(label);
     }
-
     pub fn exec_else(&mut self, jmp: isize) {
         self.ip = (jmp + self.ip as isize) as usize;
     }
 
-    pub fn exec_br(&mut self, target: usize, table_index: usize) {
-        let table_entry = &self.jump_table[self.func_id.unwrap()];
-        let jump = table_entry.get_jump(table_index).unwrap();
-        self.ip = (self.ip as isize + jump.delta_ip) as usize;
-        //NOTE: (joh): Muessen wir hier die Result Werte vielleicht doch pushen/poppen?
-
+    pub fn exec_br(&mut self, target: usize, jmp: isize) {
         if target != 0 {
             self.labels.truncate(self.labels.len() - target);
         }
         let target_label = self.labels.pop().unwrap();
-
-        //TODO: (joh): Hilfe
-        if jump.out_count > 0 {
-            if jump.out_count > 1 {
+        self.jump(jmp);
+        if target_label.out_count > 0 {
+            if target_label.out_count > 1 {
                 todo!()
             } else {
                 let result = self.pop_any();
@@ -848,290 +766,351 @@ impl Vm {
             self.value_stack.truncate(target_label.stack_height);
         }
     }
-
-    pub fn exec_br_if(&mut self, target: usize, table_index: usize) {
+    pub fn exec_br_if(&mut self, target: usize, jump: isize) {
         if unsafe { self.pop_value() } {
-            self.exec_br(target, table_index);
+            self.exec_br(target, jump);
         } else {
             self.ip += 1;
         }
     }
 
-    pub fn run(&mut self) -> Result<(), RuntimeError> {
-        loop {
-            match self.fetch_instruction() {
-                Op::Unreachable => {
-                    println!("Reached unreachable!");
-                    return Err(RuntimeError::UnreachableReached);
-                }
-                Op::Nop => self.ip += 1,
-                Op::Block(blocktype) => self.exec_block(blocktype.clone()),
-                Op::Loop(blocktype) => self.exec_loop(blocktype.clone()),
-                Op::If(blocktype, table_entry_id) => {
-                    self.exec_if(blocktype.clone(), *table_entry_id)
-                }
-                Op::Else(jmp) => self.exec_else(*jmp),
-                Op::End => {
-                    if self.exec_end() {
-                        break;
-                    }
-                }
-                Op::Br(target, table_index) => self.exec_br(*target as usize, *table_index),
-                Op::BrIf(target, table) => self.exec_br_if(*target as usize, *table),
-                Op::Return => self.exec_return(),
-                Op::Call(func_id) => self.exec_call(*func_id as usize)?,
-                Op::CallIndirect(_, _) => todo!(),
-                Op::Drop => {
-                    _ = {
-                        self.pop_any();
-                        self.ip += 1
-                    }
-                }
-                Op::Select(value_type) => todo!(),
-                Op::LocalGet(id) => self.exec_local_get(*id as usize),
-                Op::LocalSet(id) => self.exec_local_set(*id as usize),
-                Op::LocalTee(id) => self.exec_local_tee(*id as usize),
-                Op::GlobalGet(id) => self.exec_global_get(*id as usize),
-                Op::GlobalSet(id) => self.exec_global_set(*id as usize),
-                Op::I32Load(memarg) => self.i32_load(*memarg)?,
-                Op::I64Load(memarg) => self.i64_load(*memarg)?,
-                Op::F32Load(memarg) => self.f32_load(*memarg)?,
-                Op::F64Load(memarg) => self.f64_load(*memarg)?,
-                Op::I32Load8s(memarg) => todo!(),
-                Op::I32Load8u(memarg) => todo!(),
-                Op::I32Load16s(memarg) => todo!(),
-                Op::I32Load16u(memarg) => todo!(),
-                Op::I64Load8s(memarg) => todo!(),
-                Op::I64Load8u(memarg) => todo!(),
-                Op::I64Load16s(memarg) => todo!(),
-                Op::I64Load16u(memarg) => todo!(),
-                Op::I64Load32s(memarg) => todo!(),
-                Op::I64Load32u(memarg) => todo!(),
-                Op::I32Store(memarg) => self.i32_store(*memarg)?,
-                Op::I64Store(memarg) => self.i64_store(*memarg)?,
-                Op::F32Store(memarg) => self.f32_store(*memarg)?,
-                Op::F64Store(memarg) => self.f64_store(*memarg)?,
-                Op::I32Store8(memarg) => todo!(),
-                Op::I32Store16(memarg) => todo!(),
-                Op::I64Store8(memarg) => todo!(),
-                Op::I64Store16(memarg) => todo!(),
-                Op::I64Store32(memarg) => todo!(),
-                Op::I32Const(val) => self.exec_push(val.clone()),
-                Op::I64Const(val) => self.exec_push(val.clone()),
-                Op::F32Const(val) => self.exec_push(val.clone()),
-                Op::F64Const(val) => self.exec_push(val.clone()),
-                Op::I32Eqz => self.exec_unop_push(|val: u32| val == 0),
-                Op::I32Eq => self.exec_binop_push(|a: u32, b: u32| a == b),
-                Op::I32Ne => self.exec_binop_push(|a: u32, b: u32| a != b),
-                Op::I32Lts => self.exec_binop_push(|a: i32, b: i32| a < b),
-                Op::I32Ltu => self.exec_binop_push(|a: u32, b: u32| a < b),
-                Op::I32Gts => self.exec_binop_push(|a: i32, b: i32| a > b),
-                Op::I32Gtu => self.exec_binop_push(|a: u32, b: u32| a > b),
-                Op::I32Leu => self.exec_binop_push(|a: u32, b: u32| a <= b),
-                Op::I32Les => self.exec_binop_push(|a: i32, b: i32| a <= b),
-                Op::I32Geu => self.exec_binop_push(|a: u32, b: u32| a >= b),
-                Op::I32Ges => self.exec_binop_push(|a: i32, b: i32| a >= b),
-                Op::I64Eqz => self.exec_unop_push(|val: u32| val == 0),
-                Op::I64Eq => self.exec_binop_push(|a: u32, b: u32| a == b),
-                Op::I64Ne => self.exec_binop_push(|a: u64, b: u64| a != b),
-                Op::I64Lts => self.exec_binop_push(|a: i64, b: i64| a < b),
-                Op::I64Ltu => self.exec_binop_push(|a: u64, b: u64| a < b),
-                Op::I64Gts => self.exec_binop_push(|a: i64, b: i64| a > b),
-                Op::I64Gtu => self.exec_binop_push(|a: u64, b: u64| a > b),
-                Op::I64Les => self.exec_binop_push(|a: u64, b: u64| a <= b),
-                Op::I64Leu => self.exec_binop_push(|a: i64, b: i64| a <= b),
-                Op::I64Geu => self.exec_binop_push(|a: u64, b: u64| a >= b),
-                Op::I64Ges => self.exec_binop_push(|a: i64, b: i64| a >= b),
-                Op::I32Add => self.exec_binop_push(|a: u32, b: u32| a + b),
-                Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a - b),
-                Op::I32Mul => self.exec_binop_push(|a: u32, b: u32| a * b),
-                Op::I32Divs => self.exec_binop_push(|a: i32, b: i32| a / b),
-                Op::I32Divu => self.exec_binop_push(|a: u32, b: u32| a / b),
-                Op::I32Rems => self.exec_binop_push(|a: i32, b: i32| a % b),
-                Op::I32Remu => self.exec_binop_push(|a: u32, b: u32| a % b),
-                Op::I32And => self.exec_binop_push(|a: u32, b: u32| a & b),
-                Op::I32Or => self.exec_binop_push(|a: u32, b: u32| a | b),
-                Op::I32Xor => self.exec_binop_push(|a: u32, b: u32| a ^ b),
-                Op::I32Shl => self.exec_binop_push(|a: u32, b: u32| a << b),
-                Op::I32Shrs => self.exec_binop_push(|a: i32, b: i32| a >> b),
-                Op::I32Shru => self.exec_binop_push(|a: u32, b: u32| a >> b),
-                Op::I32Rotl => todo!(),
-                Op::I32Rotr => todo!(),
-                Op::I64Add => self.exec_binop_push(|a: u64, b: u64| a + b),
-                Op::I64Sub => self.exec_binop_push(|a: u64, b: u64| a - b),
-                Op::I64Mul => self.exec_binop_push(|a: u64, b: u64| a * b),
-                Op::I64Divs => self.exec_binop_push(|a: i64, b: i64| a / b),
-                Op::I64Divu => self.exec_binop_push(|a: u64, b: u64| a / b),
-                Op::I64Rems => self.exec_binop_push(|a: i64, b: i64| a % b),
-                Op::I64Remu => self.exec_binop_push(|a: u64, b: u64| a % b),
-                Op::I64And => self.exec_binop_push(|a: u64, b: u64| a & b),
-                Op::I64Or => self.exec_binop_push(|a: u64, b: u64| a | b),
-                Op::I64Xor => self.exec_binop_push(|a: u64, b: u64| a ^ b),
-                Op::I64Shl => self.exec_binop_push(|a: u64, b: u64| a << b),
-                Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),
-                Op::I64Shru => self.exec_binop_push(|a: u64, b: u64| a >> b),
-                Op::I64Rotl => todo!(),
-                Op::I64Rotr => todo!(),
-                Op::MemoryCopy => todo!(),
-                Op::MemoryFill => todo!(),
+    pub fn exec_op(&mut self) -> Result<bool, RuntimeError> {
+        match self.fetch_instruction() {
+            Op::Unreachable => {
+                dbg!("Unreachable reached");
+                return Err(RuntimeError::UnreachableReached);
             }
+            Op::Nop => self.ip += 1,
+            Op::Block(blocktype) => self.exec_block(blocktype.clone()),
+            Op::Loop(blocktype) => self.exec_loop(blocktype.clone()),
+            Op::If { bt, jmp } => self.exec_if(*jmp, bt.clone()),
+            Op::Else(jmp) => self.exec_else(*jmp),
+            Op::End => {
+                if self.exec_end() {
+                    return Ok(true);
+                };
+            }
+            Op::Br { label, jmp } => self.exec_br(*label, *jmp),
+            Op::BrIf { label, jmp } => self.exec_br_if(*label, *jmp),
+            Op::Return => self.exec_return(),
+            Op::Call(c) => self.exec_call(*c)?,
+            Op::CallIndirect { table, type_id } => todo!(),
+            Op::Drop => {
+                _ = self.pop_any();
+                self.ip += 1
+            }
+            Op::Select(value_type) => todo!(),
+            Op::LocalGet(id) => self.exec_local_get(*id as usize),
+            Op::LocalSet(id) => self.exec_local_set(*id as usize),
+            Op::LocalTee(id) => self.exec_local_tee(*id as usize),
+            Op::GlobalGet(id) => self.exec_global_get(*id as usize),
+            Op::GlobalSet(id) => self.exec_global_set(*id as usize),
+            Op::I32Load(memarg) => self.i32_load(*memarg)?,
+            Op::I64Load(memarg) => self.i64_load(*memarg)?,
+            Op::F32Load(memarg) => self.f32_load(*memarg)?,
+            Op::F64Load(memarg) => self.f64_load(*memarg)?,
+            Op::I32Load8s(memarg) => todo!(),
+            Op::I32Load8u(memarg) => todo!(),
+            Op::I32Load16s(memarg) => todo!(),
+            Op::I32Load16u(memarg) => todo!(),
+            Op::I64Load8s(memarg) => todo!(),
+            Op::I64Load8u(memarg) => todo!(),
+            Op::I64Load16s(memarg) => todo!(),
+            Op::I64Load16u(memarg) => todo!(),
+            Op::I64Load32s(memarg) => todo!(),
+            Op::I64Load32u(memarg) => todo!(),
+            Op::I32Store(memarg) => self.i32_store(*memarg)?,
+            Op::I64Store(memarg) => self.i64_store(*memarg)?,
+            Op::F32Store(memarg) => self.f32_store(*memarg)?,
+            Op::F64Store(memarg) => self.f64_store(*memarg)?,
+            Op::I32Store8(memarg) => todo!(),
+            Op::I32Store16(memarg) => todo!(),
+            Op::I64Store8(memarg) => todo!(),
+            Op::I64Store16(memarg) => todo!(),
+            Op::I64Store32(memarg) => todo!(),
+            Op::I32Const(val) => self.exec_push(val.clone()),
+            Op::I64Const(val) => self.exec_push(val.clone()),
+            Op::F32Const(val) => self.exec_push(val.clone()),
+            Op::F64Const(val) => self.exec_push(val.clone()),
+            Op::I32Eqz => self.exec_unop_push(|val: u32| val == 0),
+            Op::I32Eq => self.exec_binop_push(|a: u32, b: u32| a == b),
+            Op::I32Ne => self.exec_binop_push(|a: u32, b: u32| a != b),
+            Op::I32Lts => self.exec_binop_push(|a: i32, b: i32| a < b),
+            Op::I32Ltu => self.exec_binop_push(|a: u32, b: u32| a < b),
+            Op::I32Gts => self.exec_binop_push(|a: i32, b: i32| a > b),
+            Op::I32Gtu => self.exec_binop_push(|a: u32, b: u32| a > b),
+            Op::I32Leu => self.exec_binop_push(|a: u32, b: u32| a <= b),
+            Op::I32Les => self.exec_binop_push(|a: i32, b: i32| a <= b),
+            Op::I32Geu => self.exec_binop_push(|a: u32, b: u32| a >= b),
+            Op::I32Ges => self.exec_binop_push(|a: i32, b: i32| a >= b),
+            Op::I64Eqz => self.exec_unop_push(|val: u32| val == 0),
+            Op::I64Eq => self.exec_binop_push(|a: u32, b: u32| a == b),
+            Op::I64Ne => self.exec_binop_push(|a: u64, b: u64| a != b),
+            Op::I64Lts => self.exec_binop_push(|a: i64, b: i64| a < b),
+            Op::I64Ltu => self.exec_binop_push(|a: u64, b: u64| a < b),
+            Op::I64Gts => self.exec_binop_push(|a: i64, b: i64| a > b),
+            Op::I64Gtu => self.exec_binop_push(|a: u64, b: u64| a > b),
+            Op::I64Les => self.exec_binop_push(|a: u64, b: u64| a <= b),
+            Op::I64Leu => self.exec_binop_push(|a: i64, b: i64| a <= b),
+            Op::I64Geu => self.exec_binop_push(|a: u64, b: u64| a >= b),
+            Op::I64Ges => self.exec_binop_push(|a: i64, b: i64| a >= b),
+            Op::I32Add => self.exec_binop_push(|a: u32, b: u32| a + b),
+            Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a - b),
+            Op::I32Mul => self.exec_binop_push(|a: u32, b: u32| a * b),
+            Op::I32Divs => self.exec_binop_push(|a: i32, b: i32| a / b),
+            Op::I32Divu => self.exec_binop_push(|a: u32, b: u32| a / b),
+            Op::I32Rems => self.exec_binop_push(|a: i32, b: i32| a % b),
+            Op::I32Remu => self.exec_binop_push(|a: u32, b: u32| a % b),
+            Op::I32And => self.exec_binop_push(|a: u32, b: u32| a & b),
+            Op::I32Or => self.exec_binop_push(|a: u32, b: u32| a | b),
+            Op::I32Xor => self.exec_binop_push(|a: u32, b: u32| a ^ b),
+            Op::I32Shl => self.exec_binop_push(|a: u32, b: u32| a << b),
+            Op::I32Shrs => self.exec_binop_push(|a: i32, b: i32| a >> b),
+            Op::I32Shru => self.exec_binop_push(|a: u32, b: u32| a >> b),
+            Op::I32Rotl => todo!(),
+            Op::I32Rotr => todo!(),
+            Op::I64Add => self.exec_binop_push(|a: u64, b: u64| a + b),
+            Op::I64Sub => self.exec_binop_push(|a: u64, b: u64| a - b),
+            Op::I64Mul => self.exec_binop_push(|a: u64, b: u64| a * b),
+            Op::I64Divs => self.exec_binop_push(|a: i64, b: i64| a / b),
+            Op::I64Divu => self.exec_binop_push(|a: u64, b: u64| a / b),
+            Op::I64Rems => self.exec_binop_push(|a: i64, b: i64| a % b),
+            Op::I64Remu => self.exec_binop_push(|a: u64, b: u64| a % b),
+            Op::I64And => self.exec_binop_push(|a: u64, b: u64| a & b),
+            Op::I64Or => self.exec_binop_push(|a: u64, b: u64| a | b),
+            Op::I64Xor => self.exec_binop_push(|a: u64, b: u64| a ^ b),
+            Op::I64Shl => self.exec_binop_push(|a: u64, b: u64| a << b),
+            Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),
+            Op::I64Shru => self.exec_binop_push(|a: u64, b: u64| a >> b),
+            Op::I64Rotl => todo!(),
+            Op::I64Rotr => todo!(),
+            Op::MemoryCopy => todo!(),
+            Op::MemoryFill => todo!(),
+        };
+        Ok(false)
+    }
+    pub fn enter_start_function(&mut self) -> Result<(), RuntimeError> {
+        if let Some(start) = self.start_func_id {
+            //TODO: (joh):
+            self.enter_function(start, std::iter::empty())
+        } else {
+            Err(RuntimeError::UnexpectedNoStartFunction)
         }
-        Ok(())
+    }
+
+    pub fn run(&mut self) -> Result<(), RuntimeError> {
+        if self.func_id.is_none() {
+            Err(RuntimeError::NoFunctionToExecute)
+        } else {
+            loop {
+                println!("blub");
+                let end = self.exec_op()?;
+                if end {
+                    break;
+                }
+            }
+            Ok(())
+        }
+    }
+    pub fn stack_to_local_vals(
+        &self,
+        result_types: impl Iterator<Item = ValueType>,
+    ) -> Vec<LocalValue> {
+        self.value_stack
+            .iter()
+            .zip(result_types)
+            .map(|(stack_val, t)| LocalValue::init_from_type_and_val(t, *stack_val))
+            .collect()
+    }
+
+    pub fn run_func(
+        &mut self,
+        info: &BytecodeInfo,
+        func_id: usize,
+        params: impl IntoIterator<Item = LocalValue>,
+    ) -> Result<Vec<LocalValue>, RuntimeError> {
+        self.enter_function(func_id, params.into_iter())?;
+        self.run()?;
+        let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
+        let res = self.stack_to_local_vals(func_t.results.iter().cloned());
+        assert!(res.len() == func_t.results.len());
+        Ok(res)
     }
 }
 
-mod tests {
-    use std::{collections::HashMap, ops::Range};
+#[derive(Debug)]
+pub struct ExecutionResult {
+    validation_result: ValidateResult,
+    exec: Vm,
+}
+#[derive(Error, Debug)]
+pub enum ExecutionError {
+    #[error("Unable to instantiate bytecode: {0}")]
+    InstanceError(#[from] InstanceError),
+    #[error("Runtime Error: {0}")]
+    RuntimeError(#[from] RuntimeError),
+}
 
-    use parser::{
-        error::ReaderError, module::DecodedBytecode, op::Op, reader::Reader, types::ValueType,
+//TODO: (joh): Nutzer sollte Funktion und Argumente manuell callen koennen
+pub fn run_validation_result(
+    res: ValidateResult,
+    env: Modules,
+) -> Result<ExecutionResult, ExecutionError> {
+    let mut vm = Vm::init(&res.bytecode, &res.info, env)?;
+    vm.enter_start_function()?;
+    vm.run()?;
+    Ok(ExecutionResult {
+        validation_result: res,
+        exec: vm,
+    })
+}
+
+macro_rules! impl_mem_load {
+    ($fn_name: ident, $t: tt) => {
+        impl Vm {
+            fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
+                debug_assert!(self.mem.as_ref().unwrap().len() > 0);
+                let addr = unsafe { self.pop_value::<u32>() as usize };
+                let addr_start = addr + arg.offset as usize;
+                let range = addr_start..addr + std::mem::size_of::<$t>();
+                let val: $t = $t::from_le_bytes(
+                    self.mem
+                        .as_ref()
+                        .unwrap()
+                        .get(range)
+                        .ok_or(RuntimeError::MemoryAddressOutOfScope)?
+                        .try_into()
+                        .unwrap(),
+                );
+                self.push_value(val);
+                self.ip += 1;
+                Ok(())
+            }
+        }
     };
-    use validator::{
-        error::ValidationError,
-        validator::{Context, Validator, patch_jumps},
+}
+
+impl_mem_load!(i32_load, u32);
+impl_mem_load!(i64_load, u64);
+impl_mem_load!(f32_load, f32);
+impl_mem_load!(f64_load, f64);
+
+macro_rules! impl_mem_store {
+    ($fn_name: ident, $t: tt) => {
+        impl Vm {
+            pub fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
+                let data = unsafe { self.pop_value::<$t>() };
+                let data_buffer = data.to_le_bytes();
+                let addr = unsafe { self.pop_value::<u32>() as usize };
+                let addr_start = addr + arg.offset as usize;
+                let range = addr_start..addr_start + std::mem::size_of::<$t>();
+
+                self.mem
+                    .as_mut()
+                    .unwrap()
+                    .get_mut(range)
+                    .ok_or(RuntimeError::MemoryAddressOutOfScope)?
+                    .copy_from_slice(&data_buffer);
+                self.ip += 1;
+                Ok(())
+            }
+        }
     };
+}
+
+impl_mem_store!(i32_store, u32);
+impl_mem_store!(i64_store, u64);
+impl_mem_store!(f32_store, f32);
+impl_mem_store!(f64_store, f64);
+
+mod tests {
+    use std::collections::HashMap;
+
+    use parser::reader::ValueType;
+    use validator::validator::read_and_validate_wat;
 
     use crate::{
-        env::{ExternalFunction, Module},
-        slow_vm::{Code, RuntimeError},
+        env::{ExternalFunction, Module, Modules},
+        slow_vm::RuntimeError,
     };
 
-    use super::{InstanceError, LocalValue, Vm};
-
-    #[derive(Debug)]
-    enum InterpreterTestError {
-        Validation(ValidationError),
-        Parsing(ReaderError),
-    }
-
-    impl From<ReaderError> for InterpreterTestError {
-        fn from(value: ReaderError) -> Self {
-            Self::Parsing(value)
-        }
-    }
-
-    impl From<ValidationError> for InterpreterTestError {
-        fn from(value: ValidationError) -> Self {
-            Self::Validation(value)
-        }
-    }
+    use super::{ExecutionError, ExecutionResult, LocalValue, Vm};
 
     fn debug_env_always_fails(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
         let ret_nr = params[0].u32();
         Err(ret_nr as usize)
     }
+    fn make_test_env() -> Modules<'static> {
+        let dbg_fail_proc = ExternalFunction {
+            handler: debug_env_always_fails,
+            params: vec![ValueType::I32],
+            result: vec![],
+        };
+        let mut funcs = HashMap::new();
+        funcs.insert("dbg_fail", dbg_fail_proc);
+        let mut envs = HashMap::new();
+        envs.insert(
+            "env",
+            Module {
+                functions: funcs,
+                ..Default::default()
+            },
+        );
+        envs
+    }
+    macro_rules! run_code_expect_result {
+        ($fn_name: ident, $func_id: literal, $code: expr, $params: expr, $expecting: expr) => {
+            #[test]
+            fn $fn_name() -> Result<(), ExecutionError> {
+                let src = $code;
+                let res = read_and_validate_wat(src).unwrap();
 
-    pub fn run_const_expr(
-        expr: impl Iterator<Item = (Op, Range<usize>)>,
-    ) -> Result<Vec<LocalValue>, InstanceError> {
-        let mut stack = Vec::new();
-        for (op, _) in expr {
-            match op {
-                Op::I32Const(val) => stack.push(val.into()),
-                Op::I64Const(val) => stack.push(val.into()),
-                Op::F32Const(val) => stack.push(val.into()),
-                Op::F64Const(val) => stack.push(val.into()),
-                Op::GlobalGet(_) => todo!(),
-                Op::End => break,
-                _ => return Err(InstanceError::InvalidConstOp),
+                let mut vm = Vm::init_from_validation_result(&res, make_test_env()).unwrap();
+                let results = vm.run_func(&res.info, $func_id, $params).unwrap();
+                println!("results: {:?}", results);
+                assert!(results == $expecting);
+                Ok(())
             }
-        }
-        Ok(stack)
+        };
+    }
+    macro_rules! run_code_expect_failure {
+        ($fn_name: ident, $func_id: literal, $code: expr, $params: expr, $expecting: pat) => {
+            #[test]
+            fn $fn_name() -> Result<(), ExecutionError> {
+                let src = $code;
+                let res = read_and_validate_wat(src).unwrap();
+
+                let mut vm = Vm::init_from_validation_result(&res, make_test_env()).unwrap();
+                let result = vm.run_func(&res.info, $func_id, $params).unwrap_err();
+                assert!(matches!(result, $expecting));
+                Ok(())
+            }
+        };
     }
 
-    #[test]
-    fn linear_code_mult_funcs() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result!(
+        run_add_numbers,
+        0,
+        r#"
             (module
-                (import "console" "log" (func $log (param i32))) 
-                (func (param i32) (local i32 i32)
-                    i32.const 0
-                    call $log
-                )
-                (func (param i32) (local i32)
-                    i32.const 1
-                    call $log
-                )
-                (func (param i32) (local i32 f32 i64)
-                    i32.const 2
-                    call $log
-                )
-                (func (param i32) 
-                    i32.const 3
-                    call $log
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let _ = Validator::validate_all(&context)?;
-        let code = Code::from_module(&module).unwrap();
-
-        assert_eq!(
-            code.instructions[code.functions[0].code_offset],
-            Op::I32Const(0)
-        );
-        assert_eq!(
-            code.functions[0].locals,
-            vec![ValueType::I32, ValueType::I32]
-        );
-
-        assert_eq!(
-            code.instructions[code.functions[1].code_offset],
-            Op::I32Const(1)
-        );
-
-        assert_eq!(code.functions[1].locals, vec![ValueType::I32]);
-
-        assert_eq!(
-            code.instructions[code.functions[2].code_offset],
-            Op::I32Const(2)
-        );
-        assert_eq!(
-            code.functions[2].locals,
-            vec![ValueType::I32, ValueType::F32, ValueType::I64]
-        );
-
-        assert_eq!(
-            code.instructions[code.functions[3].code_offset],
-            Op::I32Const(3)
-        );
-        assert_eq!(code.functions[3].locals, vec![]);
-
-        Ok(())
-    }
-    #[test]
-    fn run_add_two_numbers() -> Result<(), InterpreterTestError> {
-        let src = r#"
-            (module
-                (func 
+                (func (result i32) 
                     i32.const 5
                     i32.const 1
                     i32.add
-                    drop
                 )
+                (start 0)
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
+        "#,
+        vec![],
+        vec![LocalValue::I32(6)]
+    );
 
-        let jumps = Validator::validate_all(&context)?;
-        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);
-        vm.run().unwrap();
-        Ok(())
-    }
-
-    #[test]
-    fn run_add_locals() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+    run_add_locals,
+    0,
+    r#"
             (module
-                (func (local i32 i32)
+                (func (result i32)(local i32 i32) 
                     i32.const 1
                     i32.const 2
                     i32.add
@@ -1140,27 +1119,21 @@ mod tests {
                     local.get 0
                     i32.const 1
                     i32.add
-                    drop
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
 
-        let jumps = Validator::validate_all(&context)?;
-        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);
-        vm.run().unwrap();
-        Ok(())
+                )
+                (start 0)
+            )
+        "#,
+        vec![],
+        vec![LocalValue::I32(4)]
     }
 
-    #[test]
-    fn run_test_if() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+        run_test_if,
+        0,
+        r#"
             (module
-                (func (local i32 i32)
+                (func (result i32) (local i32 i32)
                     i32.const 1
                     i32.const 0
                     i32.add
@@ -1169,95 +1142,51 @@ mod tests {
                     local.get 0
                     (if 
                         (then
-                            unreachable
+                            i32.const 99 
+                            local.set 1
                         )
                     )
+                    local.get 1
                 )
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let jumps = Validator::validate_all(&context)?;
-        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
-        Ok(())
+        "#,
+        vec![],
+        vec![LocalValue::I32(99)]
     }
 
-    #[test]
-    fn run_test_if_else() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+        run_br_simple_no_return,
+        0,
+        r#"
             (module
-                (func (local i32 i32)
-                    i32.const 0
-                    i32.const 1
-                    i32.add
-                    local.set 0
-
-                    local.get 0
-                    (if 
-                        (then
-                            unreachable
-                        )
-                        (else
-                        )
-                    )
-                )
-            )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let jumps = Validator::validate_all(&context)?;
-        patch_jumps(&mut module, jumps.iter())?;
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]).unwrap();
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
-        Ok(())
-    }
-
-    #[test]
-    fn run_br_simple_no_return() -> Result<(), InterpreterTestError> {
-        let src = r#"
-            (module
-                (func (local i32 i32)
+                (func (result i32) (local i32 i32)
                     (block 
+                        i32.const 99
+                        local.set 0
+
                         i32.const 1 
                         i32.const 2
                         i32.add 
                         i32.const 3
                         i32.eq
                         br_if 0 
-                        unreachable 
+                        i32.const 0
+                        local.set 0
                     )
+                    local.get 0
                 )
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let jumps = Validator::validate_all(&context)?;
-        patch_jumps(&mut module, jumps.iter())?;
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);
-        vm.run().unwrap();
-        Ok(())
+        "#,
+        vec![],
+        vec![LocalValue::I32(99)]
     }
 
-    #[test]
-    fn run_block_params() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+        run_block_params,
+        0,
+        r#"
             (module
-                (func (local i32 i32)
+                (func (result i32) (local i32 i32)
                     i32.const 2
                     (block (param i32)  
                         i32.const 1 
@@ -1265,45 +1194,39 @@ mod tests {
                         i32.const 3
                         i32.eq
                         br_if 0 
-                        unreachable 
+                        i32.const 99 
+                        local.set 0 
                     )
+                    local.get 0
                 )
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-
-        let jumps = Validator::validate_all(&context)?;
-        patch_jumps(&mut module, jumps.iter())?;
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        vm.enter_function(0, &[]);
-        vm.run().unwrap();
-        Ok(())
+        "#,
+        vec![],
+        vec![LocalValue::I32(0)]
     }
-
-    #[test]
-    fn run_simple_call() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+        run_simple_call,
+        2,
+        r#"
             (module
                 (func $b (param i32) (result i32)  
                     local.get 0
                     i32.const 1
                     i32.add
                 )
-                (func $c (param i32) 
+                (func $c (param i32) (result i32) (local i32) 
                     local.get 0
                     i32.const 4
                     i32.eq
                     (if
                         (then
-                            unreachable
+                            i32.const 99
+                            local.set 1
                         )
                     )
+                    local.get 1
                 )
-                (func $a 
+                (func $a (result i32) 
                     i32.const 1
                     i32.const 2
                     call $b
@@ -1312,27 +1235,16 @@ mod tests {
                 )
                 (start $a)
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let mut module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
 
-        let jumps = Validator::validate_all(&context)?;
-        patch_jumps(&mut module, jumps.iter())?;
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, HashMap::new()).unwrap();
-        println!("code: {:?}", vm.code.instructions);
-        let start_func_id = vm.start_func_id.unwrap();
-        println!("start: {start_func_id}");
-        vm.enter_function(start_func_id, &[]).unwrap();
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::UnreachableReached);
-        Ok(())
+        "#,
+        vec![],
+        vec![LocalValue::I32(99)]
     }
 
-    #[test]
-    fn call_simple_native_func() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_failure! {
+        call_simple_native_func,
+        1,
+        r#"
             (module
                 (import "env" "dbg_fail" (func $fail (param i32)))
                 (func $main 
@@ -1341,152 +1253,71 @@ mod tests {
                 )
                 (start $main)
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        println!("{:?}", module.types.as_ref().unwrap());
-        let jumps = Validator::validate_all(&context)?;
-        let dbg_fail_proc = ExternalFunction {
-            handler: debug_env_always_fails,
-            params: vec![ValueType::I32],
-            result: vec![],
-        };
-        let mut funcs = HashMap::new();
-        funcs.insert("dbg_fail", dbg_fail_proc);
-
-        let mut envs = HashMap::new();
-        envs.insert(
-            "env",
-            Module {
-                functions: funcs,
-                ..Default::default()
-            },
-        );
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
-        vm.enter_function(1, &[]).unwrap();
-        assert_eq!(
-            vm.run().unwrap_err(),
-            RuntimeError::NativeFuncCallError(100)
-        );
-        Ok(())
+        "#,
+        vec![],
+        RuntimeError::NativeFuncCallError(100)
     }
-    #[test]
 
-    fn run_simple_memory_funcs() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+        run_simple_memory_funcs,
+        0,
+        r#"
             (module
-                (import "env" "dbg_fail" (func $fail (param i32)))
                 (memory 1)
-                (func $main 
+                (func $main (result i32) 
                     i32.const 10
                     i32.const 50
                     i32.store  
+
+                    i32.const 10
                     i32.const 10
                     i32.load
                     i32.const 50
                     i32.add 
-                    call $fail 
+                    i32.store 
+
+                    i32.const 10
+                    i32.load 
                 )
                 (start $main)
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        println!("{:?}", module.types.as_ref().unwrap());
-        let jumps = Validator::validate_all(&context)?;
-        let dbg_fail_proc = ExternalFunction {
-            handler: debug_env_always_fails,
-            params: vec![ValueType::I32],
-            result: vec![],
-        };
-        let mut funcs = HashMap::new();
-        funcs.insert("dbg_fail", dbg_fail_proc);
-
-        let mut envs = HashMap::new();
-        envs.insert(
-            "env",
-            Module {
-                functions: funcs,
-                ..Default::default()
-            },
-        );
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
-        vm.enter_function(1, &[]).unwrap();
-        assert_eq!(
-            vm.run().unwrap_err(),
-            RuntimeError::NativeFuncCallError(100)
-        );
-        Ok(())
+        "#,
+        vec![],
+        vec![LocalValue::I32(100)]
     }
 
-    #[test]
-    fn run_globals() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+        run_globals,
+        0,
+        r#"
             (module
-                (import "env" "dbg_fail" (func $fail (param i32)))
                 (global $global_test (mut i32))
                 (global $global_test2 (mut i32))
                 (global $global_test_init (mut i32) (i32.const 900))
                 
-                (func $main 
+                (func $main (result i32) 
                     i32.const 10
                     global.set $global_test
                     global.get $global_test
                     global.get $global_test_init 
                     i32.add
-                    call $fail
                 )
                 (start $main)
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        println!("{:?}", module.types.as_ref().unwrap());
-        let jumps = Validator::validate_all(&context)?;
-        let dbg_fail_proc = ExternalFunction {
-            handler: debug_env_always_fails,
-            params: vec![ValueType::I32],
-            result: vec![],
-        };
-        let mut funcs = HashMap::new();
-        funcs.insert("dbg_fail", dbg_fail_proc);
-
-        let mut envs = HashMap::new();
-        envs.insert(
-            "env",
-            Module {
-                functions: funcs,
-                ..Default::default()
-            },
-        );
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
-        vm.enter_function(1, &[]).unwrap();
-        assert_eq!(
-            vm.run().unwrap_err(),
-            RuntimeError::NativeFuncCallError(910)
-        );
-        Ok(())
+        "#,
+        vec![],
+        vec![LocalValue::I32(910)]
     }
-    #[test]
 
-    fn super_simple_loop() -> Result<(), InterpreterTestError> {
-        let src = r#"
+    run_code_expect_result! {
+        simple_loop,
+        0,
+        r#"
             (module
-                (import "env" "dbg_fail" (func $fail (param i32)))
-                (global $global_test (mut i32))
-                (global $global_test2 (mut i32))
-
                 (func $main 
+                    (result i32)
                     (local $i i32)
+
                     (loop $l
                         local.get $i
                         i32.const 1
@@ -1498,37 +1329,11 @@ mod tests {
                         br_if $l
                     )
                     local.get $i
-                    call $fail
                 )
                 (start $main)
             )
-        "#;
-        let code = wat::parse_str(src).unwrap().into_boxed_slice();
-        let mut reader = Reader::new(&code);
-        let module = reader.read::<DecodedBytecode>()?;
-        let context = Context::new(&module)?;
-        println!("{:?}", module.types.as_ref().unwrap());
-        let jumps = Validator::validate_all(&context)?;
-        let dbg_fail_proc = ExternalFunction {
-            handler: debug_env_always_fails,
-            params: vec![ValueType::I32],
-            result: vec![],
-        };
-        let mut funcs = HashMap::new();
-        funcs.insert("dbg_fail", dbg_fail_proc);
-
-        let mut envs = HashMap::new();
-        envs.insert(
-            "env",
-            Module {
-                functions: funcs,
-                ..Default::default()
-            },
-        );
-
-        let mut vm = Vm::init_from_bytecode(&module, jumps, envs).unwrap();
-        vm.enter_function(1, &[]).unwrap();
-        assert_eq!(vm.run().unwrap_err(), RuntimeError::NativeFuncCallError(10));
-        Ok(())
+        "#,
+        vec![],
+        vec![LocalValue::I32(10)]
     }
 }
