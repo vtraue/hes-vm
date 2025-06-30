@@ -534,12 +534,10 @@ impl Vm {
 
     pub fn exec_local_get(&mut self, id: usize) {
         let local_val = self.locals[self.local_offset + id];
-        dbg!("local get: {:?}", local_val);
         self.push_value(local_val);
         self.ip += 1;
     }
     pub fn exec_global_get(&mut self, id: usize) {
-        dbg!("global get");
         let global_val = self.globals[id];
         self.push_value(global_val);
         self.ip += 1;
@@ -1329,6 +1327,31 @@ mod tests {
                         br_if $l
                     )
                     local.get $i
+                )
+                (start $main)
+            )
+        "#,
+        vec![],
+        vec![LocalValue::I32(10)]
+    }
+    run_code_expect_result! {
+        jump_arb_label_return,
+        0,
+        r#"
+            (module
+                (func $main 
+                    (result i32)
+                    (local $i i32)
+                
+                    (block $outer
+                        (block $inner
+                            i32.const 100
+                            local.set 0 
+                            br $outer
+                        )
+                        unreachable
+                    )
+                    i32.const 10
                 )
                 (start $main)
             )
