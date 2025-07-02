@@ -1,5 +1,5 @@
 use core::error;
-use std::{fmt::Debug, ops::Range};
+use std::{collections::HashMap, fmt::{write, Debug, Display}, ops::Range};
 use thiserror::Error;
 
 use itertools::Itertools;
@@ -14,7 +14,7 @@ use validator::validator::{
 };
 
 use crate::{
-    env::{ExternalFunctionHandler, Modules, get_env_func, get_env_global},
+    env::{get_env_func, get_env_global, ExternalFunction, ExternalFunctionHandler, Module, Modules},
     stack::StackValue,
 };
 
@@ -255,6 +255,18 @@ pub enum LocalValue {
     I64(u64),
     F32(f32),
     F64(f64),
+}
+
+impl Display for LocalValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        //TODO: Finde einen Weg das besser mit den Typen zu printen ohne dass es eklig wird
+        match self {
+            LocalValue::I32(i) => write!(f, "{}", i),
+            LocalValue::I64(i) => write!(f, "{}", i),
+            LocalValue::F32(i) => write!(f, "{}", i),
+            LocalValue::F64(i) => write!(f, "{}", i),
+        }
+    }
 }
 
 impl From<LocalValue> for StackValue {
@@ -1020,6 +1032,29 @@ impl_mem_store!(i32_store, u32);
 impl_mem_store!(i64_store, u64);
 impl_mem_store!(f32_store, f32);
 impl_mem_store!(f64_store, f64);
+fn debug_env_always_fails(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
+    let ret_nr = params[0].u32();
+    Err(ret_nr as usize)
+}
+
+pub fn make_test_env() -> Modules<'static> {
+    let dbg_fail_proc = ExternalFunction {
+        handler: debug_env_always_fails,
+        params: vec![ValueType::I32],
+        result: vec![],
+    };
+    let mut funcs = HashMap::new();
+    funcs.insert("dbg_fail", dbg_fail_proc);
+    let mut envs = HashMap::new();
+    envs.insert(
+        "env",
+        Module {
+            functions: funcs,
+            ..Default::default()
+        },
+    );
+    envs
+}
 
 mod tests {
     use std::collections::HashMap;
@@ -1029,33 +1064,11 @@ mod tests {
 
     use crate::{
         env::{ExternalFunction, Module, Modules},
-        slow_vm::RuntimeError,
+        slow_vm::{RuntimeError, make_test_env},
     };
 
     use super::{ExecutionError, ExecutionResult, LocalValue, Vm};
 
-    fn debug_env_always_fails(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
-        let ret_nr = params[0].u32();
-        Err(ret_nr as usize)
-    }
-    fn make_test_env() -> Modules<'static> {
-        let dbg_fail_proc = ExternalFunction {
-            handler: debug_env_always_fails,
-            params: vec![ValueType::I32],
-            result: vec![],
-        };
-        let mut funcs = HashMap::new();
-        funcs.insert("dbg_fail", dbg_fail_proc);
-        let mut envs = HashMap::new();
-        envs.insert(
-            "env",
-            Module {
-                functions: funcs,
-                ..Default::default()
-            },
-        );
-        envs
-    }
     macro_rules! run_code_expect_result {
         ($fn_name: ident, $func_id: literal, $code: expr, $params: expr, $expecting: expr) => {
             #[test]

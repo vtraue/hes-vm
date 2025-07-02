@@ -71,7 +71,7 @@ pub enum ParserError {
     #[error("Invalid section id: Got {0}, expected 0..11")]
     InvalidSectionId(u8),
 
-    #[error("Unable to parse wat source code: {0}")]
+    #[error("{0}")]
     WatParseError(#[from] wat::Error),
 }
 impl ParserError {
@@ -1131,6 +1131,17 @@ pub fn parse_wat(code: impl AsRef<str>) -> Result<Bytecode, ParserError> {
     parse_binary(&mut reader)
 }
 
+pub fn is_wasm_bytecode(reader: &mut impl BytecodeReader) -> Result<bool, ParserError> {
+    let res = Header::from_reader(reader).map_or_else(
+        |e| match e {
+            ParserError::InvalidHeader(_) | ParserError::InvalidVersion(_) => Ok(false),
+            _ => Err(e),
+        },
+        |_| Ok(true),
+    );
+    reader.rewind()?;
+    res
+}
 #[cfg(test)]
 mod tests {
     use crate::reader::{ValueType, parse_wat};
