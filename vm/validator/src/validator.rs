@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Debug, Display},
-    string::ParseError,
-};
+use std::fmt::{Debug, Display};
 use thiserror::Error;
 
 use itertools::Itertools;

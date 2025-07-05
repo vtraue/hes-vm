@@ -1,5 +1,9 @@
 use core::error;
-use std::{collections::HashMap, fmt::{write, Debug, Display}, ops::Range};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display, write},
+    ops::Range,
+};
 use thiserror::Error;
 
 use itertools::Itertools;
@@ -14,7 +18,9 @@ use validator::validator::{
 };
 
 use crate::{
-    env::{get_env_func, get_env_global, ExternalFunction, ExternalFunctionHandler, Module, Modules},
+    env::{
+        ExternalFunction, ExternalFunctionHandler, Module, Modules, get_env_func, get_env_global,
+    },
     stack::StackValue,
 };
 
@@ -47,6 +53,8 @@ pub enum RuntimeError {
     NoFunctionToExecute,
     #[error("Tried entering a start function, but module does not define one")]
     UnexpectedNoStartFunction,
+    // #[error("Wrong parameter count provided: Got {0}, expected: {1}")]
+    // WrongParamCount,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +64,7 @@ pub struct ActivationFrame {
     arity: usize,
     ip: usize,
     stack_height: usize,
+    label_stack_offset: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -499,6 +508,7 @@ impl Vm {
                 self.func_id = Some(frame.func_id);
                 self.ip = frame.ip;
                 self.locals.truncate(prev.locals_offset);
+                self.labels.truncate(prev.label_stack_offset);
                 true
             }
             None => false,
@@ -543,7 +553,6 @@ impl Vm {
     pub fn push_label(&mut self, label: Label) {
         self.labels.push(label);
     }
-
     pub fn exec_local_get(&mut self, id: usize) {
         let local_val = self.locals[self.local_offset + id];
         self.push_value(local_val);
@@ -650,17 +659,24 @@ impl Vm {
                 }
 
                 dbg!("internal call");
+
                 self.ip = internal_function_instance.code_offset;
                 let locals = internal_function_instance.locals.clone();
 
                 let locals_offset = self.push_func_locals(&locals, params);
-                let arity = self.code.functions[func_id].t.results.len();
+                let t = &self.code.functions[func_id].t;
+
+                //TODO: (joh:) Checke irgendwo ob die uebergebenen Params passen
+                //oder handle Aufrufe ausserhalb von Call woanders
+                let arity = t.results.len();
+
                 let new_frame = ActivationFrame {
                     locals_offset,
                     func_id,
                     arity,
                     ip: self.ip,
                     stack_height: self.value_stack.len(),
+                    label_stack_offset: self.labels.len(),
                 };
 
                 self.local_offset = locals_offset;
@@ -699,6 +715,7 @@ impl Vm {
             .cloned()
             .map(|t| LocalValue::init_from_type_and_val(t, self.pop_any()))
             .collect::<Vec<_>>();
+        println!("call params {:?}", params);
         self.enter_function(id, params.iter().cloned())
     }
 
@@ -762,6 +779,7 @@ impl Vm {
         if target != 0 {
             self.labels.truncate(self.labels.len() - target);
         }
+
         let target_label = self.labels.pop().unwrap();
         self.jump(jmp);
         if target_label.out_count > 0 {
@@ -946,6 +964,21 @@ impl Vm {
         assert!(res.len() == func_t.results.len());
         Ok(res)
     }
+    pub fn get_bytes_from_mem<'a>(
+        &'a self,
+        addr: usize,
+        count: usize,
+    ) -> Result<&'a [u8], RuntimeError> {
+        let mem = self
+            .mem
+            .as_ref()
+            .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
+        if addr + count >= mem.len() {
+            Err(RuntimeError::MemoryAddressOutOfScope)
+        } else {
+            Ok(&mem[addr..addr + count])
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1037,14 +1070,49 @@ fn debug_env_always_fails(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usi
     Err(ret_nr as usize)
 }
 
+fn debug_print_u32(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
+    let arg = params[0].u32();
+    print!("{arg}");
+    Ok(())
+}
+
+fn debug_print_string(vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
+    let ptr = params[0].u32();
+    let count = params[1].u32();
+    let data = vm
+        .get_bytes_from_mem(ptr as usize, count as usize)
+        .map_err(|_| 1_usize)?;
+    let str = str::from_utf8(data).map_err(|_| 2_usize)?;
+    print!("{str}");
+    Ok(())
+}
+
 pub fn make_test_env() -> Modules<'static> {
     let dbg_fail_proc = ExternalFunction {
         handler: debug_env_always_fails,
         params: vec![ValueType::I32],
         result: vec![],
     };
+
     let mut funcs = HashMap::new();
     funcs.insert("dbg_fail", dbg_fail_proc);
+    funcs.insert(
+        "dbg_print_u32",
+        ExternalFunction {
+            handler: debug_print_u32,
+            params: vec![ValueType::I32, ValueType::I32],
+            result: vec![],
+        },
+    );
+    funcs.insert(
+        "dbg_print_string",
+        ExternalFunction {
+            handler: debug_print_string,
+            params: vec![ValueType::I32],
+            result: vec![],
+        },
+    );
+
     let mut envs = HashMap::new();
     envs.insert(
         "env",
@@ -1372,4 +1440,56 @@ mod tests {
         vec![],
         vec![LocalValue::I32(10)]
     }
+    run_code_expect_result! {
+        return_from_function,
+        1,
+        r#"
+            (module
+                (func $assert_eq
+                    (param i32 i32)
+                    local.get 0
+                    local.get 1
+                    i32.eq
+                    (if
+                        (then
+                            return 
+                        )
+                        (else
+                            unreachable
+                        )
+                    )
+                )
+                (func $main
+                    i32.const 1
+                    i32.const 1
+                    (call $assert_eq)
+                )
+            )
+        "#,
+        vec![],
+        vec![]
+    }
+    // run_code_expect_result! {
+    //     load_static_data,
+    //     0,
+    //      r#"
+    //         (module
+    //             (func $assert_eq (param i32 i32)
+    //                 local.get 0
+    //                 local.get 1
+    //                 i32.eq
+    //                 (if
+    //                 )
+    //             )
+    //             (func $main
+    //                 (result i32)
+    //                 (local $i i32)
+
+    //             )
+    //             (data (i32.const 0) "\0\1\2\3")
+    //             (start $main)
+    //         )
+    //     "#,
+
+    // }
 }
