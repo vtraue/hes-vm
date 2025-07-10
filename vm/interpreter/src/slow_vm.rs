@@ -1052,6 +1052,8 @@ macro_rules! impl_mem_load {
                     .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
                 println!("data: {:?}", buffer);
                 let val: $t = $t::from_le_bytes(buffer.try_into().unwrap());
+                println!("val: {:?}", val);
+
                 self.push_value(val);
                 self.ip += 1;
                 Ok(())
@@ -1522,7 +1524,7 @@ mod tests {
                 (func $main
                     (local $i i32)
                     (i32.const 0)
-                    (i32.const 4)
+                    (i32.const 16)
                     (i32.const 0)
                     (memory.init 0)
                     
@@ -1531,23 +1533,23 @@ mod tests {
                     (i32.const 0)
                     (call $assert_eq)
 
-                    (i32.const 1)
+                    (i32.const 4)
                     (i32.load)
                     (i32.const 1)
                     (call $assert_eq)
 
-                    (i32.const 2)
+                    (i32.const 8)
                     (i32.load)
                     (i32.const 2)
                     (call $assert_eq)
 
-                    (i32.const 3)
+                    (i32.const 12)
                     (i32.load)
                     (i32.const 3)
                     (call $assert_eq)
                 )
                 (memory 1)
-                (data "\00\01\02\03")
+                (data "\00\00\00\00\01\00\00\00\02\00\00\00\03\00\00\00")
                 (start $main)
             )
         "#,
