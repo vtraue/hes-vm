@@ -658,7 +658,7 @@ impl Vm {
                     *frame = f
                 }
 
-                dbg!("internal call");
+                println!("internal call");
 
                 self.ip = internal_function_instance.code_offset;
                 let locals = internal_function_instance.locals.clone();
@@ -686,6 +686,7 @@ impl Vm {
                 Ok(())
             }
             FunctionType::Native(native_function_instance) => {
+                println!("native call");
                 let params: SmallVec<[LocalValue; 16]> = params.collect();
                 (native_function_instance.func)(self, &params)
                     .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
@@ -1129,8 +1130,9 @@ fn debug_print_u32(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
 }
 
 fn debug_print_string(vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
-    let ptr = params[0].u32();
-    let count = params[1].u32();
+    println!("blub!");
+    let ptr = params[1].u32();
+    let count = params[0].u32();
     let data = vm
         .get_bytes_from_mem(ptr as usize, count as usize)
         .map_err(|_| 1_usize)?;
@@ -1152,7 +1154,7 @@ pub fn make_test_env() -> Modules<'static> {
         "dbg_print_u32",
         ExternalFunction {
             handler: debug_print_u32,
-            params: vec![ValueType::I32, ValueType::I32],
+            params: vec![ValueType::I32],
             result: vec![],
         },
     );
@@ -1160,7 +1162,7 @@ pub fn make_test_env() -> Modules<'static> {
         "dbg_print_string",
         ExternalFunction {
             handler: debug_print_string,
-            params: vec![ValueType::I32],
+            params: vec![ValueType::I32, ValueType::I32],
             result: vec![],
         },
     );
