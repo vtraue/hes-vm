@@ -864,16 +864,16 @@ impl Vm {
             Op::I64Load(memarg) => self.i64_load(*memarg)?,
             Op::F32Load(memarg) => self.f32_load(*memarg)?,
             Op::F64Load(memarg) => self.f64_load(*memarg)?,
-            Op::I32Load8s(memarg) => todo!(),
-            Op::I32Load8u(memarg) => todo!(),
-            Op::I32Load16s(memarg) => todo!(),
-            Op::I32Load16u(memarg) => todo!(),
-            Op::I64Load8s(memarg) => todo!(),
-            Op::I64Load8u(memarg) => todo!(),
-            Op::I64Load16s(memarg) => todo!(),
-            Op::I64Load16u(memarg) => todo!(),
-            Op::I64Load32s(memarg) => todo!(),
-            Op::I64Load32u(memarg) => todo!(),
+            Op::I32Load8s(memarg) => self.i32_load8s(*memarg)?,
+            Op::I32Load8u(memarg) => self.i32_load8u(*memarg)?,
+            Op::I32Load16s(memarg) => self.i32_load16s(*memarg)?,
+            Op::I32Load16u(memarg) => self.i32_load16u(*memarg)?,
+            Op::I64Load8s(memarg) => self.i64_load8s(*memarg)?,
+            Op::I64Load8u(memarg) => self.i64_load8u(*memarg)?,
+            Op::I64Load16s(memarg) => self.i64_load16s(*memarg)?,
+            Op::I64Load16u(memarg) => self.i64_load16u(*memarg)?,
+            Op::I64Load32s(memarg) => self.i64_load32s(*memarg)?,
+            Op::I64Load32u(memarg) => self.i64_load32u(*memarg)?,
             Op::I32Store(memarg) => self.i32_store(*memarg)?,
             Op::I64Store(memarg) => self.i64_store(*memarg)?,
             Op::F32Store(memarg) => self.f32_store(*memarg)?,
@@ -1037,13 +1037,13 @@ pub fn run_validation_result(
 }
 
 macro_rules! impl_mem_load {
-    ($fn_name: ident, $t: tt) => {
+    ($fn_name: ident, $storage_type: tt, $target_type: tt) => {
         impl Vm {
             fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
                 debug_assert!(self.mem.as_ref().unwrap().len() > 0);
                 let addr = unsafe { self.pop_value::<i32>() as usize };
                 let addr_start = addr + arg.offset as usize;
-                let range = addr_start..addr_start + std::mem::size_of::<$t>();
+                let range = addr_start..addr_start + std::mem::size_of::<$storage_type>();
                 let buffer = self
                     .mem
                     .as_ref()
@@ -1051,10 +1051,10 @@ macro_rules! impl_mem_load {
                     .get(range)
                     .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
                 println!("data: {:?}", buffer);
-                let val: $t = $t::from_le_bytes(buffer.try_into().unwrap());
+                let val: $storage_type = $storage_type::from_le_bytes(buffer.try_into().unwrap());
                 println!("val: {:?}", val);
-
-                self.push_value(val);
+                let target: $target_type = val.into();
+                self.push_value(target);
                 self.ip += 1;
                 Ok(())
             }
@@ -1062,10 +1062,25 @@ macro_rules! impl_mem_load {
     };
 }
 
-impl_mem_load!(i32_load, u32);
-impl_mem_load!(i64_load, u64);
-impl_mem_load!(f32_load, f32);
-impl_mem_load!(f64_load, f64);
+impl_mem_load!(i32_load, u32, u32);
+impl_mem_load!(i64_load, u64, u64);
+
+impl_mem_load!(i32_load8s, i8, i32);
+impl_mem_load!(i32_load16s, i16, i32);
+
+impl_mem_load!(i32_load8u, u8, u32);
+impl_mem_load!(i32_load16u, u16, u32);
+
+impl_mem_load!(i64_load8s, i8, i64);
+impl_mem_load!(i64_load16s, i16, i64);
+impl_mem_load!(i64_load32s, i32, i64);
+
+impl_mem_load!(i64_load8u, u8, u64);
+impl_mem_load!(i64_load16u, u16, u64);
+impl_mem_load!(i64_load32u, u32, u64);
+
+impl_mem_load!(f32_load, f32, f32);
+impl_mem_load!(f64_load, f64, f64);
 
 macro_rules! impl_mem_store {
     ($fn_name: ident, $t: tt) => {
@@ -1550,6 +1565,60 @@ mod tests {
                 )
                 (memory 1)
                 (data "\00\00\00\00\01\00\00\00\02\00\00\00\03\00\00\00")
+                (start $main)
+            )
+        "#,
+        vec![],
+        vec![]
+    }
+    run_code_expect_result! {
+        load_static_data8,
+        1,
+         r#"
+            (module
+                (func $assert_eq
+                    (param i32 i32)
+                    local.get 0
+                    local.get 1
+                    i32.eq
+                    (if
+                        (then
+                            return
+                        )
+                        (else
+                            unreachable
+                        )
+                    )
+                )
+                (func $main
+                    (local $i i32)
+                    (i32.const 0)
+                    (i32.const 4)
+                    (i32.const 0)
+                    (memory.init 0)
+                    
+                    (i32.const 0)
+                    (i32.load8_u)
+                    (i32.const 0)
+                    (call $assert_eq)
+
+                    (i32.const 1)
+                    (i32.load8_u)
+                    (i32.const 1)
+                    (call $assert_eq)
+
+                    (i32.const 2)
+                    (i32.load8_u)
+                    (i32.const 2)
+                    (call $assert_eq)
+
+                    (i32.const 3)
+                    (i32.load8_u)
+                    (i32.const 3)
+                    (call $assert_eq)
+                )
+                (memory 1)
+                (data "\00\01\02\03")
                 (start $main)
             )
         "#,
