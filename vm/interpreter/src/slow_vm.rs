@@ -878,11 +878,11 @@ impl Vm {
             Op::I64Store(memarg) => self.i64_store(*memarg)?,
             Op::F32Store(memarg) => self.f32_store(*memarg)?,
             Op::F64Store(memarg) => self.f64_store(*memarg)?,
-            Op::I32Store8(memarg) => todo!(),
-            Op::I32Store16(memarg) => todo!(),
-            Op::I64Store8(memarg) => todo!(),
-            Op::I64Store16(memarg) => todo!(),
-            Op::I64Store32(memarg) => todo!(),
+            Op::I32Store8(memarg) => self.i32_store8(*memarg)?,
+            Op::I32Store16(memarg) => self.i32_store16(*memarg)?,
+            Op::I64Store8(memarg) => self.i64_store8(*memarg)?,
+            Op::I64Store16(memarg) => self.i64_store16(*memarg)?,
+            Op::I64Store32(memarg) => self.i64_store32(*memarg)?,
             Op::I32Const(val) => self.exec_push(val.clone()),
             Op::I64Const(val) => self.exec_push(val.clone()),
             Op::F32Const(val) => self.exec_push(val.clone()),
@@ -1083,14 +1083,15 @@ impl_mem_load!(f32_load, f32, f32);
 impl_mem_load!(f64_load, f64, f64);
 
 macro_rules! impl_mem_store {
-    ($fn_name: ident, $t: tt) => {
+    ($fn_name: ident, $pop_type: tt, $real_type: tt) => {
         impl Vm {
             pub fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-                let data = unsafe { self.pop_value::<$t>() };
+                let data = unsafe { self.pop_value::<$pop_type>() as $real_type };
                 let data_buffer = data.to_le_bytes();
+
                 let addr = unsafe { self.pop_value::<u32>() as usize };
                 let addr_start = addr + arg.offset as usize;
-                let range = addr_start..addr_start + std::mem::size_of::<$t>();
+                let range = addr_start..addr_start + std::mem::size_of::<$real_type>();
 
                 self.mem
                     .as_mut()
@@ -1105,10 +1106,17 @@ macro_rules! impl_mem_store {
     };
 }
 
-impl_mem_store!(i32_store, u32);
-impl_mem_store!(i64_store, u64);
-impl_mem_store!(f32_store, f32);
-impl_mem_store!(f64_store, f64);
+impl_mem_store!(i32_store, u32, u32);
+
+impl_mem_store!(i32_store8, u32, u8);
+impl_mem_store!(i32_store16, u32, u16);
+impl_mem_store!(i64_store, u64, u64);
+impl_mem_store!(i64_store8, u64, u8);
+impl_mem_store!(i64_store16, u64, u16);
+impl_mem_store!(i64_store32, u64, u32);
+impl_mem_store!(f32_store, f32, f32);
+impl_mem_store!(f64_store, f64, f64);
+
 fn debug_env_always_fails(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
     let ret_nr = params[0].u32();
     Err(ret_nr as usize)
@@ -1619,6 +1627,117 @@ mod tests {
                 )
                 (memory 1)
                 (data "\00\01\02\03")
+                (start $main)
+            )
+        "#,
+        vec![],
+        vec![]
+    }
+    run_code_expect_result! {
+        load_static8_2,
+        1,
+         r#"
+            (module
+                (func $assert_eq
+                    (param i32 i32)
+                    local.get 0
+                    local.get 1
+                    i32.eq
+                    (if
+                        (then
+                            return
+                        )
+                        (else
+                            unreachable
+                        )
+                    )
+                )
+                (func $main
+                    (local $i i32)
+                    (i32.const 0)
+                    (i32.const 4)
+                    (i32.const 0)
+                    (memory.init 0)
+                    
+                    (i32.const 0)
+                    (i32.load8_u)
+                    (i32.const 104)
+                    (call $assert_eq)
+
+                    (i32.const 1)
+                    (i32.load8_u)
+                    (i32.const 97)
+                    (call $assert_eq)
+
+                    (i32.const 2)
+                    (i32.load8_u)
+                    (i32.const 108)
+                    (call $assert_eq)
+
+                    (i32.const 3)
+                    (i32.load8_u)
+                    (i32.const 108)
+                    (call $assert_eq)
+                )
+                (memory 1)
+                (data "hallo")
+                (start $main)
+            )
+        "#,
+        vec![],
+        vec![]
+    }
+    run_code_expect_result! {
+        load_store_sizes,
+        1,
+         r#"
+            (module
+                (func $assert_eq
+                    (param i32 i32)
+                    local.get 0
+                    local.get 1
+                    i32.eq
+                    (if
+                        (then
+                            return
+                        )
+                        (else
+                            unreachable
+                        )
+                    )
+                )
+                (func $main
+                    (local $i i32)
+
+                    (i32.const 0)
+                    (i32.const 100)
+                    (i32.store8)
+
+                    (i32.const 1)
+                    (i32.const 100)
+                    (i32.store8)
+
+                    (i32.const 0)
+                    (i32.load16_u)
+                    (i32.const 25700)
+                    (call $assert_eq)
+
+                    (i32.const 2)
+                    (i32.const 50)
+                    (i32.store8)
+
+                    (i32.const 3)
+                    (i32.const 50)
+                    (i32.store8)
+
+                    (i32.const 0)
+                    (i32.load)
+                    (i32.const 842163300)
+                    (call $assert_eq)
+                    
+                )
+                (memory 1)
+                (data "hallo")
                 (start $main)
             )
         "#,
