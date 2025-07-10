@@ -1,8 +1,9 @@
-use core::error;
+use std::ops::DerefMut;
+
+use std::slice;
 use std::{
     collections::HashMap,
-    fmt::{Debug, Display, write},
-    ops::Range,
+    fmt::{Debug, Display},
 };
 use thiserror::Error;
 
@@ -13,9 +14,7 @@ use parser::{
     reader::{Bytecode, BytecodeReader, ValueType},
 };
 use smallvec::SmallVec;
-use validator::validator::{
-    JumpTableEntry, ReadAndValidateError, ValidateResult, read_and_validate, read_and_validate_wat,
-};
+use validator::validator::{ReadAndValidateError, ValidateResult};
 
 use crate::{
     env::{
@@ -460,6 +459,7 @@ impl Vm {
         let types = bytecode
             .iter_types()
             .map(|i| i.map_into::<Type>().collect());
+
         Ok(Self {
             types,
             ip: 0,
@@ -801,8 +801,35 @@ impl Vm {
             self.ip += 1;
         }
     }
+    pub fn exec_memory_init(
+        &mut self,
+        bytecode: &Bytecode,
+        data_id: usize,
+    ) -> Result<(), RuntimeError> {
+        let data_info = bytecode.get_data(data_id).unwrap();
+        assert!(data_info.is_passive());
+        let source = unsafe { self.pop_i32() } as usize;
+        let size = unsafe { self.pop_i32() } as usize;
+        let dest = unsafe { self.pop_i32() } as usize;
+        let mem = self.mem.as_mut().unwrap();
+        let src = data_info.get_data();
+        let src_region_size = (source + size);
+        let dst_region_size = (dest + size) as usize;
+        println!("data: {:?}", data_info.get_data());
+        println!("src region: {}, src len: {}", src_region_size, src.len());
+        println!("dst region: {}, dst len: {}", dst_region_size, mem.len());
+        if src_region_size > src.len() || dst_region_size >= mem.len() {
+            return Err(RuntimeError::MemoryAddressOutOfScope);
+        };
+        let dst_region = &mut mem[dest..dst_region_size];
+        let src_region = &data_info.get_data()[source..src_region_size];
+        dst_region.clone_from_slice(src_region);
+        self.ip += 1;
+        println!("memory now: {:?}", dst_region);
+        Ok(())
+    }
 
-    pub fn exec_op(&mut self) -> Result<bool, RuntimeError> {
+    pub fn exec_op(&mut self, bytecode: &Bytecode) -> Result<bool, RuntimeError> {
         match self.fetch_instruction() {
             Op::Unreachable => {
                 dbg!("Unreachable reached");
@@ -910,6 +937,7 @@ impl Vm {
             Op::I64Shl => self.exec_binop_push(|a: u64, b: u64| a << b),
             Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),
             Op::I64Shru => self.exec_binop_push(|a: u64, b: u64| a >> b),
+            Op::MemoryInit { data_id, extra } => self.exec_memory_init(bytecode, *data_id)?,
             Op::I64Rotl => todo!(),
             Op::I64Rotr => todo!(),
             Op::MemoryCopy => todo!(),
@@ -926,13 +954,12 @@ impl Vm {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), RuntimeError> {
+    pub fn run(&mut self, bytecode: &Bytecode) -> Result<(), RuntimeError> {
         if self.func_id.is_none() {
             Err(RuntimeError::NoFunctionToExecute)
         } else {
             loop {
-                println!("blub");
-                let end = self.exec_op()?;
+                let end = self.exec_op(bytecode)?;
                 if end {
                     break;
                 }
@@ -953,12 +980,13 @@ impl Vm {
 
     pub fn run_func(
         &mut self,
+        bytecode: &Bytecode,
         info: &BytecodeInfo,
         func_id: usize,
         params: impl IntoIterator<Item = LocalValue>,
     ) -> Result<Vec<LocalValue>, RuntimeError> {
         self.enter_function(func_id, params.into_iter())?;
-        self.run()?;
+        self.run(bytecode)?;
         let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
         let res = self.stack_to_local_vals(func_t.results.iter().cloned());
         assert!(res.len() == func_t.results.len());
@@ -1001,7 +1029,7 @@ pub fn run_validation_result(
 ) -> Result<ExecutionResult, ExecutionError> {
     let mut vm = Vm::init(&res.bytecode, &res.info, env)?;
     vm.enter_start_function()?;
-    vm.run()?;
+    vm.run(&res.bytecode)?;
     Ok(ExecutionResult {
         validation_result: res,
         exec: vm,
@@ -1013,18 +1041,17 @@ macro_rules! impl_mem_load {
         impl Vm {
             fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
                 debug_assert!(self.mem.as_ref().unwrap().len() > 0);
-                let addr = unsafe { self.pop_value::<u32>() as usize };
+                let addr = unsafe { self.pop_value::<i32>() as usize };
                 let addr_start = addr + arg.offset as usize;
-                let range = addr_start..addr + std::mem::size_of::<$t>();
-                let val: $t = $t::from_le_bytes(
-                    self.mem
-                        .as_ref()
-                        .unwrap()
-                        .get(range)
-                        .ok_or(RuntimeError::MemoryAddressOutOfScope)?
-                        .try_into()
-                        .unwrap(),
-                );
+                let range = addr_start..addr_start + std::mem::size_of::<$t>();
+                let buffer = self
+                    .mem
+                    .as_ref()
+                    .unwrap()
+                    .get(range)
+                    .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
+                println!("data: {:?}", buffer);
+                let val: $t = $t::from_le_bytes(buffer.try_into().unwrap());
                 self.push_value(val);
                 self.ip += 1;
                 Ok(())
@@ -1145,7 +1172,9 @@ mod tests {
                 let res = read_and_validate_wat(src).unwrap();
 
                 let mut vm = Vm::init_from_validation_result(&res, make_test_env()).unwrap();
-                let results = vm.run_func(&res.info, $func_id, $params).unwrap();
+                let results = vm
+                    .run_func(&res.bytecode, &res.info, $func_id, $params)
+                    .unwrap();
                 println!("results: {:?}", results);
                 assert!(results == $expecting);
                 Ok(())
@@ -1160,7 +1189,9 @@ mod tests {
                 let res = read_and_validate_wat(src).unwrap();
 
                 let mut vm = Vm::init_from_validation_result(&res, make_test_env()).unwrap();
-                let result = vm.run_func(&res.info, $func_id, $params).unwrap_err();
+                let result = vm
+                    .run_func(&res.bytecode, &res.info, $func_id, $params)
+                    .unwrap_err();
                 assert!(matches!(result, $expecting));
                 Ok(())
             }
@@ -1469,27 +1500,58 @@ mod tests {
         vec![],
         vec![]
     }
-    // run_code_expect_result! {
-    //     load_static_data,
-    //     0,
-    //      r#"
-    //         (module
-    //             (func $assert_eq (param i32 i32)
-    //                 local.get 0
-    //                 local.get 1
-    //                 i32.eq
-    //                 (if
-    //                 )
-    //             )
-    //             (func $main
-    //                 (result i32)
-    //                 (local $i i32)
+    run_code_expect_result! {
+        load_static_data,
+        1,
+         r#"
+            (module
+                (func $assert_eq
+                    (param i32 i32)
+                    local.get 0
+                    local.get 1
+                    i32.eq
+                    (if
+                        (then
+                            return
+                        )
+                        (else
+                            unreachable
+                        )
+                    )
+                )
+                (func $main
+                    (local $i i32)
+                    (i32.const 0)
+                    (i32.const 4)
+                    (i32.const 0)
+                    (memory.init 0)
+                    
+                    (i32.const 0)
+                    (i32.load)
+                    (i32.const 0)
+                    (call $assert_eq)
 
-    //             )
-    //             (data (i32.const 0) "\0\1\2\3")
-    //             (start $main)
-    //         )
-    //     "#,
+                    (i32.const 1)
+                    (i32.load)
+                    (i32.const 1)
+                    (call $assert_eq)
 
-    // }
+                    (i32.const 2)
+                    (i32.load)
+                    (i32.const 2)
+                    (call $assert_eq)
+
+                    (i32.const 3)
+                    (i32.load)
+                    (i32.const 3)
+                    (call $assert_eq)
+                )
+                (memory 1)
+                (data "\00\01\02\03")
+                (start $main)
+            )
+        "#,
+        vec![],
+        vec![]
+    }
 }

@@ -715,10 +715,21 @@ impl Data {
             data: buffer,
         })
     }
+    pub fn is_passive(&self) -> bool {
+        matches!(self, Data::Passive(_))
+    }
+
+    pub fn get_data<'a>(&'a self) -> &'a [u8] {
+        match self {
+            Self::Active { data, .. } => data.data.as_slice(),
+            Self::Passive(data) => data.data.as_slice(),
+        }
+    }
 }
 
 impl FromBytecode for Data {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        println!("Reading data");
         match reader.parse::<u32>()? {
             0 => Data::parse_active(reader, 0),
             1 => Ok(Self::Passive(parse_data_with_pos(reader)?)),
@@ -730,7 +741,6 @@ impl FromBytecode for Data {
         }
     }
 }
-
 #[derive(Debug, Clone)]
 pub struct Expression {
     data: Vec<WithPosition<Op>>,
@@ -840,9 +850,9 @@ pub enum SectionId {
     Global = 6,
     Export = 7,
     Start = 8,
-    DataCount = 9,
     Code = 10,
     Data = 11,
+    DataCount = 12,
 }
 
 pub type Types = Vec<WithPosition<Type>>;
@@ -867,9 +877,9 @@ pub enum SectionData {
     Global(Globals),
     Export(Exports),
     Start(Start),
-    DataCount(DataCount),
     Code(Code),
     Data(ModuleData),
+    DataCount(DataCount),
 }
 macro_rules! impl_match_sec_data {
     ($reader:ident, $id:ident, $($case:literal => $section_type:path), + $(,)?) => {
@@ -896,6 +906,7 @@ impl SectionData {
             0x09 => Self::DataCount,
             0x0A => Self::Code,
             0x0B => Self::Data,
+            0x0C => Self::DataCount,
         }
     }
 }

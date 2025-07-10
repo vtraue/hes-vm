@@ -171,7 +171,7 @@ pub enum Op {
 
     MemoryCopy,
     MemoryFill,
-    //TODO: (joh): Float ops
+    MemoryInit { data_id: usize, extra: usize }, //TODO: (joh): Float ops
 }
 
 impl Op {
@@ -217,6 +217,17 @@ impl Op {
             _ => None,
         }
     }
+}
+pub fn read_fc_op(reader: &mut impl BytecodeReader) -> Result<Op, ParserError> {
+    let opcode = reader.read_u8()?;
+    let instr = match opcode {
+        0x08 => Op::MemoryInit {
+            data_id: reader.parse()?,
+            extra: reader.parse()?,
+        },
+        _ => todo!(),
+    };
+    Ok(instr)
 }
 
 impl FromBytecode for Op {
@@ -338,7 +349,7 @@ impl FromBytecode for Op {
             0x8A => Op::I64Rotl,
             0x8B => Op::I64Rotr,
 
-            0xFC => todo!(), //Memory
+            0xFC => read_fc_op(reader)?, //Memory
             //
             _ => panic!("Unimplemented Opcode {:0X}", opcode),
         };
@@ -450,6 +461,9 @@ impl fmt::Display for Op {
             Op::I64Shru => write!(f, "i64.shru"),
             Op::I64Rotl => write!(f, "i64.rotl"),
             Op::I64Rotr => write!(f, "i64.rotr"),
+            Op::MemoryInit { data_id, .. } => {
+                write!(f, "memory.init {data_id}")
+            }
         }
     }
 }

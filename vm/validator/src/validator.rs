@@ -59,6 +59,15 @@ pub enum ValidationError {
     InvalidFunctionId(usize),
     #[error("Invalid jump target: {0}")]
     InvalidJump(usize),
+
+    #[error("Unexpected no data defined in module")]
+    UnexpectedNoData,
+
+    #[error("Invalid data ID: {0}")]
+    InvalidDataId(usize),
+
+    #[error("Trying to init active data section: {0}")]
+    InitActiveDataId(usize),
 }
 
 impl ValueStackType {
@@ -695,7 +704,33 @@ impl ValidatorContext {
         t.iter_results().for_each(|t| self.push(t));
         Ok(())
     }
+    pub fn validate_memory_init(
+        &mut self,
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+        data_id: usize,
+    ) -> Result<(), ValidationError> {
+        if !info.has_memory() {
+            Err(ValidationError::UnexpectedNoMemories)
+        } else {
+            let is_passive = bytecode
+                .data
+                .as_ref()
+                .ok_or(ValidationError::UnexpectedNoData)?
+                .data
+                .get(data_id)
+                .ok_or(ValidationError::InvalidDataId(data_id))?
+                .data
+                .is_passive();
 
+            if !is_passive {
+                Err(ValidationError::InitActiveDataId(data_id))
+            } else {
+                validate_types!(self, [ValueType::I32, ValueType::I32, ValueType::I32] => []);
+                Ok(())
+            }
+        }
+    }
     pub fn validate_op(
         &mut self,
         bytecode: &Bytecode,
@@ -808,6 +843,7 @@ impl ValidatorContext {
             | Op::I64Rotr => self.validate_binop(I64)?,
             Op::MemoryCopy => todo!(),
             Op::MemoryFill => todo!(),
+            Op::MemoryInit { data_id, .. } => self.validate_memory_init(bytecode, info, data_id)?,
         };
         self.ip += 1;
         Ok(())
