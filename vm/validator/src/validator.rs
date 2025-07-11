@@ -28,7 +28,7 @@ pub enum ValidationError {
         got: ValueStackType,
         expected: ValueStackType,
     },
-    #[error("Stack is not balaned. Expected size {expected}, got:  {got}")]
+    #[error("Stack is not balanced. Expected size {expected}, got:  {got}")]
     UnbalancedStack { got: usize, expected: usize },
 
     #[error("Label out of scope: Maximum depth: {max}, got {got}")]
@@ -163,6 +163,7 @@ pub fn pop_type(
     unreachable: bool,
 ) -> Result<ValueStackType, ValidationError> {
     if frame_stack_len == stack.len() {
+        println!("blubbi!");
         if unreachable {
             Ok(ValueStackType::Unknown)
         } else {
@@ -170,7 +171,7 @@ pub fn pop_type(
         }
     } else {
         let val = stack.pop().ok_or(ValidationError::TypeStackUnderflow)?;
-        println!("Popping: {}", val);
+        println!("popping {}", val);
         Ok(val)
     }
 }
@@ -198,20 +199,22 @@ pub fn pop_values(
     unreachable: bool,
     expected: impl Iterator<Item = impl Into<ValueStackType>>,
 ) -> Result<(), ValidationError> {
+    println!("unreachable: {unreachable}");
     for val in expected {
         pop_type_expect(stack, frame_stack_len, unreachable, val)?;
     }
     Ok(())
 }
 pub fn push_type(stack: &mut Vec<ValueStackType>, val: impl Into<ValueStackType>) {
-    stack.push(val.into())
+    let val = val.into();
+    println!("Pushing: {}", val);
+    stack.push(val)
 }
 
 pub fn push_all(
     stack: &mut Vec<ValueStackType>,
     values: impl IntoIterator<Item = impl Into<ValueStackType>> + Debug,
 ) {
-    println!("Pushing: {:?}", values);
     stack.extend(values.into_iter().map_into());
 }
 
@@ -311,7 +314,6 @@ impl ValidatorContext {
     }
 
     pub fn push(&mut self, t: impl Into<ValueStackType> + Display) {
-        println!("Pushing: {t}");
         self.type_stack.push(t.into());
     }
 
@@ -350,10 +352,7 @@ impl ValidatorContext {
         let current_ctrl = last_ctrl(&self.ctrl_stack)?;
         let start_height = current_ctrl.prev_stack_len;
         pop_out_values(&mut self.type_stack, current_ctrl)?;
-        println!("Popping ctrl to start height: {}", start_height);
-
         if self.type_stack.len() != start_height {
-            println!("Type stack: {:?}", self.type_stack);
             Err(ValidationError::UnbalancedStack {
                 got: self.type_stack.len(),
                 expected: start_height,
@@ -365,7 +364,7 @@ impl ValidatorContext {
 
     pub fn get_current_frame_mut(&mut self) -> Result<&mut CtrlFrame, ValidationError> {
         self.ctrl_stack
-            .get_mut(0)
+            .last_mut()
             .ok_or(ValidationError::UnexpetedEmptyControlStack)
     }
 
@@ -541,7 +540,7 @@ impl ValidatorContext {
         let (in_types, out_types) = match blocktype {
             Blocktype::Empty => (Vec::new(), Vec::new()),
             Blocktype::Value(value_type) => {
-                self.push(value_type);
+                //self.push(value_type);
                 (Vec::new(), vec![value_type.clone()])
             }
             Blocktype::TypeIndex(id) => {
@@ -664,7 +663,6 @@ impl ValidatorContext {
         //TODO: ???
         self.pop_label_types(n)?;
         self.push_break_jte(n)?;
-        self.push_label_types(n)?;
         self.set_unreachable()?;
         Ok(())
     }
@@ -677,15 +675,8 @@ impl ValidatorContext {
         Ok(())
     }
 
-    pub fn validate_return(
-        &mut self,
-        bytecode: &Bytecode,
-        info: &BytecodeInfo,
-    ) -> Result<(), ValidationError> {
-        let func = info.functions.get(self.func_id).unwrap();
-        let t = bytecode
-            .get_type(func.type_id)
-            .ok_or(ValidationError::InvalidFunctionTypeId(func.type_id))?;
+    pub fn validate_return(&mut self, t: &Type) -> Result<(), ValidationError> {
+        println!("func return t: {}", t);
         t.iter_results().try_for_each(|t| self.pop(t))?;
         self.set_unreachable()
     }
@@ -737,6 +728,7 @@ impl ValidatorContext {
     pub fn validate_op(
         &mut self,
         bytecode: &Bytecode,
+        t: &Type,
         info: &BytecodeInfo,
         op: WithPosition<Op>,
     ) -> Result<(), ValidationError> {
@@ -756,7 +748,7 @@ impl ValidatorContext {
             Op::End => self.validate_end()?,
             Op::Br { label, .. } => self.validate_br(label)?,
             Op::BrIf { label, .. } => self.validate_br_if(label)?,
-            Op::Return => self.validate_return(bytecode, info)?,
+            Op::Return => self.validate_return(t)?,
             Op::Call(id) => self.validate_call(bytecode, info, id)?,
             Op::CallIndirect { .. } => todo!(),
             Op::Select(value_type) => self.validate_select(value_type)?,
@@ -849,6 +841,7 @@ impl ValidatorContext {
             Op::MemoryInit { data_id, .. } => self.validate_memory_init(bytecode, info, data_id)?,
         };
         self.ip += 1;
+        println!("Stack now: {:?}", self.type_stack);
         Ok(())
     }
     pub fn set_locals_from_func_t(&mut self, t: &Type, code: &Function) {
@@ -868,11 +861,13 @@ impl ValidatorContext {
     ) -> Result<Vec<JumpTableEntry>, ValidationError> {
         self.set_locals_from_func_t(t, code);
 
-        let results = t.iter_results().cloned().collect();
+        let results = t.iter_results().cloned().collect::<Vec<_>>();
 
+        println!("=====Validating func with t: {}=====", t);
+        println!("out_count: {}", results.len());
         self.push_ctrl(None, Vec::new(), results);
         code.iter_ops()
-            .try_for_each(|op| self.validate_op(bytecode, info, op))?;
+            .try_for_each(|op| self.validate_op(bytecode, t, info, op))?;
         Ok(self.jump_table)
     }
 
@@ -890,6 +885,7 @@ impl ValidatorContext {
                     ..Default::default()
                 };
                 let t = bytecode.get_type(func.type_id).unwrap();
+                println!("validating function type: {}", t);
                 validator.validate_code(bytecode, info, t, code)
             }
             FunctionType::Imported { .. } => Ok(Vec::new()),
@@ -1233,7 +1229,6 @@ mod tests {
         let code = read_and_validate_wat(src)?;
         let func = code.bytecode.get_code(0).unwrap();
         let after_block = func.get_op_after(6).unwrap();
-        println!("after: {}", after_block.0);
         assert!(matches!(after_block.0, Op::End));
         Ok(())
     }
@@ -1294,7 +1289,6 @@ mod tests {
         let func = code.bytecode.get_code(0).unwrap();
         let after_if_op = func.get_op_after(1).unwrap();
         let after_end_op = func.get_op(after_if_op.1 as usize + 1).unwrap();
-        println!("after if: {}", after_if_op.0);
         assert!(matches!(after_if_op.0, Op::End));
         assert!(matches!(after_end_op, Op::I32Const(100)));
         Ok(())
@@ -1321,8 +1315,6 @@ mod tests {
         let func = code.bytecode.get_code(0).unwrap();
         let jmp1 = func.get_op_after_offset(2, 0).unwrap();
         let jmp2 = func.get_op_after_offset(6, 0).unwrap();
-        println!("jmp1: {}", jmp1.0);
-        println!("jmp1: {}", jmp2.0);
 
         assert!(matches!(jmp1.0, Op::Loop(_)));
         assert!(matches!(jmp2.0, Op::Loop(_)));

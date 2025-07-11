@@ -105,7 +105,7 @@ impl BytecodeInfo {
                 imports
                     .functions
                     .iter()
-                    .map(|(id, t_id)| Function::new_imported(*id, *t_id)),
+                    .map(|(id, t_id)| Function::new_imported(*t_id, *id)),
             );
 
             info.globals.extend(

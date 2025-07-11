@@ -30,7 +30,6 @@ pub fn read_and_validate_file(file: &mut impl BytecodeReader) -> Result<Validate
         let mut code = String::new();
         file.read_to_string(&mut code)
             .context("Unable to read wat source code")?;
-        eprintln!("{}", code);
         read_and_validate_wat(code).context("Error while reading")
     }
 }

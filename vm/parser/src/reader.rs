@@ -263,7 +263,6 @@ pub fn iter_expr<R: BytecodeReader>(
             let op = reader.parse::<WithPosition<Op>>();
             Some(op.inspect(|op| {
                 let (new_depth, should_cont) = op.data.continues(*depth);
-                println!("OP: {:?}", op);
                 *depth = new_depth;
                 *cont = should_cont;
             }))
@@ -1056,7 +1055,6 @@ impl FromBytecode for Bytecode {
         for section in iter_sections(reader) {
             let section = section?;
             let section_data = section.data;
-            println!("SECTION:\n {:?}", section_data);
             let pos = section.position;
             match section_data.data.data {
                 SectionDataOrCustom::Section(section_data) => {
