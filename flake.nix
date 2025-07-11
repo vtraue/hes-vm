@@ -46,6 +46,7 @@
 						wasm-tools
             clang-tools            
             llvmPackages_latest.clang.cc
+            lld
           ];
 
           env = {

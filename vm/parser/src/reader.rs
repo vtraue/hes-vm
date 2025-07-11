@@ -145,6 +145,14 @@ impl<T> WithPosition<T> {
     pub fn as_ref(&self) -> WithPosition<&T> {
         WithPosition::new(&self.data, self.position.clone())
     }
+    pub fn inner_ref(&self) -> &T {
+        &self.data
+    }
+}
+pub fn iter_without_position<T>(
+    iter: impl Iterator<Item = WithPosition<T>>,
+) -> impl Iterator<Item = T> {
+    iter.map(|p| p.data)
 }
 
 impl<T: FromBytecode> FromBytecode for WithPosition<T> {

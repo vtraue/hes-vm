@@ -1,5 +1,6 @@
 use std::ops::DerefMut;
 
+use parser::reader::{Data, iter_without_position};
 use std::slice;
 use std::{
     collections::HashMap,
@@ -449,9 +450,23 @@ impl Vm {
         info.inital_mem_size_pages().map(|s| vec![0; s])
     }
 
+    fn copy_active_mem_section(
+        mem: &mut [u8],
+        init_expr: impl Iterator<Item = Op>,
+        data: &[u8],
+    ) -> Result<(), InstanceError> {
+        let offset = Self::run_const_expr(init_expr)?;
+        assert!(offset.len() == 1);
+        let offset = offset[0].u32() as usize;
+        assert!(data.len() <= mem.len());
+
+        mem[offset..offset + data.len()].copy_from_slice(data);
+        Ok(())
+    }
+
     fn init(bytecode: &Bytecode, info: &BytecodeInfo, env: Modules) -> Result<Self, InstanceError> {
         let code = Code::from_module(bytecode, info, &env)?;
-        let mem = Self::make_memory(bytecode, info);
+        let mut mem = Self::make_memory(bytecode, info);
         let locals = Vec::new();
         let start_func_id = bytecode.start.as_ref().map(|i| i.data as usize);
         let value_stack = Vec::with_capacity(20);
@@ -460,6 +475,24 @@ impl Vm {
             .iter_types()
             .map(|i| i.map_into::<Type>().collect());
 
+        if let Some(data) = bytecode.iter_data()
+            && let Some(ref mut mem) = mem
+        {
+            data.filter_map(|d| {
+                if let Data::Active { expr, data, .. } = d {
+                    Some((expr, data))
+                } else {
+                    None
+                }
+            })
+            .try_for_each(|(expr, data)| {
+                Self::copy_active_mem_section(
+                    mem.as_mut_slice(),
+                    expr.data.iter().map(|p| p.data),
+                    &data.data,
+                )
+            })?;
+        };
         Ok(Self {
             types,
             ip: 0,
