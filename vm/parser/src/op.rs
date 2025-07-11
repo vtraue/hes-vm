@@ -15,17 +15,20 @@ pub enum Blocktype {
 
 impl FromBytecode for Blocktype {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        let value = Leb::read_s33(reader)?;
-        if value > 0 {
-            Ok(Self::TypeIndex(value.try_into().unwrap()))
-        } else {
-            //NOTE: (joh) Hmmm...
-            let b: u8 = (value * -1) as u8;
-            match value * -1 {
-                0x40 => Ok(Self::Empty),
-                0x6F..=0x7F => Ok(Self::Value(b.try_into()?)),
-                _ => Err(ParserError::InvalidBlocktype(value)),
+        let b = reader.read_i8()?;
+        println!("b: {:x?}", b);
+        match b {
+            0x40 => Ok(Self::Empty),
+            b if b > 0 => {
+                //TODO: Finde eine huebschere Loesung!
+                reader.seek(std::io::SeekFrom::Current(-1))?;
+                let value = Leb::read_u32(reader)?;
+                println!("value: {:x?}", value);
+
+                Ok(Self::TypeIndex(value.try_into().unwrap()))
             }
+            0x6F..=0x7F => Ok(Self::Value(b.try_into()?)),
+            _ => Err(ParserError::InvalidBlocktype),
         }
     }
 }

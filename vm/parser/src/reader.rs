@@ -50,8 +50,8 @@ pub enum ParserError {
     #[error("Invalid bool encoding. Expected: 0x60 got: {0}")]
     InvalidBool(u8),
 
-    #[error("Invalid blocktype encoding: Got {0}")]
-    InvalidBlocktype(i64),
+    #[error("Invalid blocktype encoding")]
+    InvalidBlocktype,
 
     #[error("Invalid limits encoding: Got {0}, expected either 0x00 or 0x01")]
     InvalidLimitsEncoding(u8),
@@ -263,6 +263,7 @@ pub fn iter_expr<R: BytecodeReader>(
             let op = reader.parse::<WithPosition<Op>>();
             Some(op.inspect(|op| {
                 let (new_depth, should_cont) = op.data.continues(*depth);
+                println!("OP: {:?}", op);
                 *depth = new_depth;
                 *cont = should_cont;
             }))

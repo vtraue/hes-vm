@@ -384,7 +384,10 @@ impl ValidatorContext {
         validate_types!(self, [val_type, val_type] => [ValueType::I32]);
         Ok(())
     }
-
+    pub fn validate_testop(&mut self, val_type: ValueType) -> Result<(), ValidationError> {
+        validate_types!(self, [val_type] => [ValueType::I32]);
+        Ok(())
+    }
     pub fn check_memarg(
         &self,
         info: &BytecodeInfo,
@@ -789,8 +792,8 @@ impl ValidatorContext {
             Op::I64Const(_) => self.push(I64),
             Op::F32Const(_) => self.push(F32),
             Op::F64Const(_) => self.push(F64),
-            Op::I32Eqz
-            | Op::I32Eq
+            Op::I32Eqz => self.validate_testop(I32)?,
+            Op::I32Eq
             | Op::I32Ne
             | Op::I32Lts
             | Op::I32Ltu
@@ -800,8 +803,8 @@ impl ValidatorContext {
             | Op::I32Les
             | Op::I32Ges
             | Op::I32Geu => self.validate_relop(I32)?,
-            Op::I64Eqz
-            | Op::I64Eq
+            Op::I64Eqz => self.validate_testop(I64)?,
+            Op::I64Eq
             | Op::I64Ne
             | Op::I64Lts
             | Op::I64Ltu
