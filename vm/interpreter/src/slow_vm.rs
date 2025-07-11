@@ -707,7 +707,7 @@ impl Vm {
     }
 
     pub fn exec_call(&mut self, id: usize) -> Result<(), RuntimeError> {
-        dbg!("calling: {id}");
+        println!("calling: {id}");
         let func = &self.code.functions[id];
         let params = &func.t.params.clone(); //TODO: (joh): Ich hasse das
 
@@ -1130,7 +1130,6 @@ fn debug_print_u32(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
 }
 
 fn debug_print_string(vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
-    println!("blub!");
     let ptr = params[1].u32();
     let count = params[0].u32();
     let data = vm

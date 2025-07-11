@@ -183,7 +183,7 @@ where
     let data = read_op(reader)?;
     let end = reader.seek(SeekFrom::Current(0))? as usize;
 
-    let range = start..end - start;
+    let range = start..end;
     Ok(WithPosition::new(data, range))
 }
 

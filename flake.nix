@@ -44,6 +44,8 @@
             cargo-watch
             rust-analyzer
 						wasm-tools
+            clang-tools            
+            llvmPackages_latest.clang.cc
           ];
 
           env = {
