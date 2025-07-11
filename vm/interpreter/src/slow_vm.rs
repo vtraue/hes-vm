@@ -502,16 +502,21 @@ impl Vm {
 
     fn leave_wasm_function(&mut self) -> bool {
         assert!(self.activation_stack.len() > 0);
+        println!("leaving current function");
         let prev = self.activation_stack.pop().unwrap();
         match self.activation_stack.last() {
             Some(frame) => {
+                println!("huh");
                 self.func_id = Some(frame.func_id);
                 self.ip = frame.ip;
                 self.locals.truncate(prev.locals_offset);
                 self.labels.truncate(prev.label_stack_offset);
                 true
             }
-            None => false,
+            None => {
+                println!("Function is over");
+                false
+            }
         }
     }
     pub fn get_local(&self, id: usize) -> LocalValue {
@@ -720,14 +725,14 @@ impl Vm {
         self.enter_function(id, params.iter().cloned())
     }
 
-    pub fn exec_return(&mut self) {
+    pub fn exec_return(&mut self) -> bool {
         let current_frame = self.activation_stack.last().cloned().unwrap();
         let return_values = (0..current_frame.arity)
             .map(|_| self.pop_any())
             .collect::<SmallVec<[StackValue; 4]>>();
         self.value_stack.truncate(current_frame.stack_height);
         self.value_stack.extend(return_values.as_slice());
-        self.leave_wasm_function();
+        self.leave_wasm_function()
     }
 
     pub fn label_from_blocktype(&self, blocktype: &Blocktype) -> Label {
@@ -848,7 +853,12 @@ impl Vm {
             }
             Op::Br { label, jmp } => self.exec_br(*label, *jmp),
             Op::BrIf { label, jmp } => self.exec_br_if(*label, *jmp),
-            Op::Return => self.exec_return(),
+            Op::Return => {
+                if !self.exec_return() {
+                    println!("Done!");
+                    return Ok(true);
+                }
+            }
             Op::Call(c) => self.exec_call(*c)?,
             Op::CallIndirect { table, type_id } => todo!(),
             Op::Drop => {
