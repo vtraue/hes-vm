@@ -1,5 +1,5 @@
-__attribute__((import_module("env"), import_name("dbg_print_string"))) void print_string(char* ptr, int size);
-__attribute__((import_module("env"), import_name("dbg_print_u32"))) void print_u32(int data);
+__attribute__((import_module("env"), import_name("dbg_print_string"))) void vm_print_string(char* ptr, int size);
+__attribute__((import_module("env"), import_name("dbg_print_u32"))) void vm_print_u32(int data);
 
 typedef int size_t;
 
@@ -24,7 +24,7 @@ size_t cstr_len(const char* str) {
   size_t counter = 0;
   for(;;) {
     if(str[counter] == 0) {
-      print_u32(counter);
+      vm_print_u32(counter);
       return counter;
     }
     counter++;
@@ -37,19 +37,19 @@ typedef struct Str {
 } Str;
 
 void print_numbers(int a, int b, int c) {
-  print_u32(a);
-  print_u32(b);
-  print_u32(c);
+  vm_print_u32(a);
+  vm_print_u32(b);
+  vm_print_u32(c);
 }
 
 void cstr_print(const char* str) {
   size_t l = cstr_len(str);
-  print_string(str, l);
+  vm_print_string(str, l);
 }
 
 Str str_alloc_init(struct Bump_Allocator* alloc, const char* data) {
   size_t l = cstr_len(data);
-  print_u32(l);
+  vm_print_u32(l);
   if(l == 0) {
     cstr_print("Empty!\n");
     Str s = {0, 0};
@@ -72,26 +72,27 @@ Str str_alloc_concat(struct Bump_Allocator* alloc, Str a, Str b) {
 }
 
 void str_print(Str str) {
-  print_string(str.data, str.len);
+  vm_print_string(str.data, str.len);
 }
 
 void str_println(Str str) {
-  print_string(str.data, str.len);
-  print_string("\n", 1);  
+  vm_print_string(str.data, str.len);
+  vm_print_string("\n", 1);  
 }
 
 void run() {
   char mem[1028];
   struct Bump_Allocator alloc = {(void*)mem, 0}; 
-  print_u32(cstr_len("hallo!"));
+  vm_print_u32(cstr_len("hallo!"));
   const char* message = "abc"; 
-  print_u32(cstr_len(message));
+  vm_print_u32(cstr_len(message));
 
   print_numbers(1, 2, 3);
   Str str_a = str_alloc_init(&alloc, "abc");
   Str str_b = str_alloc_init(&alloc, "def\n");
   Str str_c = str_alloc_concat(&alloc, str_a, str_b);
   str_println(str_c);
+   
   //print_u32(str_a.len);
   
 }
