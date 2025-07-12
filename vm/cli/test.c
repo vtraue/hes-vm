@@ -80,6 +80,34 @@ void str_println(Str str) {
   vm_print_string("\n", 1);  
 }
 
+/*
+//methode 1
+void vm_callback_update(char* framebuffer, size_t framebuffer_size) {
+    // Nachteil: Wir brauchen einen Haufen globaler Variablen
+    // und mehr Implementationsaufwand fuer die Studis
+    //zeichen
+  
+}
+
+//methode 2
+void main() {
+  //Nachteil: Studis brauchen eigenen Loop
+  if(vm_should_repaint()) {
+    framebuffer = ...
+    //zeichnen
+    end_paint(framebuffer);
+  }
+
+//methode 3
+void init() {
+  //Speicher initialisieren 
+}
+void run() {
+  paint()
+}
+
+*/
+
 void run() {
   char mem[1028];
   struct Bump_Allocator alloc = {(void*)mem, 0}; 
@@ -94,5 +122,4 @@ void run() {
   str_println(str_c);
    
   //print_u32(str_a.len);
-  
 }

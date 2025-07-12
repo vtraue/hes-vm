@@ -535,7 +535,7 @@ impl Vm {
 
     fn leave_wasm_function(&mut self) -> bool {
         assert!(self.activation_stack.len() > 0);
-        //println!("leaving current function");
+        println!("leaving current function");
         let prev = self.activation_stack.pop().unwrap();
         match self.activation_stack.last() {
             Some(frame) => {
@@ -548,7 +548,7 @@ impl Vm {
                 true
             }
             None => {
-                //println!("Function is over");
+                println!("Function is over");
                 false
             }
         }
@@ -562,7 +562,7 @@ impl Vm {
     }
 
     pub fn push_value(&mut self, val: impl Into<StackValue> + Debug) {
-        //println!("Pushing value: {:?}", val);
+        println!("Pushing value: {:?}", val);
         self.value_stack.push(val.into());
     }
     pub fn pop_any(&mut self) -> StackValue {
@@ -577,7 +577,7 @@ impl Vm {
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
-            //println!("Popping: {:?}", val);
+            println!("Popping: {:?}", val);
             val
         }
     }
@@ -671,6 +671,7 @@ impl Vm {
                 self.leave_wasm_function();
                 false
             } else {
+                println!("Blub");
                 true
             }
         }
@@ -760,6 +761,9 @@ impl Vm {
             .zip(popped)
             .map(|(p, t)| LocalValue::init_from_type_and_val(p, t))
             .collect::<Vec<_>>();
+        self.value_stack
+            .truncate(self.value_stack.len() - params.len());
+
         println!("call params {:?}", params);
         self.enter_function(id, params.iter().cloned())
     }
@@ -1010,6 +1014,7 @@ impl Vm {
         } else {
             loop {
                 let end = self.exec_op(bytecode)?;
+                //println!("stack now: {:?}", self.value_stack);
                 if end {
                     break;
                 }
@@ -1040,6 +1045,7 @@ impl Vm {
         self.run(bytecode)?;
         let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
         let res = self.stack_to_local_vals(func_t.results.iter().cloned());
+        println!("res: {:?}", res);
         assert!(res.len() == func_t.results.len());
         Ok(res)
     }
@@ -1251,7 +1257,7 @@ mod tests {
                 let results = vm
                     .run_func(&res.bytecode, &res.info, $func_id, $params)
                     .unwrap();
-                //println!("results: {:?}", results);
+                println!("results: {:?}", results);
                 assert!(results == $expecting);
                 Ok(())
             }
@@ -1395,36 +1401,28 @@ mod tests {
         2,
         r#"
             (module
-                (func $b (param i32) (result i32)  
-                    local.get 0
-                    i32.const 1
+                (func $a (param i32 i32)(result i32)
+                    (local.get 0)
+                    (local.get 1)
+                    (i32.add)
+                )
+                (func $b (param i32) (result i32)
+                    (local.get 0)
+                )
+                (func $c (result i32)
+                    (i32.const 96)
+                    (i32.const 2)
+                    (call $a)
+                    (call $b)
+                    (i32.const 2)
                     i32.add
+                    (call $b)
                 )
-                (func $c (param i32) (result i32) (local i32) 
-                    local.get 0
-                    i32.const 4
-                    i32.eq
-                    (if
-                        (then
-                            i32.const 99
-                            local.set 1
-                        )
-                    )
-                    local.get 1
-                )
-                (func $a (result i32) 
-                    i32.const 1
-                    i32.const 2
-                    call $b
-                    i32.add
-                    call 1
-                )
-                (start $a)
             )
 
         "#,
         vec![],
-        vec![LocalValue::I32(99)]
+        vec![LocalValue::I32(100)]
     }
 
     run_code_expect_failure! {
