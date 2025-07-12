@@ -47,6 +47,7 @@
             clang-tools            
             llvmPackages_latest.clang.cc
             lld
+            just
           ];
 
           env = {

@@ -529,25 +529,26 @@ impl Vm {
         let new_locals = params.chain(empty_locals);
         let locals_offset = self.locals.len();
         self.locals.extend(new_locals);
-        println!("all locals: {:?}", self.locals);
+        //println!("all locals: {:?}", self.locals);
         locals_offset
     }
 
     fn leave_wasm_function(&mut self) -> bool {
         assert!(self.activation_stack.len() > 0);
-        println!("leaving current function");
+        //println!("leaving current function");
         let prev = self.activation_stack.pop().unwrap();
         match self.activation_stack.last() {
             Some(frame) => {
-                println!("huh");
+                //println!("huh");
                 self.func_id = Some(frame.func_id);
                 self.ip = frame.ip;
                 self.locals.truncate(prev.locals_offset);
                 self.labels.truncate(prev.label_stack_offset);
+                self.local_offset = frame.locals_offset;
                 true
             }
             None => {
-                println!("Function is over");
+                //println!("Function is over");
                 false
             }
         }
@@ -561,11 +562,11 @@ impl Vm {
     }
 
     pub fn push_value(&mut self, val: impl Into<StackValue> + Debug) {
-        println!("Pushing value: {:?}", val);
+        //println!("Pushing value: {:?}", val);
         self.value_stack.push(val.into());
     }
     pub fn pop_any(&mut self) -> StackValue {
-        println!("pop any");
+        //println!("pop any");
         self.value_stack.pop().unwrap()
     }
 
@@ -576,7 +577,7 @@ impl Vm {
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
-            println!("Popping: {:?}", val);
+            //println!("Popping: {:?}", val);
             val
         }
     }
@@ -584,7 +585,7 @@ impl Vm {
     #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
-        println!("fetching: {:?}", op);
+        //println!("fetching: {:?}", op);
         op
     }
 
@@ -611,7 +612,7 @@ impl Vm {
         let local_val = &mut self.locals[self.local_offset + id];
 
         unsafe { local_val.set_inner_from_stack_val(val) };
-        dbg!("local set: {:?}", local_val);
+        //dbg!("local set: {:?}", local_val);
         self.ip += 1;
     }
     pub fn exec_global_set(&mut self, id: usize) {
@@ -661,7 +662,7 @@ impl Vm {
 
     pub fn exec_end(&mut self) -> bool {
         if self.labels.len() > 0 {
-            dbg!("popping label");
+            //dbg!("popping label");
             self.labels.pop();
             self.ip += 1;
             false
@@ -696,7 +697,7 @@ impl Vm {
                     *frame = f
                 }
 
-                println!("internal call");
+                //println!("internal call");
 
                 self.ip = internal_function_instance.code_offset;
                 let locals = internal_function_instance.locals.clone();
@@ -724,7 +725,7 @@ impl Vm {
                 Ok(())
             }
             FunctionType::Native(native_function_instance) => {
-                println!("native call");
+                //println!("native call");
                 let params: SmallVec<[LocalValue; 16]> = params.collect();
                 (native_function_instance.func)(self, &params)
                     .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
@@ -749,10 +750,15 @@ impl Vm {
         let func = &self.code.functions[id];
         let params = &func.t.params.clone(); //TODO: (joh): Ich hasse das
 
+        let popped = (1..params.len() + 1)
+            .rev()
+            .map(|i| self.value_stack[self.value_stack.len() - i]);
+
         let params = params
             .into_iter()
             .cloned()
-            .map(|t| LocalValue::init_from_type_and_val(t, self.pop_any()))
+            .zip(popped)
+            .map(|(p, t)| LocalValue::init_from_type_and_val(p, t))
             .collect::<Vec<_>>();
         println!("call params {:?}", params);
         self.enter_function(id, params.iter().cloned())
@@ -854,9 +860,9 @@ impl Vm {
         let src = data_info.get_data();
         let src_region_size = (source + size);
         let dst_region_size = (dest + size) as usize;
-        println!("data: {:?}", data_info.get_data());
-        println!("src region: {}, src len: {}", src_region_size, src.len());
-        println!("dst region: {}, dst len: {}", dst_region_size, mem.len());
+        //println!("data: {:?}", data_info.get_data());
+        //println!("src region: {}, src len: {}", src_region_size, src.len());
+        //println!("dst region: {}, dst len: {}", dst_region_size, mem.len());
         if src_region_size > src.len() || dst_region_size >= mem.len() {
             return Err(RuntimeError::MemoryAddressOutOfScope);
         };
@@ -864,14 +870,14 @@ impl Vm {
         let src_region = &data_info.get_data()[source..src_region_size];
         dst_region.clone_from_slice(src_region);
         self.ip += 1;
-        println!("memory now: {:?}", dst_region);
+        //println!("memory now: {:?}", dst_region);
         Ok(())
     }
 
     pub fn exec_op(&mut self, bytecode: &Bytecode) -> Result<bool, RuntimeError> {
         match self.fetch_instruction() {
             Op::Unreachable => {
-                dbg!("Unreachable reached");
+                //dbg!("Unreachable reached");
                 return Err(RuntimeError::UnreachableReached);
             }
             Op::Nop => self.ip += 1,
@@ -954,7 +960,7 @@ impl Vm {
             Op::I64Geu => self.exec_binop_push(|a: u64, b: u64| a >= b),
             Op::I64Ges => self.exec_binop_push(|a: i64, b: i64| a >= b),
             Op::I32Add => self.exec_binop_push(|a: u32, b: u32| a + b),
-            Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a - b),
+            Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a.wrapping_sub(b)),
             Op::I32Mul => self.exec_binop_push(|a: u32, b: u32| a * b),
             Op::I32Divs => self.exec_binop_push(|a: i32, b: i32| a / b),
             Op::I32Divu => self.exec_binop_push(|a: u32, b: u32| a / b),
@@ -969,7 +975,7 @@ impl Vm {
             Op::I32Rotl => todo!(),
             Op::I32Rotr => todo!(),
             Op::I64Add => self.exec_binop_push(|a: u64, b: u64| a + b),
-            Op::I64Sub => self.exec_binop_push(|a: u64, b: u64| a - b),
+            Op::I64Sub => self.exec_binop_push(|a: u64, b: u64| a.wrapping_sub(b)),
             Op::I64Mul => self.exec_binop_push(|a: u64, b: u64| a * b),
             Op::I64Divs => self.exec_binop_push(|a: i64, b: i64| a / b),
             Op::I64Divu => self.exec_binop_push(|a: u64, b: u64| a / b),
@@ -1029,6 +1035,7 @@ impl Vm {
         func_id: usize,
         params: impl IntoIterator<Item = LocalValue>,
     ) -> Result<Vec<LocalValue>, RuntimeError> {
+        println!("running function: {}", func_id);
         self.enter_function(func_id, params.into_iter())?;
         self.run(bytecode)?;
         let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
@@ -1094,9 +1101,9 @@ macro_rules! impl_mem_load {
                     .unwrap()
                     .get(range)
                     .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
-                println!("data: {:?}", buffer);
+                //println!("data: {:?}", buffer);
                 let val: $storage_type = $storage_type::from_le_bytes(buffer.try_into().unwrap());
-                println!("val: {:?}", val);
+                //println!("val: {:?}", val);
                 let target: $target_type = val.into();
                 self.push_value(target);
                 self.ip += 1;
@@ -1168,13 +1175,13 @@ fn debug_env_always_fails(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usi
 
 fn debug_print_u32(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
     let arg = params[0].u32();
-    print!("{arg}");
+    println!("{arg}");
     Ok(())
 }
 
 fn debug_print_string(vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
-    let ptr = params[1].u32();
-    let count = params[0].u32();
+    let ptr = params[0].u32();
+    let count = params[1].u32();
     let data = vm
         .get_bytes_from_mem(ptr as usize, count as usize)
         .map_err(|_| 1_usize)?;
@@ -1244,7 +1251,7 @@ mod tests {
                 let results = vm
                     .run_func(&res.bytecode, &res.info, $func_id, $params)
                     .unwrap();
-                println!("results: {:?}", results);
+                //println!("results: {:?}", results);
                 assert!(results == $expecting);
                 Ok(())
             }
