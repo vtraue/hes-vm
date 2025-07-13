@@ -34,10 +34,9 @@
       };
 
       devShells = forEachSupportedSystem ({ pkgs }: {
-        default = pkgs.mkShell {
+        default = pkgs.mkShell rec {
           packages = with pkgs; [
             rustToolchain
-            openssl
             pkg-config
             cargo-deny
             cargo-edit
@@ -48,8 +47,18 @@
             llvmPackages_latest.clang.cc
             lld
             just
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXrandr
+            xorg.libXi
+            xorg.libxcb
+            libxkbcommon
+            vulkan-loader
+            wayland
           ];
-
+          shellHook = ''
+              export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${builtins.toString (pkgs.lib.makeLibraryPath packages)}";
+            '';
           env = {
             # Required by rust-analyzer
             RUST_SRC_PATH = "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
