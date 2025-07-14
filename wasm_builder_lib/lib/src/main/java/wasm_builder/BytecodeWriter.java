@@ -8,6 +8,13 @@ import java.util.List;
 class BytecodeWriter {
     ByteArrayOutputStream os;
 
+    BytecodeWriter() {
+        os = new ByteArrayOutputStream();
+    }
+
+    void reset(){
+        os.reset();
+    }
     byte [] toByteArray() { return os.toByteArray();}
 
     ByteArrayOutputStream getOutputStream() { return os; }
@@ -15,6 +22,10 @@ class BytecodeWriter {
     void writeByte(byte b) throws IOException {
         byte[] code = { b };
         os.write(code);
+    }
+
+    void writeBytes(byte [] b) throws IOException {
+        os.write(b);
     }
 
     void writeBytes(List<Integer> al) throws IOException{
@@ -30,6 +41,18 @@ class BytecodeWriter {
 
     void writeI32(int num) throws IOException{
         writeBytes(encodeI32ToLeb128(num));
+    }
+
+    void writeI64(int num) throws IOException{
+        // TODO
+    }
+
+    void writeF32(double num) throws IOException {
+        // TODO
+    }
+
+    void writeF64(double num) throws IOException {
+        // TODO
     }
 
     void writeOpcode(InstructionOpCode opcode) throws IOException {

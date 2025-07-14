@@ -60,7 +60,7 @@ class TestMain {
 
 	}
 
-	static void createTestfile1() throws IOException {
+	static void createTestfile1() throws IOException, WasmBuilderException {
 		WasmBuilder wb = new WasmBuilder();
 		FuncType emptyFuncType = new FuncType();
 		Func main = wb.createFunction(emptyFuncType);
@@ -69,7 +69,7 @@ class TestMain {
 		// imports testen
 
 		// globals testen
-		List<GlobalType> globals = List.of(new GlobalType(ValueType.i32, true), new GlobalType(ValueType.i32, true));
+		List<GlobalType> globals = List.of(new GlobalType(ValueType.i32, true, 0), new GlobalType(ValueType.i32, true, 42));
 		wb.setGlobals(globals);
 		wb.build(funcs);
 
@@ -89,16 +89,16 @@ class TestMain {
 		 * des erstellten Bytecodes
 		 */
 		WasmBuilder wbuilder = new WasmBuilder();
-		wbuilder.setModuleName("MuckelIstDerBeste");
+	wbuilder.setModuleName("MuckelIstDerBeste");
 		// Funktionstypen mit Parametern und Results erstellen
 		FuncType funcType3 = new FuncType(
 				new ArrayList<>(
-						Arrays.asList(ValueType.i32)),
+                        List.of(ValueType.i32)),
 				new ArrayList<ValueType>(), "tolleFunktion");
 
 		FuncType funcType4 = new FuncType(
 				new ArrayList<>(
-						Arrays.asList(ValueType.i32)),
+                        List.of(ValueType.i32)),
 				new ArrayList<ValueType>(), "tolleFunktion2");
 
 		FuncType emptyFuncType = new FuncType();

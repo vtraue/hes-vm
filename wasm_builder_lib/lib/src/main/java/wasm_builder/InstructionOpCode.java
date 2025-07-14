@@ -40,6 +40,11 @@ public enum InstructionOpCode {
 	I32_AND((short) 0x71),
 	I32_OR((short) 0x72),
 	I32_XOR((short) 0x73),
+	//Reference Instructions
+	REF_NULL((short) 0xD0),
+	REF_IS_NULL((short) 0xD1),
+	REF_FUNC((short) 0xD2),
+
 	;
 
 	public short code;
