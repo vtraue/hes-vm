@@ -9,7 +9,6 @@ import java.util.List;
 public class Func {
 	private final FuncType funcType;
 	final private BytecodeWriter body;
-	final private BytecodeWriter bodyWriter;
 	final private Validator validator;
 	private ArrayList<Local> locals;
 	private int funcIdx;
@@ -17,9 +16,7 @@ public class Func {
 	public Func(FuncType funcType, List<Local> locals, List<GlobalType> globals) {
 		this.funcType = funcType;
 		this.body = new BytecodeWriter();
-//		this.body = new ByteArrayOutputStream();
 		this.locals = new ArrayList<>(locals);
-		this.bodyWriter = new BytecodeWriter();
 		this.validator = new Validator(globals, locals);
 	}
 
@@ -42,13 +39,6 @@ public class Func {
 	public void addLocal(Local localType) {
 		this.locals.add(localType);
 	}
-
-//	public void addInstruction(Instruction ins) {
-//		switch (ins) {
-//			case Binop -> addBinOp(ins);
-//			case VarInstruction ->
-//		}
-//	}
 
 	public void emitEnd() throws IOException {
 		body.writeOpcode(InstructionOpCode.END);
