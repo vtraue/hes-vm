@@ -53,8 +53,9 @@ pub enum RuntimeError {
     NoFunctionToExecute,
     #[error("Tried entering a start function, but module does not define one")]
     UnexpectedNoStartFunction,
-    // #[error("Wrong parameter count provided: Got {0}, expected: {1}")]
-    // WrongParamCount,
+    #[error("Cannot find exported function by name: {0}")]
+    UnknownExportedFunc(String), // #[error("Wrong parameter count provided: Got {0}, expected: {1}")]
+                                 // WrongParamCount,
 }
 
 #[derive(Debug, Clone)]
@@ -1049,6 +1050,7 @@ impl Vm {
         assert!(res.len() == func_t.results.len());
         Ok(res)
     }
+
     pub fn get_bytes_from_mem<'a>(
         &'a self,
         addr: usize,

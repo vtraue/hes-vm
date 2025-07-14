@@ -4,4 +4,4 @@ build:
 print: build
     wasm-tools print out.wasm
 run: build
-    cargo run out.wasm run 12
+    cargo run out.wasm run run

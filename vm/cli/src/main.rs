@@ -1,10 +1,13 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use interpreter::slow_vm::{LocalValue, Vm, make_test_env};
 use itertools::Itertools;
-use parser::reader::{BytecodeReader, is_wasm_bytecode};
+use parser::{
+    info::FunctionType,
+    reader::{BytecodeReader, ExportDesc, is_wasm_bytecode},
+};
 use std::{
     fs::File,
     io::{Cursor, Read, Seek},
@@ -20,7 +23,7 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Validate,
-    Run { function_id: usize },
+    Run { name: String },
 }
 
 pub fn read_and_validate_file(file: &mut impl BytecodeReader) -> Result<ValidateResult> {
@@ -35,27 +38,45 @@ pub fn read_and_validate_file(file: &mut impl BytecodeReader) -> Result<Validate
 }
 
 pub fn execute_run_command(
-    func_id: usize,
+    func_name: &str,
     params: impl IntoIterator<Item = LocalValue>,
     file: &mut File,
 ) -> Result<()> {
     let validate_result = read_and_validate_file(file).context("Unable to parse file")?;
     let mut vm = Vm::init_from_validation_result(&validate_result, make_test_env())
         .context("Unable to instantiate")?;
-    let result = vm
-        .run_func(
-            &validate_result.bytecode,
-            &validate_result.info,
-            func_id,
-            params,
-        )
-        .context("Execution error")?;
-    if result.len() == 1 {
-        println!("{}", result[0])
+
+    if let Some(exported) = validate_result.bytecode.get_exports_as_map() {
+        let func = exported.get(func_name);
+        ensure!(
+            func.is_some(),
+            "This function does not exist or is not exported by the module"
+        );
+        let func = func.unwrap();
+
+        if let ExportDesc::FuncId(func_id) = func {
+            println!("code id: {}", *func_id);
+
+            let result = vm
+                .run_func(
+                    &validate_result.bytecode,
+                    &validate_result.info,
+                    *func_id,
+                    params,
+                )
+                .context("Error while executing {func_name}")?;
+            if result.len() == 1 {
+                println!("{}", result[0])
+            } else {
+                println!("[{}]", result.iter().map(|r| r.to_string()).format(", "));
+            }
+            Ok(())
+        } else {
+            bail!("Not a function")
+        }
     } else {
-        println!("[{}]", result.iter().map(|r| r.to_string()).format(", "));
+        bail!("This module does not export any functions")
     }
-    Ok(())
 }
 
 pub fn main() -> Result<()> {
@@ -67,7 +88,7 @@ pub fn main() -> Result<()> {
             let _validate_result = read_and_validate_file(&mut file)?;
             Ok(())
         }
-        Commands::Run { function_id } => execute_run_command(function_id, Vec::new(), &mut file),
+        Commands::Run { name } => execute_run_command(&name, Vec::new(), &mut file),
         _ => bail!("Unknown command: {:?}", args.command),
     }
 }

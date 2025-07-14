@@ -1,4 +1,6 @@
-use crate::reader::{Bytecode, GlobalType, Limits, SortedImports, ValueType};
+use std::collections::HashMap;
+
+use crate::reader::{Bytecode, ExportDesc, GlobalType, Limits, SortedImports, ValueType};
 const WASM_PAGE_SIZE: usize = 65536;
 
 #[derive(Debug, Clone)]
@@ -36,6 +38,27 @@ impl Function {
         Function {
             type_id,
             t: FunctionType::Imported { import_id },
+        }
+    }
+    pub fn is_exported(&self, bytecode: &Bytecode, name: &str) -> Option<usize> {
+        match self.t {
+            FunctionType::Internal { export_id, code_id } => {
+                if let Some(e_id) = export_id {
+                    let export = bytecode.get_export(e_id).unwrap();
+                    println!("export name: {}", export.name.data);
+                    (export.name.data == name).then_some(code_id)
+                } else {
+                    None
+                }
+            }
+            FunctionType::Imported { .. } => None,
+        }
+    }
+
+    pub fn get_code_id(&self) -> Option<usize> {
+        match self.t {
+            FunctionType::Internal { code_id, .. } => Some(code_id),
+            FunctionType::Imported { .. } => None,
         }
     }
 }
@@ -129,6 +152,7 @@ impl BytecodeInfo {
                 funcs
                     .cloned()
                     .enumerate()
+                    //TODO:(joh): Das ist mega dumm und langsam.
                     .map(|(code_id, type_id)| Function {
                         type_id,
                         t: FunctionType::Internal {
@@ -191,5 +215,18 @@ impl BytecodeInfo {
         self.memories
             .get(0)
             .map(|l| l.limits.min.data as usize * WASM_PAGE_SIZE)
+    }
+
+    pub fn get_exported_function_code_id(&self, bytecode: &Bytecode, name: &str) -> Option<usize> {
+        self.functions
+            .iter()
+            .find_map(|f| f.is_exported(bytecode, name))
+    }
+    pub fn find_function_by_code_id(&self, id: usize) -> Option<(usize, &Function)> {
+        self.functions.iter().enumerate().find_map(|(func_id, f)| {
+            let code_id = f.get_code_id()?;
+            println!("searching: {}", code_id);
+            (code_id == id).then_some((func_id, f))
+        })
     }
 }

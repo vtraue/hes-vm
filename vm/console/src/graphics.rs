@@ -7,10 +7,11 @@ use wgpu::{
 };
 use winit::{
     application::ApplicationHandler,
+    dpi::{LogicalSize, Size},
     event::{KeyEvent, WindowEvent},
     event_loop::{self, ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::Window,
+    window::{Window, WindowAttributes},
 };
 
 #[derive(Error, Debug)]
@@ -84,6 +85,8 @@ struct State {
     index_buffer: wgpu::Buffer,
     num_vertices: u32,
     num_indices: u32,
+    texture: wgpu::Texture,
+    texture_size: wgpu::Extent3d,
     diffuse_bind_group: wgpu::BindGroup,
 }
 
@@ -286,7 +289,27 @@ impl State {
             num_vertices,
             num_indices,
             diffuse_bind_group,
+            texture: diffuse_texture,
+            texture_size,
         })
+    }
+
+    pub fn update_framebuffer_data(&mut self, pixels: &[u8]) {
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfoBase {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * self.texture_size.width),
+                rows_per_image: Some(self.texture_size.height),
+            },
+            self.texture_size,
+        );
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -309,6 +332,7 @@ impl State {
         if !self.is_surface_configured {
             return Ok(());
         }
+
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -361,11 +385,8 @@ impl App {
 }
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let window = Arc::new(
-            event_loop
-                .create_window(Window::default_attributes())
-                .unwrap(),
-        );
+        let attributes = Window::default_attributes().with_inner_size(LogicalSize::new(800, 600));
+        let window = Arc::new(event_loop.create_window(attributes).unwrap());
         self.state = Some(pollster::block_on(State::new(window)).unwrap())
     }
 

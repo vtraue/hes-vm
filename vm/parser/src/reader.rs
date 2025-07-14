@@ -1,5 +1,6 @@
 use core::fmt::{self, Display};
 use std::{
+    collections::HashMap,
     io::{Cursor, Read, Seek, SeekFrom},
     iter::repeat,
     ops::Range,
@@ -700,7 +701,14 @@ impl fmt::Display for Export {
         write!(f, "{}: {}", self.name.data, self.desc.data)
     }
 }
-
+impl Export {
+    pub fn get_function_id(&self) -> Option<usize> {
+        match self.desc.data {
+            ExportDesc::FuncId(id) => Some(id),
+            _ => None,
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub enum Data {
     Active {
@@ -1026,6 +1034,16 @@ macro_rules! impl_add_section {
 }
 
 impl Bytecode {
+    pub fn get_exports_as_map<'src>(&'src self) -> Option<HashMap<&'src str, ExportDesc>> {
+        self.iter_exports().map(|exports| {
+            let mut result = HashMap::new();
+            exports.for_each(|e| {
+                //TODO: Handle doppelte Namen
+                _ = result.insert(e.name.data.as_str(), e.desc.data.clone());
+            });
+            result
+        })
+    }
     fn add_section(&mut self, section: WithPosition<SectionData>) {
         impl_add_section!(
             section -> self {
@@ -1047,7 +1065,26 @@ impl Bytecode {
     fn add_custom_section(&mut self, section: WithPosition<CustomSection>) {
         self.custom_sections.push(section);
     }
+
+    fn find_export_by_name(&self, name: &str) -> Option<ExportDesc> {
+        self.iter_exports()?.find_map(|e| {
+            (e.name.data == name)
+                .then_some(&e)
+                .map(|e| e.desc.data.clone())
+        })
+    }
+
+    pub fn is_func_id_exported(&self, id: usize) -> Option<usize> {
+        if let Some(mut exports) = self.iter_exports() {
+            exports
+                .enumerate()
+                .find_map(|(i, e)| (e.get_function_id()? == id).then_some(i))
+        } else {
+            None
+        }
+    }
 }
+
 impl FromBytecode for Bytecode {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         let mut module: Bytecode = Default::default();
