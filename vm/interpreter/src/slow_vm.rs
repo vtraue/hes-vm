@@ -17,12 +17,8 @@ use parser::{
 use smallvec::SmallVec;
 use validator::validator::{ReadAndValidateError, ValidateResult};
 
-use crate::{
-    env::{
-        ExternalFunction, ExternalFunctionHandler, Module, Modules, get_env_func, get_env_global,
-    },
-    stack::StackValue,
-};
+use crate::env::Env;
+use crate::{env::ExternalFunction, stack::StackValue};
 
 #[derive(Error, Debug)]
 pub enum InstanceError {
@@ -55,7 +51,8 @@ pub enum RuntimeError {
     UnexpectedNoStartFunction,
     #[error("Cannot find exported function by name: {0}")]
     UnknownExportedFunc(String), // #[error("Wrong parameter count provided: Got {0}, expected: {1}")]
-                                 // WrongParamCount,
+    #[error("No function set")]
+    NoFunctionSet,
 }
 
 #[derive(Debug, Clone)]
@@ -106,7 +103,7 @@ impl From<&parser::reader::Type> for Type {
 pub struct NativeFunctionInstance {
     module: String,
     name: String,
-    func: ExternalFunctionHandler,
+    id: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -128,11 +125,11 @@ pub struct Code {
 }
 
 pub trait PopFromValueStack {
-    unsafe fn pop(vm: &mut Vm) -> Self;
+    unsafe fn pop<E: Env>(vm: &mut Vm<E>) -> Self;
 }
 
 impl PopFromValueStack for bool {
-    unsafe fn pop(vm: &mut Vm) -> Self {
+    unsafe fn pop<E: Env>(vm: &mut Vm<E>) -> Self {
         let val = unsafe { vm.pop_u32() };
         val != 0
     }
@@ -141,7 +138,7 @@ impl PopFromValueStack for bool {
 macro_rules! impl_pop_from_value_stack {
     ($t: tt, $func_name: ident) => {
         impl PopFromValueStack for $t {
-            unsafe fn pop(vm: &mut Vm) -> Self {
+            unsafe fn pop<E: Env>(vm: &mut Vm<E>) -> Self {
                 unsafe { vm.$func_name() }
             }
         }
@@ -150,7 +147,7 @@ macro_rules! impl_pop_from_value_stack {
 
 macro_rules! impl_vm_pop {
     ($func_name: ident, $t: tt, $var_name: ident) => {
-        impl Vm {
+        impl<E: Env> Vm<E> {
             pub unsafe fn $func_name(&mut self) -> $t {
                 let val = unsafe { self.value_stack.pop().unwrap().$var_name };
                 bytemuck::cast(val)
@@ -173,7 +170,7 @@ impl Code {
         linear_code: &mut Vec<Op>,
         t: usize,
         code_id: usize,
-        _export_id: Option<usize>,
+        _export_id: Option<&str>,
         code_offset: usize,
     ) -> (Function, usize) {
         let code = module.get_code(code_id).unwrap();
@@ -195,7 +192,7 @@ impl Code {
     fn get_function_instances(
         module: &Bytecode,
         info: &BytecodeInfo,
-        env: &Modules,
+        env: &impl Env,
     ) -> Result<(Vec<Function>, Vec<Op>), InstanceError> {
         let mut linear_code: Vec<Op> = Vec::new();
         let mut code_offset: usize = 0;
@@ -224,7 +221,9 @@ impl Code {
                             let module_name = import.get_mod_name();
                             let name = import.get_name();
 
-                            let func = get_env_func(&env, module_name, name)?;
+                            let func = env
+                                .get_func(module_name, name)
+                                .ok_or(InstanceError::ImportFunctionNameDoesNotMatch)?;
 
                             Ok(Function {
                                 t: Type {
@@ -234,7 +233,7 @@ impl Code {
                                 kind: FunctionType::Native(NativeFunctionInstance {
                                     module: module_name.to_string(),
                                     name: name.to_string(),
-                                    func: func.handler,
+                                    id: func.id,
                                 }),
                             })
                         }
@@ -248,9 +247,9 @@ impl Code {
     pub fn from_module(
         module: &Bytecode,
         info: &BytecodeInfo,
-        env: &Modules,
+        env: &impl Env,
     ) -> Result<Self, InstanceError> {
-        let (functions, instructions) = Self::get_function_instances(module, info, &env)?;
+        let (functions, instructions) = Self::get_function_instances(module, info, env)?;
 
         Ok(Self {
             instructions,
@@ -366,7 +365,7 @@ impl_local_value_acc!(f32, F32, f32);
 impl_local_value_acc!(f64, F64, f64);
 
 #[derive(Debug, Clone)]
-pub struct Vm {
+pub struct Vm<E: Env> {
     ip: usize,
     value_stack: Vec<StackValue>,
     activation_stack: Vec<ActivationFrame>,
@@ -379,9 +378,10 @@ pub struct Vm {
     start_func_id: Option<usize>,
     local_offset: usize,
     func_id: Option<usize>,
+    env: E,
 }
 
-impl Vm {
+impl<E: Env> Vm<E> {
     fn get_global_init_value(
         module: &Bytecode,
         global_id: usize,
@@ -409,7 +409,7 @@ impl Vm {
     pub fn get_global_instances(
         module: &Bytecode,
         info: &BytecodeInfo,
-        env: &Modules,
+        env: &impl Env,
     ) -> Result<Vec<LocalValue>, InstanceError> {
         info.globals
             .iter()
@@ -423,8 +423,10 @@ impl Vm {
                     let module_name = import.get_mod_name();
                     let name = import.get_name();
 
-                    let func = get_env_global(&env, module_name, name)?;
-                    Ok(func.value)
+                    let global = env
+                        .get_global(module_name, name)
+                        .ok_or(InstanceError::ImportGlobalNameDoesNotMatch)?;
+                    Ok(global.value)
                 }
             })
             .collect()
@@ -465,7 +467,7 @@ impl Vm {
         Ok(())
     }
 
-    fn init(bytecode: &Bytecode, info: &BytecodeInfo, env: Modules) -> Result<Self, InstanceError> {
+    fn init(bytecode: &Bytecode, info: &BytecodeInfo, env: E) -> Result<Vm<E>, InstanceError> {
         let code = Code::from_module(bytecode, info, &env)?;
         let mut mem = Self::make_memory(bytecode, info);
         let locals = Vec::new();
@@ -494,7 +496,7 @@ impl Vm {
                 )
             })?;
         };
-        Ok(Self {
+        Ok(Vm {
             types,
             ip: 0,
             globals,
@@ -507,12 +509,13 @@ impl Vm {
             labels: Vec::new(),
             local_offset: 0,
             func_id: None,
+            env,
         })
     }
 
     pub fn init_from_validation_result(
         res: &ValidateResult,
-        env: Modules,
+        env: E,
     ) -> Result<Self, InstanceError> {
         Vm::init(&res.bytecode, &res.info, env)
     }
@@ -536,7 +539,7 @@ impl Vm {
 
     fn leave_wasm_function(&mut self) -> bool {
         assert!(self.activation_stack.len() > 0);
-        println!("leaving current function");
+        //println!("leaving current function");
         let prev = self.activation_stack.pop().unwrap();
         match self.activation_stack.last() {
             Some(frame) => {
@@ -563,7 +566,7 @@ impl Vm {
     }
 
     pub fn push_value(&mut self, val: impl Into<StackValue> + Debug) {
-        println!("Pushing value: {:?}", val);
+        //println!("Pushing value: {:?}", val);
         self.value_stack.push(val.into());
     }
     pub fn pop_any(&mut self) -> StackValue {
@@ -578,7 +581,7 @@ impl Vm {
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
-            println!("Popping: {:?}", val);
+            //println!("Popping: {:?}", val);
             val
         }
     }
@@ -729,7 +732,8 @@ impl Vm {
             FunctionType::Native(native_function_instance) => {
                 //println!("native call");
                 let params: SmallVec<[LocalValue; 16]> = params.collect();
-                (native_function_instance.func)(self, &params)
+                self.env
+                    .call(self, &params, native_function_instance.id)
                     .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
                 self.ip += 1;
                 Ok(())
@@ -748,7 +752,7 @@ impl Vm {
     }
 
     pub fn exec_call(&mut self, id: usize) -> Result<(), RuntimeError> {
-        println!("calling: {id}");
+        //println!("calling: {id}");
         let func = &self.code.functions[id];
         let params = &func.t.params.clone(); //TODO: (joh): Ich hasse das
 
@@ -765,7 +769,7 @@ impl Vm {
         self.value_stack
             .truncate(self.value_stack.len() - params.len());
 
-        println!("call params {:?}", params);
+        //println!("call params {:?}", params);
         self.enter_function(id, params.iter().cloned())
     }
 
@@ -1034,23 +1038,40 @@ impl Vm {
             .collect()
     }
 
+    pub fn set_func(
+        &mut self,
+        func_id: usize,
+        params: impl IntoIterator<Item = LocalValue>,
+    ) -> Result<(), RuntimeError> {
+        self.enter_function(func_id, params.into_iter())
+    }
+
     pub fn run_func(
         &mut self,
         bytecode: &Bytecode,
         info: &BytecodeInfo,
-        func_id: usize,
-        params: impl IntoIterator<Item = LocalValue>,
     ) -> Result<Vec<LocalValue>, RuntimeError> {
-        println!("running function: {}", func_id);
-        self.enter_function(func_id, params.into_iter())?;
         self.run(bytecode)?;
-        let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
-        let res = self.stack_to_local_vals(func_t.results.iter().cloned());
-        println!("res: {:?}", res);
-        assert!(res.len() == func_t.results.len());
-        Ok(res)
+        let res = if let Some(func_id) = self.func_id {
+            let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
+            let res = self.stack_to_local_vals(func_t.results.iter().cloned());
+            println!("res: {:?}", res);
+            assert!(res.len() == func_t.results.len());
+            Ok(res)
+        } else {
+            Err(RuntimeError::NoFunctionSet)
+        };
+        self.reset_state();
+        res
     }
 
+    pub fn reset_state(&mut self) {
+        self.activation_stack.truncate(0);
+        self.value_stack.truncate(0);
+        self.labels.truncate(0);
+        self.locals.truncate(0);
+        self.ip = 0;
+    }
     pub fn get_bytes_from_mem<'a>(
         &'a self,
         addr: usize,
@@ -1069,9 +1090,9 @@ impl Vm {
 }
 
 #[derive(Debug)]
-pub struct ExecutionResult {
+pub struct ExecutionResult<E: Env> {
     validation_result: ValidateResult,
-    exec: Vm,
+    exec: Vm<E>,
 }
 #[derive(Error, Debug)]
 pub enum ExecutionError {
@@ -1082,10 +1103,10 @@ pub enum ExecutionError {
 }
 
 //TODO: (joh): Nutzer sollte Funktion und Argumente manuell callen koennen
-pub fn run_validation_result(
+pub fn run_validation_result<E: Env>(
     res: ValidateResult,
-    env: Modules,
-) -> Result<ExecutionResult, ExecutionError> {
+    env: E,
+) -> Result<ExecutionResult<E>, ExecutionError> {
     let mut vm = Vm::init(&res.bytecode, &res.info, env)?;
     vm.enter_start_function()?;
     vm.run(&res.bytecode)?;
@@ -1097,7 +1118,7 @@ pub fn run_validation_result(
 
 macro_rules! impl_mem_load {
     ($fn_name: ident, $storage_type: tt, $target_type: tt) => {
-        impl Vm {
+        impl<E: Env> Vm<E> {
             fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
                 debug_assert!(self.mem.as_ref().unwrap().len() > 0);
                 let addr = unsafe { self.pop_value::<i32>() as usize };
@@ -1143,7 +1164,7 @@ impl_mem_load!(f64_load, f64, f64);
 
 macro_rules! impl_mem_store {
     ($fn_name: ident, $pop_type: tt, $real_type: tt) => {
-        impl Vm {
+        impl<E: Env> Vm<E> {
             pub fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
                 let data = unsafe { self.pop_value::<$pop_type>() as $real_type };
                 let data_buffer = data.to_le_bytes();
@@ -1176,63 +1197,54 @@ impl_mem_store!(i64_store32, u64, u32);
 impl_mem_store!(f32_store, f32, f32);
 impl_mem_store!(f64_store, f64, f64);
 
-fn debug_env_always_fails(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
-    let ret_nr = params[0].u32();
-    Err(ret_nr as usize)
-}
+pub struct DebugEnv {}
 
-fn debug_print_u32(_vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
-    let arg = params[0].u32();
-    println!("{arg}");
-    Ok(())
-}
+impl Env for DebugEnv {
+    fn get_func(&self, env: &str, name: &str) -> Option<ExternalFunction> {
+        if env != "env" {
+            return None;
+        };
+        match name {
+            "dbg_fail" => Some(ExternalFunction {
+                params: vec![ValueType::I32],
+                result: vec![],
+                id: 0,
+            }),
+            "dbg_print_u32" => Some(ExternalFunction {
+                params: vec![ValueType::I32],
+                result: vec![],
+                id: 1,
+            }),
+            "dbg_print_string" => Some(ExternalFunction {
+                params: vec![ValueType::I32, ValueType::I32],
+                result: vec![],
+                id: 2,
+            }),
+            _ => None,
+        }
+    }
 
-fn debug_print_string(vm: &mut Vm, params: &[LocalValue]) -> Result<(), usize> {
-    let ptr = params[0].u32();
-    let count = params[1].u32();
-    let data = vm
-        .get_bytes_from_mem(ptr as usize, count as usize)
-        .map_err(|_| 1_usize)?;
-    let str = str::from_utf8(data).map_err(|_| 2_usize)?;
-    print!("{str}");
-    Ok(())
-}
+    fn get_global(&self, env: &str, name: &str) -> Option<crate::env::ExternalGlobal> {
+        None
+    }
 
-pub fn make_test_env() -> Modules<'static> {
-    let dbg_fail_proc = ExternalFunction {
-        handler: debug_env_always_fails,
-        params: vec![ValueType::I32],
-        result: vec![],
-    };
-
-    let mut funcs = HashMap::new();
-    funcs.insert("dbg_fail", dbg_fail_proc);
-    funcs.insert(
-        "dbg_print_u32",
-        ExternalFunction {
-            handler: debug_print_u32,
-            params: vec![ValueType::I32],
-            result: vec![],
-        },
-    );
-    funcs.insert(
-        "dbg_print_string",
-        ExternalFunction {
-            handler: debug_print_string,
-            params: vec![ValueType::I32, ValueType::I32],
-            result: vec![],
-        },
-    );
-
-    let mut envs = HashMap::new();
-    envs.insert(
-        "env",
-        Module {
-            functions: funcs,
-            ..Default::default()
-        },
-    );
-    envs
+    fn call(&self, vm: &Vm<Self>, params: &[LocalValue], func_id: usize) -> Result<(), usize> {
+        match func_id {
+            0 => Err(params[0].u32() as usize),
+            1 => Ok(println!("{}", params[0].u32())),
+            2 => {
+                let ptr = params[0].u32();
+                let count = params[1].u32();
+                let data = vm
+                    .get_bytes_from_mem(ptr as usize, count as usize)
+                    .map_err(|_| 1_usize)?;
+                let str = str::from_utf8(data).map_err(|_| 2_usize)?;
+                print!("{str}");
+                Ok(())
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 mod tests {
@@ -1241,12 +1253,9 @@ mod tests {
     use parser::reader::ValueType;
     use validator::validator::read_and_validate_wat;
 
-    use crate::{
-        env::{ExternalFunction, Module, Modules},
-        slow_vm::{RuntimeError, make_test_env},
-    };
+    use crate::{env::ExternalFunction, slow_vm::RuntimeError};
 
-    use super::{ExecutionError, ExecutionResult, LocalValue, Vm};
+    use super::{DebugEnv, ExecutionError, ExecutionResult, LocalValue, Vm};
 
     macro_rules! run_code_expect_result {
         ($fn_name: ident, $func_id: literal, $code: expr, $params: expr, $expecting: expr) => {
@@ -1255,10 +1264,10 @@ mod tests {
                 let src = $code;
                 let res = read_and_validate_wat(src).unwrap();
 
-                let mut vm = Vm::init_from_validation_result(&res, make_test_env()).unwrap();
-                let results = vm
-                    .run_func(&res.bytecode, &res.info, $func_id, $params)
-                    .unwrap();
+                let mut vm = Vm::init_from_validation_result(&res, DebugEnv {}).unwrap();
+                vm.set_func($func_id, $params).unwrap();
+
+                let results = vm.run_func(&res.bytecode, &res.info).unwrap();
                 println!("results: {:?}", results);
                 assert!(results == $expecting);
                 Ok(())
@@ -1271,11 +1280,9 @@ mod tests {
             fn $fn_name() -> Result<(), ExecutionError> {
                 let src = $code;
                 let res = read_and_validate_wat(src).unwrap();
-
-                let mut vm = Vm::init_from_validation_result(&res, make_test_env()).unwrap();
-                let result = vm
-                    .run_func(&res.bytecode, &res.info, $func_id, $params)
-                    .unwrap_err();
+                let mut vm = Vm::init_from_validation_result(&res, DebugEnv {}).unwrap();
+                vm.set_func($func_id, $params).unwrap();
+                let result = vm.run_func(&res.bytecode, &res.info).unwrap_err();
                 assert!(matches!(result, $expecting));
                 Ok(())
             }

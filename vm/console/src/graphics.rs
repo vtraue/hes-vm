@@ -1,6 +1,9 @@
 use bytemuck::*;
-use std::sync::Arc;
+use interpreter::{env::{ExternalFunction, Modules}, slow_vm::{LocalValue, Vm}};
+use parser::reader::{is_wasm_bytecode, BytecodeReader, ParserError};
+use std::{collections::HashMap, io, sync::Arc};
 use thiserror::Error;
+use validator::validator::{read_and_validate, read_and_validate_wat, ReadAndValidateError, ValidateResult};
 use wgpu::{
     PresentMode,
     util::{DeviceExt, RenderEncoder},
@@ -16,6 +19,21 @@ use winit::{
 
 #[derive(Error, Debug)]
 pub enum ConsoleError {
+    #[error("Error while parsing file: {0}")]
+    UnableToParseFile(#[from] ReadAndValidateError), 
+
+    #[error("Invalid wasm code fileformat. Expected either .wat source code or raw wasm: {0}")]
+    InvalidFileFormat(ParserError),
+
+    #[error("Unable to read wat source code: {0}")]
+    UnableToReadSourceCode(#[from] io::Error),
+
+    #[error("Module required to export at least one run function.")]
+    NoExportedFuncs,
+
+    #[error("Module required to export a run function")]
+    NoRunFunc,
+
     #[error("Unable to create wgpu surface: {0}")]
     CreateSurface(#[from] wgpu::CreateSurfaceError),
 
@@ -294,7 +312,7 @@ impl State {
         })
     }
 
-    pub fn update_framebuffer_data(&mut self, pixels: &[u8]) {
+    pub fn update_framebuffer_data(&mut self, pixels: &[u8], width: u32, height: u32) {
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfoBase {
                 texture: &self.texture,
@@ -305,8 +323,8 @@ impl State {
             pixels,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * self.texture_size.width),
-                rows_per_image: Some(self.texture_size.height),
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
             },
             self.texture_size,
         );
@@ -375,12 +393,87 @@ impl State {
         Ok(())
     }
 }
+
+#[derive(Debug)]
+pub struct Executor {
+    vm: Vm,
+    validate_result: ValidateResult,
+    run_func_id: usize
+}
+
+impl Executor {
+    fn env_io_print_string(vm: &mut Vm, params: &[LocalValue], _: &mut State) -> Result<(), usize> {
+        let (ptr, size) = (params[0].u32(), params[1].u32())
+        if size == 0 {
+            Ok(())
+        } else {
+            let data = vm
+                .get_bytes_from_mem(ptr as usize, size as usize)
+                .map_err(|_| 1_usize)?;
+            let str = str::from_utf8(data).map_err(|_| 2_usize)?;
+            print!("{str}");
+
+            Ok(())
+            
+        }
+    }
+
+    fn env_graphics_paint(vm: &mut Vm, params: &[LocalValue], console_state: &mut State) -> Result<(), usize> {
+        //TODO: Size als argument?
+        let (ptr, width, height) = (params[0].u32(), params[1].u32(), params[2].u32());
+        let size = width * height;
+
+        if size == 0 {
+            return Ok(())
+        }
+        let data = vm
+            .get_bytes_from_mem(ptr as usize, size as usize)
+            .map_err(|_| 1_usize)?;
+        console_state.update_framebuffer_data(data, width, height);
+        
+        Ok(())
+    }
+    fn make_env(state: &mut State) -> Modules<'static, &mut State> {
+        let mut funcs = HashMap::new();
+        funcs.insert("io_print_string", ExternalFunction {
+            handler: Self::env_io_print_string,
+            params: vec![ValueType::I32],
+            result: vec![]
+        })
+        funcs.insert("gfx_paint", ExternalFunction { handler: Self::env_graphics_paint, params: vec![ValueType::I32, ValueType::I32, ValueType::I32], result: vec![] });
+        
+    }
+    //NOTE: (joh): Vielleicht sollten wir direkt Bytecode uebergeben?
+    pub fn new(reader: &mut impl BytecodeReader, state: &mut State) -> Result<Self, ConsoleError>{
+        let validate_result = if is_wasm_bytecode(reader).map_err(|e| ConsoleError::InvalidFileFormat(e))? {
+            read_and_validate(reader)
+        } else {
+            let mut code = String::new();
+            reader.read_to_string(&mut code)?;
+            read_and_validate_wat(code)
+        }?;
+
+        let exports = validate_result.bytecode.get_exports_as_map().ok_or(ConsoleError::NoExportedFuncs)?;
+        let run_func_id = exports.get_function_id("run").ok_or(ConsoleError::NoRunFunc)?;
+        let vm = Vm::init_from_validation_result(&validate_result, Self::make_env(state))?;
+
+        Ok(Executor { vm, validate_result, run_func_id})
+    }    
+}
 pub struct App {
+    exec: Executor,    
     state: Option<State>,
 }
 impl App {
-    pub fn new() -> Self {
-        Self { state: None }
+    pub fn new(validate_result: ValidateResult, vm: Vm) -> Self {
+        //NOTE: Initialisieren wir hier oder eher in cli? 
+        Self {
+            state: None,
+            vm,
+            validate_result,
+            vm_running: false,
+            run_func_id,
+        }
     }
 }
 impl ApplicationHandler for App {
@@ -388,6 +481,10 @@ impl ApplicationHandler for App {
         let attributes = Window::default_attributes().with_inner_size(LogicalSize::new(800, 600));
         let window = Arc::new(event_loop.create_window(attributes).unwrap());
         self.state = Some(pollster::block_on(State::new(window)).unwrap())
+        if !self.vm_running {
+            //TODO: (joh): Gebe den Fehler schoener aus!
+            self.vm.run_func(&self.validate_result.bytecode, &self.validate_result.info).unwrap();
+        } 
     }
 
     fn window_event(

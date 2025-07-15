@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use interpreter::slow_vm::{LocalValue, Vm, make_test_env};
+use interpreter::slow_vm::{DebugEnv, LocalValue, Vm};
 use itertools::Itertools;
 use parser::{
     info::FunctionType,
@@ -39,41 +39,42 @@ pub fn read_and_validate_file(file: &mut impl BytecodeReader) -> Result<Validate
 
 pub fn execute_run_command(
     func_name: &str,
-    params: impl IntoIterator<Item = LocalValue>,
+    params: impl IntoIterator<Item = LocalValue> + Clone,
     file: &mut File,
 ) -> Result<()> {
     let validate_result = read_and_validate_file(file).context("Unable to parse file")?;
-    let mut vm = Vm::init_from_validation_result(&validate_result, make_test_env())
+    let mut vm = Vm::init_from_validation_result(&validate_result, DebugEnv {})
         .context("Unable to instantiate")?;
 
     if let Some(exported) = validate_result.bytecode.get_exports_as_map() {
-        let func = exported.get(func_name);
+        let func = exported.get_function_id(func_name);
         ensure!(
             func.is_some(),
             "This function does not exist or is not exported by the module"
         );
-        let func = func.unwrap();
+        let func_id = func.unwrap();
 
-        if let ExportDesc::FuncId(func_id) = func {
-            println!("code id: {}", *func_id);
+        println!("code id: {}", func_id);
 
-            let result = vm
-                .run_func(
-                    &validate_result.bytecode,
-                    &validate_result.info,
-                    *func_id,
-                    params,
-                )
-                .context("Error while executing {func_name}")?;
-            if result.len() == 1 {
-                println!("{}", result[0])
-            } else {
-                println!("[{}]", result.iter().map(|r| r.to_string()).format(", "));
-            }
-            Ok(())
+        vm.set_func(func_id, params.clone())
+            .context("Unable to load function")?;
+
+        let result = vm
+            .run_func(&validate_result.bytecode, &validate_result.info)
+            .context("Error while executing {func_name}")?;
+
+        vm.set_func(func_id, params)
+            .context("Unable to load function")?;
+        let result = vm
+            .run_func(&validate_result.bytecode, &validate_result.info)
+            .context("Error while executing {func_name}")?;
+
+        if result.len() == 1 {
+            println!("{}", result[0])
         } else {
-            bail!("Not a function")
+            println!("[{}]", result.iter().map(|r| r.to_string()).format(", "));
         }
+        Ok(())
     } else {
         bail!("This module does not export any functions")
     }

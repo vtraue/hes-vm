@@ -14,7 +14,7 @@ pub enum IncludeMode {
 pub enum FunctionType {
     Internal {
         code_id: usize,
-        export_id: Option<usize>,
+        export_id: Option<&'static str>,
     },
     Imported {
         import_id: usize,
@@ -27,7 +27,7 @@ pub struct Function {
     pub t: FunctionType,
 }
 impl Function {
-    pub fn new_internal(type_id: usize, code_id: usize, export_id: Option<usize>) -> Self {
+    pub fn new_internal(type_id: usize, code_id: usize, export_id: Option<&'static str>) -> Self {
         Function {
             type_id,
             t: FunctionType::Internal { code_id, export_id },
@@ -38,20 +38,6 @@ impl Function {
         Function {
             type_id,
             t: FunctionType::Imported { import_id },
-        }
-    }
-    pub fn is_exported(&self, bytecode: &Bytecode, name: &str) -> Option<usize> {
-        match self.t {
-            FunctionType::Internal { export_id, code_id } => {
-                if let Some(e_id) = export_id {
-                    let export = bytecode.get_export(e_id).unwrap();
-                    println!("export name: {}", export.name.data);
-                    (export.name.data == name).then_some(code_id)
-                } else {
-                    None
-                }
-            }
-            FunctionType::Imported { .. } => None,
         }
     }
 
@@ -217,11 +203,6 @@ impl BytecodeInfo {
             .map(|l| l.limits.min.data as usize * WASM_PAGE_SIZE)
     }
 
-    pub fn get_exported_function_code_id(&self, bytecode: &Bytecode, name: &str) -> Option<usize> {
-        self.functions
-            .iter()
-            .find_map(|f| f.is_exported(bytecode, name))
-    }
     pub fn find_function_by_code_id(&self, id: usize) -> Option<(usize, &Function)> {
         self.functions.iter().enumerate().find_map(|(func_id, f)| {
             let code_id = f.get_code_id()?;

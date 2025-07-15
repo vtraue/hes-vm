@@ -1033,15 +1033,26 @@ macro_rules! impl_add_section {
     };
 }
 
+//TODO: (joh): Finde einen besseren Weg um mit duplizierten Namen umzugehen
+pub struct ExportMap<'src>(HashMap<&'src str, ExportDesc>);
+
+impl ExportMap<'_> {
+    pub fn get_function_id(&self, func_name: &str) -> Option<usize> {
+        match self.0.get(func_name)? {
+            ExportDesc::FuncId(id) => Some(*id),
+            _ => None,
+        }
+    }
+}
 impl Bytecode {
-    pub fn get_exports_as_map<'src>(&'src self) -> Option<HashMap<&'src str, ExportDesc>> {
+    pub fn get_exports_as_map<'src>(&'src self) -> Option<ExportMap<'src>> {
         self.iter_exports().map(|exports| {
             let mut result = HashMap::new();
             exports.for_each(|e| {
                 //TODO: Handle doppelte Namen
                 _ = result.insert(e.name.data.as_str(), e.desc.data.clone());
             });
-            result
+            ExportMap(result)
         })
     }
     fn add_section(&mut self, section: WithPosition<SectionData>) {

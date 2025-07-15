@@ -1,12 +1,13 @@
 use data::SectionType;
 use eframe::{
-    App,
     egui::{
-        self, Color32, ComboBox, Label, RichText, ScrollArea, Sense, TextStyle, TextWrapMode, Ui,
-        Vec2, Widget,
+        self,
         ahash::{HashSet, HashSetExt},
+        Color32, ComboBox, Label, RichText, ScrollArea, Sense, TextStyle, TextWrapMode, Ui, Vec2,
+        Widget,
     },
     epaint::ColorMode,
+    App,
 };
 use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex, TabViewer};
 use std::fs;
