@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::ops::DerefMut;
 
 use parser::reader::{Data, iter_without_position};
@@ -189,10 +190,9 @@ impl Code {
         )
     }
 
-    fn get_function_instances(
+    fn get_function_instances<E: Env>(
         module: &Bytecode,
         info: &BytecodeInfo,
-        env: &impl Env,
     ) -> Result<(Vec<Function>, Vec<Op>), InstanceError> {
         let mut linear_code: Vec<Op> = Vec::new();
         let mut code_offset: usize = 0;
@@ -221,8 +221,7 @@ impl Code {
                             let module_name = import.get_mod_name();
                             let name = import.get_name();
 
-                            let func = env
-                                .get_func(module_name, name)
+                            let func = E::get_func(module_name, name)
                                 .ok_or(InstanceError::ImportFunctionNameDoesNotMatch)?;
 
                             Ok(Function {
@@ -244,12 +243,11 @@ impl Code {
         ))
     }
 
-    pub fn from_module(
+    pub fn from_module<E: Env>(
         module: &Bytecode,
         info: &BytecodeInfo,
-        env: &impl Env,
     ) -> Result<Self, InstanceError> {
-        let (functions, instructions) = Self::get_function_instances(module, info, env)?;
+        let (functions, instructions) = Self::get_function_instances::<E>(module, info)?;
 
         Ok(Self {
             instructions,
@@ -378,7 +376,7 @@ pub struct Vm<E: Env> {
     start_func_id: Option<usize>,
     local_offset: usize,
     func_id: Option<usize>,
-    env: E,
+    _marker: PhantomData<E>,
 }
 
 impl<E: Env> Vm<E> {
@@ -409,7 +407,6 @@ impl<E: Env> Vm<E> {
     pub fn get_global_instances(
         module: &Bytecode,
         info: &BytecodeInfo,
-        env: &impl Env,
     ) -> Result<Vec<LocalValue>, InstanceError> {
         info.globals
             .iter()
@@ -423,8 +420,7 @@ impl<E: Env> Vm<E> {
                     let module_name = import.get_mod_name();
                     let name = import.get_name();
 
-                    let global = env
-                        .get_global(module_name, name)
+                    let global = E::get_global(module_name, name)
                         .ok_or(InstanceError::ImportGlobalNameDoesNotMatch)?;
                     Ok(global.value)
                 }
@@ -467,13 +463,13 @@ impl<E: Env> Vm<E> {
         Ok(())
     }
 
-    fn init(bytecode: &Bytecode, info: &BytecodeInfo, env: E) -> Result<Vm<E>, InstanceError> {
-        let code = Code::from_module(bytecode, info, &env)?;
+    fn init(bytecode: &Bytecode, info: &BytecodeInfo) -> Result<Vm<E>, InstanceError> {
+        let code = Code::from_module::<E>(bytecode, info)?;
         let mut mem = Self::make_memory(bytecode, info);
         let locals = Vec::new();
         let start_func_id = bytecode.start.as_ref().map(|i| i.data as usize);
         let value_stack = Vec::with_capacity(20);
-        let globals = Self::get_global_instances(bytecode, info, &env)?;
+        let globals = Self::get_global_instances(bytecode, info)?;
         let types = bytecode
             .iter_types()
             .map(|i| i.map_into::<Type>().collect());
@@ -509,15 +505,12 @@ impl<E: Env> Vm<E> {
             labels: Vec::new(),
             local_offset: 0,
             func_id: None,
-            env,
+            _marker: PhantomData {},
         })
     }
 
-    pub fn init_from_validation_result(
-        res: &ValidateResult,
-        env: E,
-    ) -> Result<Self, InstanceError> {
-        Vm::init(&res.bytecode, &res.info, env)
+    pub fn init_from_validation_result(res: &ValidateResult) -> Result<Self, InstanceError> {
+        Vm::init(&res.bytecode, &res.info)
     }
 
     fn push_func_locals<'a>(
@@ -688,20 +681,18 @@ impl<E: Env> Vm<E> {
         })
     }
 
-    pub fn enter_function(
+    pub fn enter_native_function(
         &mut self,
         func_id: usize,
         params: impl Iterator<Item = LocalValue>,
     ) -> Result<(), RuntimeError> {
         let next_frame = self.get_return_frame();
-
         match &self.code.functions[func_id].kind {
             FunctionType::Wasm(internal_function_instance) => {
                 if let Some(f) = next_frame {
                     let frame = self.activation_stack.last_mut().unwrap();
                     *frame = f
                 }
-
                 //println!("internal call");
 
                 self.ip = internal_function_instance.code_offset;
@@ -729,18 +720,36 @@ impl<E: Env> Vm<E> {
                 self.func_id = Some(func_id);
                 Ok(())
             }
+            _ => unreachable!(),
+        }
+    }
+    pub fn enter_function(
+        &mut self,
+        func_id: usize,
+        params: impl Iterator<Item = LocalValue>,
+        results: Vec<LocalValue>,
+        env: &mut E,
+    ) -> Result<(), RuntimeError> {
+        let mut res = results;
+        let next_frame = self.get_return_frame();
+
+        match &self.code.functions[func_id].kind {
+            FunctionType::Wasm(_) => self.enter_native_function(func_id, params),
+
             FunctionType::Native(native_function_instance) => {
                 //println!("native call");
                 let params: SmallVec<[LocalValue; 16]> = params.collect();
-                self.env
-                    .call(self, &params, native_function_instance.id)
+                env.call(self, &params, &mut res, native_function_instance.id)
                     .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
+                res.iter().for_each(|r| self.push_value(*r));
+
                 self.ip += 1;
+
                 Ok(())
             }
         }
     }
-    pub fn pop_type_params<'a>(
+    pub fn pop_type_arams<'a>(
         &mut self,
         params: impl IntoIterator<Item = &'a ValueType>,
     ) -> SmallVec<[LocalValue; 16]> {
@@ -751,7 +760,7 @@ impl<E: Env> Vm<E> {
             .collect()
     }
 
-    pub fn exec_call(&mut self, id: usize) -> Result<(), RuntimeError> {
+    pub fn exec_call(&mut self, id: usize, env: &mut E) -> Result<(), RuntimeError> {
         //println!("calling: {id}");
         let func = &self.code.functions[id];
         let params = &func.t.params.clone(); //TODO: (joh): Ich hasse das
@@ -769,8 +778,14 @@ impl<E: Env> Vm<E> {
         self.value_stack
             .truncate(self.value_stack.len() - params.len());
 
+        let results = func
+            .t
+            .results
+            .iter()
+            .map(|v| LocalValue::init_from_type(*v));
+
         //println!("call params {:?}", params);
-        self.enter_function(id, params.iter().cloned())
+        self.enter_function(id, params.iter().cloned(), results.collect(), env)
     }
 
     pub fn exec_return(&mut self) -> bool {
@@ -883,7 +898,7 @@ impl<E: Env> Vm<E> {
         Ok(())
     }
 
-    pub fn exec_op(&mut self, bytecode: &Bytecode) -> Result<bool, RuntimeError> {
+    pub fn exec_op(&mut self, bytecode: &Bytecode, env: &mut E) -> Result<bool, RuntimeError> {
         match self.fetch_instruction() {
             Op::Unreachable => {
                 //dbg!("Unreachable reached");
@@ -907,7 +922,7 @@ impl<E: Env> Vm<E> {
                     return Ok(true);
                 }
             }
-            Op::Call(c) => self.exec_call(*c)?,
+            Op::Call(c) => self.exec_call(*c, env)?,
             Op::CallIndirect { table, type_id } => todo!(),
             Op::Drop => {
                 _ = self.pop_any();
@@ -1004,21 +1019,21 @@ impl<E: Env> Vm<E> {
         };
         Ok(false)
     }
-    pub fn enter_start_function(&mut self) -> Result<(), RuntimeError> {
+    pub fn enter_start_function(&mut self, env: &mut E) -> Result<(), RuntimeError> {
         if let Some(start) = self.start_func_id {
             //TODO: (joh):
-            self.enter_function(start, std::iter::empty())
+            self.enter_function(start, std::iter::empty(), vec![], env)
         } else {
             Err(RuntimeError::UnexpectedNoStartFunction)
         }
     }
 
-    pub fn run(&mut self, bytecode: &Bytecode) -> Result<(), RuntimeError> {
+    pub fn run(&mut self, bytecode: &Bytecode, env: &mut E) -> Result<(), RuntimeError> {
         if self.func_id.is_none() {
             Err(RuntimeError::NoFunctionToExecute)
         } else {
             loop {
-                let end = self.exec_op(bytecode)?;
+                let end = self.exec_op(bytecode, env)?;
                 //println!("stack now: {:?}", self.value_stack);
                 if end {
                     break;
@@ -1043,15 +1058,16 @@ impl<E: Env> Vm<E> {
         func_id: usize,
         params: impl IntoIterator<Item = LocalValue>,
     ) -> Result<(), RuntimeError> {
-        self.enter_function(func_id, params.into_iter())
+        self.enter_native_function(func_id, params.into_iter())
     }
 
     pub fn run_func(
         &mut self,
         bytecode: &Bytecode,
         info: &BytecodeInfo,
+        env: &mut E,
     ) -> Result<Vec<LocalValue>, RuntimeError> {
-        self.run(bytecode)?;
+        self.run(bytecode, env)?;
         let res = if let Some(func_id) = self.func_id {
             let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
             let res = self.stack_to_local_vals(func_t.results.iter().cloned());
@@ -1105,11 +1121,11 @@ pub enum ExecutionError {
 //TODO: (joh): Nutzer sollte Funktion und Argumente manuell callen koennen
 pub fn run_validation_result<E: Env>(
     res: ValidateResult,
-    env: E,
+    env: &mut E,
 ) -> Result<ExecutionResult<E>, ExecutionError> {
-    let mut vm = Vm::init(&res.bytecode, &res.info, env)?;
-    vm.enter_start_function()?;
-    vm.run(&res.bytecode)?;
+    let mut vm = Vm::init(&res.bytecode, &res.info)?;
+    vm.enter_start_function(env)?;
+    vm.run(&res.bytecode, env)?;
     Ok(ExecutionResult {
         validation_result: res,
         exec: vm,
@@ -1200,7 +1216,7 @@ impl_mem_store!(f64_store, f64, f64);
 pub struct DebugEnv {}
 
 impl Env for DebugEnv {
-    fn get_func(&self, env: &str, name: &str) -> Option<ExternalFunction> {
+    fn get_func(env: &str, name: &str) -> Option<ExternalFunction> {
         if env != "env" {
             return None;
         };
@@ -1224,11 +1240,17 @@ impl Env for DebugEnv {
         }
     }
 
-    fn get_global(&self, env: &str, name: &str) -> Option<crate::env::ExternalGlobal> {
+    fn get_global(env: &str, name: &str) -> Option<crate::env::ExternalGlobal> {
         None
     }
 
-    fn call(&self, vm: &Vm<Self>, params: &[LocalValue], func_id: usize) -> Result<(), usize> {
+    fn call(
+        &mut self,
+        vm: &Vm<Self>,
+        params: &[LocalValue],
+        _results: &mut [LocalValue],
+        func_id: usize,
+    ) -> Result<(), usize> {
         match func_id {
             0 => Err(params[0].u32() as usize),
             1 => Ok(println!("{}", params[0].u32())),
@@ -1264,10 +1286,11 @@ mod tests {
                 let src = $code;
                 let res = read_and_validate_wat(src).unwrap();
 
-                let mut vm = Vm::init_from_validation_result(&res, DebugEnv {}).unwrap();
+                let mut env = DebugEnv {};
+                let mut vm = Vm::init_from_validation_result(&res).unwrap();
                 vm.set_func($func_id, $params).unwrap();
 
-                let results = vm.run_func(&res.bytecode, &res.info).unwrap();
+                let results = vm.run_func(&res.bytecode, &res.info, &mut env).unwrap();
                 println!("results: {:?}", results);
                 assert!(results == $expecting);
                 Ok(())
@@ -1280,9 +1303,10 @@ mod tests {
             fn $fn_name() -> Result<(), ExecutionError> {
                 let src = $code;
                 let res = read_and_validate_wat(src).unwrap();
-                let mut vm = Vm::init_from_validation_result(&res, DebugEnv {}).unwrap();
+                let mut env = DebugEnv {};
+                let mut vm = Vm::init_from_validation_result(&res).unwrap();
                 vm.set_func($func_id, $params).unwrap();
-                let result = vm.run_func(&res.bytecode, &res.info).unwrap_err();
+                let result = vm.run_func(&res.bytecode, &res.info, &mut env).unwrap_err();
                 assert!(matches!(result, $expecting));
                 Ok(())
             }

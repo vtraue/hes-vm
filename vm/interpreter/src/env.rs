@@ -12,9 +12,15 @@ pub struct ExternalFunction {
 }
 
 pub trait Env: Sized {
-    fn get_func(&self, env: &str, name: &str) -> Option<ExternalFunction>;
-    fn get_global(&self, env: &str, name: &str) -> Option<ExternalGlobal>;
-    fn call(&self, vm: &Vm<Self>, params: &[LocalValue], func_id: usize) -> Result<(), usize>;
+    fn get_func(env: &str, name: &str) -> Option<ExternalFunction>;
+    fn get_global(env: &str, name: &str) -> Option<ExternalGlobal>;
+    fn call(
+        &mut self,
+        vm: &Vm<Self>,
+        params: &[LocalValue],
+        results: &mut [LocalValue],
+        func_id: usize,
+    ) -> Result<(), usize>;
 }
 
 #[derive(Debug, Clone)]

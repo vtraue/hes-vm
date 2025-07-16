@@ -43,8 +43,9 @@ pub fn execute_run_command(
     file: &mut File,
 ) -> Result<()> {
     let validate_result = read_and_validate_file(file).context("Unable to parse file")?;
-    let mut vm = Vm::init_from_validation_result(&validate_result, DebugEnv {})
-        .context("Unable to instantiate")?;
+    let mut env = DebugEnv {};
+    let mut vm =
+        Vm::init_from_validation_result(&validate_result).context("Unable to instantiate")?;
 
     if let Some(exported) = validate_result.bytecode.get_exports_as_map() {
         let func = exported.get_function_id(func_name);
@@ -60,13 +61,13 @@ pub fn execute_run_command(
             .context("Unable to load function")?;
 
         let result = vm
-            .run_func(&validate_result.bytecode, &validate_result.info)
+            .run_func(&validate_result.bytecode, &validate_result.info, &mut env)
             .context("Error while executing {func_name}")?;
 
         vm.set_func(func_id, params)
             .context("Unable to load function")?;
         let result = vm
-            .run_func(&validate_result.bytecode, &validate_result.info)
+            .run_func(&validate_result.bytecode, &validate_result.info, &mut env)
             .context("Error while executing {func_name}")?;
 
         if result.len() == 1 {
