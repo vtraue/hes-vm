@@ -152,7 +152,8 @@ macro_rules! impl_vm_pop {
         impl<E: Env> Vm<E> {
             pub unsafe fn $func_name(&mut self) -> $t {
                 let val = unsafe { self.value_stack.pop().unwrap().$var_name };
-                bytemuck::cast(val)
+                val as $t
+                //bytemuck::cast(val)
             }
         }
         impl_pop_from_value_stack!($t, $func_name);
@@ -669,7 +670,7 @@ impl<E: Env> Vm<E> {
                 self.leave_wasm_function();
                 false
             } else {
-                println!("Blub");
+                //println!("Blub");
                 true
             }
         }
@@ -906,6 +907,7 @@ impl<E: Env> Vm<E> {
         let old_size = mem.len();
         mem.resize(old_size + grow_by, 0);
         self.push_value(old_size as u32);
+        self.ip += 1;
     }
 
     pub fn exec_memory_fill(&mut self) {
@@ -919,6 +921,7 @@ impl<E: Env> Vm<E> {
         let mem = self.mem.as_mut().unwrap();
         let region = &mut mem[dest..dest + n];
         region.fill(val as u8);
+        self.ip += 1;
     }
     pub fn exec_op(&mut self, bytecode: &Bytecode, env: &mut E) -> Result<bool, RuntimeError> {
         match self.fetch_instruction() {
@@ -940,7 +943,7 @@ impl<E: Env> Vm<E> {
             Op::BrIf { label, jmp } => self.exec_br_if(*label, *jmp),
             Op::Return => {
                 if !self.exec_return() {
-                    println!("Done!");
+                    //println!("Done!");
                     return Ok(true);
                 }
             }
@@ -1205,19 +1208,32 @@ macro_rules! impl_mem_store {
     ($fn_name: ident, $pop_type: tt, $real_type: tt) => {
         impl<E: Env> Vm<E> {
             pub fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
-                let data = unsafe { self.pop_value::<$pop_type>() as $real_type };
+                let raw = unsafe { self.pop_value::<$pop_type>() };
+                let data: $real_type = raw as $real_type;
                 let data_buffer = data.to_le_bytes();
 
                 let addr = unsafe { self.pop_value::<u32>() as usize };
                 let addr_start = addr + arg.offset as usize;
                 let range = addr_start..addr_start + std::mem::size_of::<$real_type>();
 
-                self.mem
+                let dest = self
+                    .mem
                     .as_mut()
                     .unwrap()
                     .get_mut(range)
-                    .ok_or(RuntimeError::MemoryAddressOutOfScope)?
-                    .copy_from_slice(&data_buffer);
+                    .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
+
+                dest.copy_from_slice(&data_buffer);
+
+                /*
+                let test_num: u32 = (1 << 24) | (2 << 16) | (3 << 8) | 4;
+                println!("expected {} {:?}", test_num, test_num.to_le_bytes());
+                println!(
+                    "store op: addr: {}, raw: {raw}, data: {:?}, buffer: {:?}",
+                    addr, data, data_buffer
+                );
+                println!("mem: {:?}", dest);
+                */
                 self.ip += 1;
                 Ok(())
             }
@@ -1269,7 +1285,7 @@ impl Env for DebugEnv {
 
     fn call(
         &mut self,
-        vm: &Vm<Self>,
+        vm: &mut Vm<Self>,
         params: &[LocalValue],
         _results: &mut [LocalValue],
         func_id: usize,

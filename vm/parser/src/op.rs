@@ -357,7 +357,7 @@ impl FromBytecode for Op {
             0x8B => Op::I64Rotr,
 
             0xFC => read_fc_op(reader)?, //Memory
-            0x3F => Op::MemoryGrow {
+            0x40 => Op::MemoryGrow {
                 extra: reader.parse()?,
             },
             _ => panic!("Unimplemented Opcode {:0X}", opcode),
