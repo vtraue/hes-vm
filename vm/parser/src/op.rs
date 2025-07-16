@@ -173,8 +173,9 @@ pub enum Op {
     I64Rotr,
 
     MemoryCopy,
-    MemoryFill,
+    MemoryFill { extra: usize },
     MemoryInit { data_id: usize, extra: usize }, //TODO: (joh): Float ops
+    MemoryGrow { extra: usize },
 }
 
 impl Op {
@@ -226,6 +227,9 @@ pub fn read_fc_op(reader: &mut impl BytecodeReader) -> Result<Op, ParserError> {
     let instr = match opcode {
         0x08 => Op::MemoryInit {
             data_id: reader.parse()?,
+            extra: reader.parse()?,
+        },
+        11 => Op::MemoryFill {
             extra: reader.parse()?,
         },
         _ => todo!(),
@@ -353,7 +357,9 @@ impl FromBytecode for Op {
             0x8B => Op::I64Rotr,
 
             0xFC => read_fc_op(reader)?, //Memory
-            //
+            0x3F => Op::MemoryGrow {
+                extra: reader.parse()?,
+            },
             _ => panic!("Unimplemented Opcode {:0X}", opcode),
         };
 
@@ -377,7 +383,7 @@ impl fmt::Display for Op {
             Op::Call(func_id) => write!(f, "call {func_id}"),
             Op::CallIndirect { table, type_id } => write!(f, "call_indirect {table} {type_id}"),
             Op::Drop => write!(f, "drop"),
-            Op::Select(_) => write!(f, "select"), //TODO: (joh): Argumente fuer Select
+            Op::Select(_) => write!(f, "select"),
             Op::LocalGet(id) => write!(f, "local.get {id}"),
             Op::LocalSet(id) => write!(f, "local.set {id}"),
             Op::LocalTee(id) => write!(f, "local.tee {id}"),
@@ -433,7 +439,7 @@ impl fmt::Display for Op {
             Op::I64Ges => write!(f, "i64.ges"),
             Op::I64Geu => write!(f, "i64.geu"),
             Op::MemoryCopy => write!(f, "memory.copy"),
-            Op::MemoryFill => write!(f, "memory.fill"),
+            Op::MemoryFill { .. } => write!(f, "memory.fill"),
             Op::I32Add => write!(f, "i32.add"),
             Op::I32Sub => write!(f, "i32.sub"),
             Op::I32Mul => write!(f, "i32.mul"),
@@ -467,6 +473,7 @@ impl fmt::Display for Op {
             Op::MemoryInit { data_id, .. } => {
                 write!(f, "memory.init {data_id}")
             }
+            Op::MemoryGrow { .. } => write!(f, "memory.grow"),
         }
     }
 }

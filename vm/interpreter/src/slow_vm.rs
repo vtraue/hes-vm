@@ -20,6 +20,7 @@ use validator::validator::{ReadAndValidateError, ValidateResult};
 
 use crate::env::Env;
 use crate::{env::ExternalFunction, stack::StackValue};
+const WASM_PAGE_SIZE: usize = 65536;
 
 #[derive(Error, Debug)]
 pub enum InstanceError {
@@ -738,6 +739,7 @@ impl<E: Env> Vm<E> {
 
             FunctionType::Native(native_function_instance) => {
                 //println!("native call");
+                //TODO: (joh): Mache Fehler teil der Funktion
                 let params: SmallVec<[LocalValue; 16]> = params.collect();
                 env.call(self, &params, &mut res, native_function_instance.id)
                     .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
@@ -898,6 +900,26 @@ impl<E: Env> Vm<E> {
         Ok(())
     }
 
+    pub fn exec_memory_grow(&mut self) {
+        let grow_by = unsafe { self.pop_u32() as usize } * WASM_PAGE_SIZE;
+        let mem = self.mem.as_mut().unwrap();
+        let old_size = mem.len();
+        mem.resize(old_size + grow_by, 0);
+        self.push_value(old_size as u32);
+    }
+
+    pub fn exec_memory_fill(&mut self) {
+        let (n, val, dest) = unsafe {
+            (
+                self.pop_u32() as usize,
+                self.pop_u32(),
+                self.pop_u32() as usize,
+            )
+        };
+        let mem = self.mem.as_mut().unwrap();
+        let region = &mut mem[dest..dest + n];
+        region.fill(val as u8);
+    }
     pub fn exec_op(&mut self, bytecode: &Bytecode, env: &mut E) -> Result<bool, RuntimeError> {
         match self.fetch_instruction() {
             Op::Unreachable => {
@@ -1011,11 +1033,12 @@ impl<E: Env> Vm<E> {
             Op::I64Shl => self.exec_binop_push(|a: u64, b: u64| a << b),
             Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),
             Op::I64Shru => self.exec_binop_push(|a: u64, b: u64| a >> b),
-            Op::MemoryInit { data_id, extra } => self.exec_memory_init(bytecode, *data_id)?,
+            Op::MemoryInit { data_id, .. } => self.exec_memory_init(bytecode, *data_id)?,
             Op::I64Rotl => todo!(),
             Op::I64Rotr => todo!(),
             Op::MemoryCopy => todo!(),
-            Op::MemoryFill => todo!(),
+            Op::MemoryFill { .. } => self.exec_memory_fill(),
+            Op::MemoryGrow { .. } => self.exec_memory_grow(),
         };
         Ok(false)
     }

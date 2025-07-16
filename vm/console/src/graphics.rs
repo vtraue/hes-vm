@@ -443,9 +443,14 @@ impl Env for State {
                 print!("{str}");
                 Ok(())
             }
+            //paint
             1 => {
                 let (ptr, width, height) = (params[0].u32(), params[1].u32(), params[2].u32());
-                println!("drawing: {ptr}, {width}, {height}");
+                let data = vm
+                    .get_bytes_from_mem(ptr as usize, (width * height) as usize)
+                    .map_err(|_| 1_usize)?;
+                self.update_framebuffer_data(data, width, height);
+
                 Ok(())
             }
             _ => unreachable!(),
@@ -552,10 +557,12 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
+                //TODO: (joh): Besseres Error Handling
                 self.exec
                     .as_mut()
                     .unwrap()
-                    .run_frame(self.state.as_mut().unwrap(), 800, 600);
+                    .run_frame(self.state.as_mut().unwrap(), 800, 600)
+                    .unwrap();
 
                 let state = match &mut self.state {
                     Some(canvas) => canvas,
@@ -569,7 +576,6 @@ impl ApplicationHandler for App {
                         state.resize(size.width, size.height);
                     }
                     Err(e) => {
-                        //TODO: (joh): Bessere Fehler
                         panic!("Unable to render {}", e);
                     }
                 }
