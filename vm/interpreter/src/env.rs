@@ -16,7 +16,7 @@ pub trait Env: Sized {
     fn get_global(env: &str, name: &str) -> Option<ExternalGlobal>;
     fn call(
         &mut self,
-        vm: &Vm<Self>,
+        vm: &mut Vm<Self>,
         params: &[LocalValue],
         results: &mut [LocalValue],
         func_id: usize,

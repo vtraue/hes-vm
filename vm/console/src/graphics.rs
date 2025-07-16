@@ -39,6 +39,12 @@ pub enum ConsoleError {
     #[error("Module required to export a run function")]
     NoRunFunc,
 
+    #[error("Module required to export an init function")]
+    NoInitFunc,
+
+    #[error("Runtime error occured: {0}")]
+    RuntimeError(#[from] RuntimeError),
+
     #[error("Unable to virtual machine: {0}")]
     UnableToInitVirtualMachine(#[from] InstanceError),
     #[error("Unable to create wgpu surface: {0}")]
@@ -99,8 +105,6 @@ const INDICES: &[u16] = &[0, 1, 3, 1, 2, 3];
 #[derive(Debug)]
 struct State {
     window: Arc<Window>,
-    //NOTE: (joh): Ich mag die static Lifetime hier garnicht. Unser Fenster lebt nicht
-    // so lange wie der Rest der Anwendung!
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -168,9 +172,11 @@ impl State {
         let diffuse_rgba = diffuse_image.to_rgba8();
         use image::GenericImageView;
         let dimensions = diffuse_image.dimensions();
+        println!("dim: {:?}", dimensions);
+
         let texture_size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
+            width: 800,
+            height: 600,
             depth_or_array_layers: 1,
         };
         let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -183,6 +189,7 @@ impl State {
             label: Some("frame texture"),
             view_formats: &[],
         });
+
         queue.write_texture(
             wgpu::TexelCopyTextureInfoBase {
                 texture: &diffuse_texture,
@@ -193,8 +200,8 @@ impl State {
             &diffuse_rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * dimensions.0),
-                rows_per_image: Some(dimensions.1),
+                bytes_per_row: Some(4 * 800),
+                rows_per_image: Some(600),
             },
             texture_size,
         );
@@ -321,6 +328,9 @@ impl State {
     }
 
     pub fn update_framebuffer_data(&mut self, pixels: &[u8], width: u32, height: u32) {
+        println!("updating: {width}, {height}");
+        println!("buffer size: {}", pixels.len());
+
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfoBase {
                 texture: &self.texture,
@@ -427,7 +437,7 @@ impl Env for State {
 
     fn call(
         &mut self,
-        vm: &Vm<Self>,
+        vm: &mut Vm<Self>,
         params: &[LocalValue],
         _results: &mut [LocalValue],
         func_id: usize,
@@ -447,7 +457,7 @@ impl Env for State {
             1 => {
                 let (ptr, width, height) = (params[0].u32(), params[1].u32(), params[2].u32());
                 let data = vm
-                    .get_bytes_from_mem(ptr as usize, (width * height) as usize)
+                    .get_bytes_from_mem(ptr as usize, (width * height * 4) as usize)
                     .map_err(|_| 1_usize)?;
                 self.update_framebuffer_data(data, width, height);
 
@@ -461,6 +471,8 @@ impl Env for State {
 pub struct Executor {
     validate_result: ValidateResult,
     run_func_id: usize,
+    init_func_id: usize,
+    init_func_result: Option<u32>,
     vm: Vm<State>,
 }
 
@@ -480,43 +492,69 @@ impl Executor {
             .bytecode
             .get_exports_as_map()
             .ok_or(ConsoleError::NoExportedFuncs)?;
+
         let run_func_id = exports
             .get_function_id("run")
             .ok_or(ConsoleError::NoRunFunc)?;
-        let vm = Vm::init_from_validation_result(&validate_result)?;
+        let init_func_id = exports
+            .get_function_id("init")
+            .ok_or(ConsoleError::NoInitFunc)?;
 
+        let vm = Vm::init_from_validation_result(&validate_result)?;
         Ok(Executor {
             vm,
             validate_result,
             run_func_id,
+            init_func_id,
+            init_func_result: None,
         })
     }
-    pub fn run_frame(
+
+    fn run_init(&mut self, state: &mut State) -> Result<(), ConsoleError> {
+        self.vm.set_func(self.init_func_id, vec![])?;
+
+        let result = self.vm.run_func(
+            &self.validate_result.bytecode,
+            &self.validate_result.info,
+            state,
+        )?;
+
+        println!("Init done!\n");
+        assert!(result.len() == 1);
+        self.init_func_result = Some(result[0].u32());
+        Ok(())
+    }
+
+    fn run_frame(
         &mut self,
         state: &mut State,
         width: u32,
         height: u32,
     ) -> Result<(), RuntimeError> {
-        let args: [LocalValue; 2] = [LocalValue::I32(width), LocalValue::I32(height)];
+        let args: [LocalValue; 3] = [
+            LocalValue::I32(self.init_func_result.unwrap()),
+            LocalValue::I32(width),
+            LocalValue::I32(height),
+        ];
         self.vm.set_func(self.run_func_id, args)?;
-        self.vm.run(&self.validate_result.bytecode, state)?;
+        self.vm.run_func(
+            &self.validate_result.bytecode,
+            &self.validate_result.info,
+            state,
+        )?;
         Ok(())
     }
 }
 #[derive(Debug)]
 pub struct App {
     state: Option<State>,
-    exec: Option<Executor>,
+    exec: Executor,
 }
 impl App {
     pub fn new(reader: &mut impl BytecodeReader) -> Result<Self, ConsoleError> {
-        //NOTE: (joh): Das hier ist irwie nicht schoen
-        let mut app = Self {
-            state: None,
-            exec: None,
-        };
         let exec = Executor::new(reader)?;
-        app.exec = Some(exec);
+        let app = Self { state: None, exec };
+
         Ok(app)
     }
 }
@@ -524,8 +562,10 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let attributes = Window::default_attributes().with_inner_size(LogicalSize::new(800, 600));
         let window = Arc::new(event_loop.create_window(attributes).unwrap());
-        self.state = Some(pollster::block_on(State::new(window)).unwrap())
-        //Init Funktion
+        let mut state = pollster::block_on(State::new(window)).unwrap();
+
+        self.exec.run_init(&mut state).unwrap();
+        self.state = Some(state);
     }
 
     fn window_event(
@@ -558,9 +598,8 @@ impl ApplicationHandler for App {
 
             WindowEvent::RedrawRequested => {
                 //TODO: (joh): Besseres Error Handling
+                //println!("start frame!");
                 self.exec
-                    .as_mut()
-                    .unwrap()
                     .run_frame(self.state.as_mut().unwrap(), 800, 600)
                     .unwrap();
 
