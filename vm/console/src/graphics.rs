@@ -4,7 +4,12 @@ use interpreter::{
     slow_vm::{InstanceError, LocalValue, RuntimeError, Vm},
 };
 use parser::reader::{BytecodeReader, ParserError, ValueType, is_wasm_bytecode};
-use std::{collections::HashMap, io, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{self, BufReader, Read},
+    sync::Arc,
+};
 use thiserror::Error;
 use validator::validator::{
     ReadAndValidateError, ValidateResult, read_and_validate, read_and_validate_wat,
@@ -24,6 +29,8 @@ use winit::{
 
 #[derive(Error, Debug)]
 pub enum ConsoleError {
+    #[error("Unable to load wasm file: {0}")]
+    UnableToLoadFile(io::Error),
     #[error("Error while parsing file: {0}")]
     UnableToParseFile(#[from] ReadAndValidateError),
 
@@ -101,7 +108,7 @@ const VERTICES: &[Vertex] = &[
     },
 ];
 const INDICES: &[u16] = &[0, 1, 3, 1, 2, 3];
-
+const FB_SIZE: (u32, u32) = (320, 180);
 #[derive(Debug)]
 struct State {
     window: Arc<Window>,
@@ -175,8 +182,8 @@ impl State {
         println!("dim: {:?}", dimensions);
 
         let texture_size = wgpu::Extent3d {
-            width: 800,
-            height: 600,
+            width: FB_SIZE.0,
+            height: FB_SIZE.1,
             depth_or_array_layers: 1,
         };
         let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -200,8 +207,8 @@ impl State {
             &diffuse_rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * 800),
-                rows_per_image: Some(600),
+                bytes_per_row: Some(4 * FB_SIZE.0),
+                rows_per_image: Some(FB_SIZE.1),
             },
             texture_size,
         );
@@ -467,51 +474,83 @@ impl Env for State {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+struct Funcs {
+    init: usize,
+    run: usize,
+}
+impl Funcs {
+    pub fn from_validate_result(result: &ValidateResult) -> Result<Self, ConsoleError> {
+        let exports = result
+            .bytecode
+            .get_exports_as_map()
+            .ok_or(ConsoleError::NoExportedFuncs)?;
+
+        let run = exports
+            .get_function_id("run")
+            .ok_or(ConsoleError::NoRunFunc)?;
+        let init = exports
+            .get_function_id("init")
+            .ok_or(ConsoleError::NoInitFunc)?;
+
+        Ok(Self { init, run })
+    }
+}
 #[derive(Debug)]
 pub struct Executor {
+    wasm_path: String,
     validate_result: ValidateResult,
-    run_func_id: usize,
-    init_func_id: usize,
+    funcs: Funcs,
     init_func_result: Option<u32>,
     vm: Vm<State>,
 }
 
 impl Executor {
     //NOTE: (joh): Vielleicht sollten wir direkt Bytecode uebergeben?
-    pub fn new(reader: &mut impl BytecodeReader) -> Result<Self, ConsoleError> {
-        let validate_result =
-            if is_wasm_bytecode(reader).map_err(|e| ConsoleError::InvalidFileFormat(e))? {
-                read_and_validate(reader)
-            } else {
-                let mut code = String::new();
-                reader.read_to_string(&mut code)?;
-                read_and_validate_wat(code)
-            }?;
+    fn get_validate_result(
+        reader: &mut impl BytecodeReader,
+    ) -> Result<ValidateResult, ConsoleError> {
+        let res = if is_wasm_bytecode(reader).map_err(|e| ConsoleError::InvalidFileFormat(e))? {
+            read_and_validate(reader)
+        } else {
+            let mut code = String::new();
+            reader.read_to_string(&mut code)?;
+            read_and_validate_wat(code)
+        }?;
+        Ok(res)
+    }
 
-        let exports = validate_result
-            .bytecode
-            .get_exports_as_map()
-            .ok_or(ConsoleError::NoExportedFuncs)?;
+    pub fn new(path: impl Into<String>) -> Result<Self, ConsoleError> {
+        let p = path.into();
+        let file = File::open(&p).map_err(|e| ConsoleError::UnableToLoadFile(e))?;
+        let mut reader = BufReader::new(file);
 
-        let run_func_id = exports
-            .get_function_id("run")
-            .ok_or(ConsoleError::NoRunFunc)?;
-        let init_func_id = exports
-            .get_function_id("init")
-            .ok_or(ConsoleError::NoInitFunc)?;
+        let validate_result = Self::get_validate_result(&mut reader)?;
+        let funcs = Funcs::from_validate_result(&validate_result)?;
 
         let vm = Vm::init_from_validation_result(&validate_result)?;
         Ok(Executor {
+            wasm_path: p,
             vm,
             validate_result,
-            run_func_id,
-            init_func_id,
+            funcs,
             init_func_result: None,
         })
     }
 
+    pub fn reload_all(&mut self, state: &mut State) -> Result<(), ConsoleError> {
+        let file = File::open(&self.wasm_path).map_err(|e| ConsoleError::UnableToLoadFile(e))?;
+        let mut reader = BufReader::new(file);
+        self.validate_result = Self::get_validate_result(&mut reader)?;
+        self.funcs = Funcs::from_validate_result(&self.validate_result)?;
+        self.vm = Vm::init_from_validation_result(&self.validate_result)?;
+        self.run_init(state);
+        Ok(())
+    }
+
     fn run_init(&mut self, state: &mut State) -> Result<(), ConsoleError> {
-        self.vm.set_func(self.init_func_id, vec![])?;
+        self.vm.set_func(self.funcs.init, vec![])?;
 
         let result = self.vm.run_func(
             &self.validate_result.bytecode,
@@ -536,7 +575,7 @@ impl Executor {
             LocalValue::I32(width),
             LocalValue::I32(height),
         ];
-        self.vm.set_func(self.run_func_id, args)?;
+        self.vm.set_func(self.funcs.run, args)?;
         self.vm.run_func(
             &self.validate_result.bytecode,
             &self.validate_result.info,
@@ -551,8 +590,8 @@ pub struct App {
     exec: Executor,
 }
 impl App {
-    pub fn new(reader: &mut impl BytecodeReader) -> Result<Self, ConsoleError> {
-        let exec = Executor::new(reader)?;
+    pub fn new(path: impl Into<String>) -> Result<Self, ConsoleError> {
+        let exec = Executor::new(path)?;
         let app = Self { state: None, exec };
 
         Ok(app)
@@ -560,7 +599,8 @@ impl App {
 }
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let attributes = Window::default_attributes().with_inner_size(LogicalSize::new(800, 600));
+        let attributes =
+            Window::default_attributes().with_inner_size(LogicalSize::new(FB_SIZE.0, FB_SIZE.1));
         let window = Arc::new(event_loop.create_window(attributes).unwrap());
         let mut state = pollster::block_on(State::new(window)).unwrap();
 
@@ -591,10 +631,16 @@ impl ApplicationHandler for App {
                         ..
                     },
                 ..
-            } => {
-                let state = self.state.as_mut().unwrap();
-                state.handle_key(event_loop, code, key_state.is_pressed());
-            }
+            } => match (code, key_state.is_pressed()) {
+                (KeyCode::KeyR, true) => {
+                    let state = self.state.as_mut().unwrap();
+                    self.exec.reload_all(state).unwrap();
+                }
+                _ => {
+                    let state = self.state.as_mut().unwrap();
+                    state.handle_key(event_loop, code, key_state.is_pressed());
+                }
+            },
 
             WindowEvent::RedrawRequested => {
                 //TODO: (joh): Besseres Error Handling
@@ -603,7 +649,7 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
 
                 self.exec
-                    .run_frame(self.state.as_mut().unwrap(), 800, 600)
+                    .run_frame(self.state.as_mut().unwrap(), FB_SIZE.0, FB_SIZE.1)
                     .unwrap();
                 let elapsed = now.elapsed();
                 println!("Time for update: {:.2?}ms", elapsed.as_millis());

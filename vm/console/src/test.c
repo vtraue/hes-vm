@@ -5,8 +5,8 @@ __attribute__((import_module("env"), import_name("io_print_string"))) void vm_pr
 __attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(char* framebuffer, int width, int height);
 
 #define WASM_PAGE_SIZE 65536
-#define FB_WIDTH 800
-#define FB_HEIGHT 600
+#define FB_WIDTH 320
+#define FB_HEIGHT 180
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -60,9 +60,9 @@ void fill_framebuffer(u8* buffer, u8 r, u8 g, u8 b, u8 a) {
   u8* row = buffer;
   int color = ((u32)(a) << 24) | ((u32)(b) << 16) | ((u32)(g) << 8) | r;
 
-  for(int y = 0; y < 600; y++) {
+  for(int y = 0; y < FB_HEIGHT; y++) {
     u32* pixel = (u32*)row;
-    for(int x = 0; x < 800; x++) {
+    for(int x = 0; x < FB_WIDTH; x++) {
       *pixel++ = color;
     }
     row += 800 * 4;
@@ -70,7 +70,7 @@ void fill_framebuffer(u8* buffer, u8 r, u8 g, u8 b, u8 a) {
 }
 
 void draw_rectangle(u8* dest_buffer, u32 x, u32 y, u32 width, u32 height, u8 r, u8 g, u8 b) {
-  u32* s = ((u32*) dest_buffer); 
+  u32* s = ((u32*) dest_buffer) + ((y * FB_WIDTH) + x); 
   u32* d = s;
   int color = (0 << 24) | b << 16 | g << 8 | r;
   for(int _y = 0; _y < height; _y++) {
@@ -78,14 +78,14 @@ void draw_rectangle(u8* dest_buffer, u32 x, u32 y, u32 width, u32 height, u8 r, 
       *d = color;    
       d++;
     }
-    d = s + ((_y + y) * 800) + x;
+    d = s + ((_y) * FB_WIDTH);
   }
 }
 
 void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
-  int width = 800 / 2;
-  int height = 600;
-  int pitch = 800 * 4;
+  int width = FB_WIDTH / 2;
+  int height = FB_HEIGHT;
+  int pitch = FB_WIDTH * 4;
 
   u8* row = dest_buffer;
   for(int y = 0; y < height; ++y) {
@@ -99,14 +99,13 @@ void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
     row += pitch;
   }
 }
-
 void run(u8* framebuffer, u32 framebuffer_width, u32 framebuffer_height) {
   //cstr_print("Hello from run!\n");
   // fill_framebuffer(framebuffer, 0, 200, 0, 0);
   render_weird_gradient(framebuffer, global_xoffset, global_yoffset);
-  draw_rectangle(framebuffer, 0, 0, 100, 100, 100, 0, 0);
+  draw_rectangle(framebuffer, 40, 40, 100, 100, 250, 50, 0);
   global_xoffset += 2;
   global_yoffset += 2;
 
-  vm_paint(framebuffer, 800, 600);
+  vm_paint(framebuffer, FB_WIDTH, FB_HEIGHT);
 }

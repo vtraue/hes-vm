@@ -616,7 +616,7 @@ impl<E: Env> Vm<E> {
     }
     pub fn exec_local_get(&mut self, id: usize) {
         debug_assert!(self.locals.get(self.local_offset + id).is_some());
-        let local_val = unsafe { self.locals.get_unchecked(self.local_offset + id) };
+        let local_val = self.locals.get(self.local_offset + id).unwrap();
         self.push_value(*local_val);
         self.ip += 1;
     }
@@ -633,7 +633,7 @@ impl<E: Env> Vm<E> {
     pub fn exec_local_set(&mut self, id: usize) {
         let val = self.value_stack.pop().unwrap();
         debug_assert!(self.locals.get(self.local_offset + id).is_some());
-        let local_val = unsafe { self.locals.get_unchecked_mut(self.local_offset + id) };
+        let local_val = self.locals.get_mut(self.local_offset + id).unwrap();
 
         unsafe { local_val.set_inner_from_stack_val(val) };
         //dbg!("local set: {:?}", local_val);
@@ -766,7 +766,7 @@ impl<E: Env> Vm<E> {
             FunctionType::Native(native_function_instance) => {
                 //println!("native call");
                 //TODO: (joh): Mache Fehler teil der Funktion
-                let params: SmallVec<[LocalValue; 16]> = params.collect();
+                let params: SmallVec<[LocalValue; 32]> = params.collect();
                 env.call(self, &params, &mut res, native_function_instance.id)
                     .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
                 res.iter().for_each(|r| self.push_value(*r));
@@ -1142,6 +1142,7 @@ impl<E: Env> Vm<E> {
         self.locals.truncate(0);
         self.ip = 0;
     }
+
     pub fn get_bytes_from_mem<'a>(
         &'a self,
         addr: usize,
