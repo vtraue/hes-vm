@@ -44,7 +44,8 @@
             rust-analyzer
 						wasm-tools
             clang-tools            
-            llvmPackages_latest.clang.cc
+            llvmPackages_18.clang.cc
+            #llvmPackages_latest.clang
             lld
             just
             xorg.libX11

@@ -720,19 +720,21 @@ impl ValidatorContext {
             }
         }
     }
-    pub fn validate_memory_grow(&mut self, bytecode: &Bytecode) -> Result<(), ValidationError> {
-        _ = bytecode
-            .get_memory(0)
-            .ok_or(ValidationError::UnexpectedNoMemories)?;
-        validate_types!(self, [ValueType::I32] => [ValueType::I32]);
-        Ok(())
+    pub fn validate_memory_grow(&mut self, info: &BytecodeInfo) -> Result<(), ValidationError> {
+        if !info.has_memory() {
+            Err(ValidationError::UnexpectedNoMemories)
+        } else {
+            validate_types!(self, [ValueType::I32] => [ValueType::I32]);
+            Ok(())
+        }
     }
-    pub fn validate_memory_fill(&mut self, bytecode: &Bytecode) -> Result<(), ValidationError> {
-        _ = bytecode
-            .get_memory(0)
-            .ok_or(ValidationError::UnexpectedNoMemories)?;
-        validate_types!(self, [ValueType::I32, ValueType::I32, ValueType::I32] => []);
-        Ok(())
+    pub fn validate_memory_fill(&mut self, info: &BytecodeInfo) -> Result<(), ValidationError> {
+        if !info.has_memory() {
+            Err(ValidationError::UnexpectedNoMemories)
+        } else {
+            validate_types!(self, [ValueType::I32, ValueType::I32, ValueType::I32] => []);
+            Ok(())
+        }
     }
     pub fn validate_op(
         &mut self,
@@ -846,9 +848,9 @@ impl ValidatorContext {
             | Op::I64Rotl
             | Op::I64Rotr => self.validate_binop(I64)?,
             Op::MemoryCopy => todo!(),
-            Op::MemoryFill { .. } => self.validate_memory_fill(bytecode)?,
+            Op::MemoryFill { .. } => self.validate_memory_fill(info)?,
             Op::MemoryInit { data_id, .. } => self.validate_memory_init(bytecode, info, data_id)?,
-            Op::MemoryGrow { extra } => self.validate_memory_grow(bytecode)?,
+            Op::MemoryGrow { .. } => self.validate_memory_grow(info)?,
         };
         self.ip += 1;
         println!("Stack now: {:?}", self.type_stack);

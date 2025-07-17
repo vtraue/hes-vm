@@ -1,7 +1,7 @@
 build:
-    clang -std=c23 --target=wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all -O2  src/test.c -o out.wasm
+    clang -std=c23 --target=wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all -O3  src/test.c -o out.wasm
 
 print: build
     wasm-tools print out.wasm
 run: build
-    cargo run --release
+    cargo run --release 

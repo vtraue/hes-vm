@@ -1,3 +1,5 @@
+#include <stdint.h>
+#include <stddef.h>
 #define BUILTIN
 __attribute__((import_module("env"), import_name("io_print_string"))) void vm_print(char* ptr, int size);
 __attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(char* framebuffer, int width, int height);
@@ -5,11 +7,16 @@ __attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(ch
 #define WASM_PAGE_SIZE 65536
 #define FB_WIDTH 800
 #define FB_HEIGHT 600
-typedef int size_t;
-typedef char u8;
-typedef short u16;
-typedef int u32;
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
 
+typedef int8_t i8;
+typedef int16_t i16;
+typedef int32_t i32;
+
+uint8_t global_xoffset = 0;
+uint8_t global_yoffset = 0;
 size_t cstr_len(const char* str) {
   size_t counter = 0;
   for(;;) {
@@ -39,23 +46,17 @@ char* alloc_framebuffer() {
 char* init() {
     cstr_print("Hello from init!\n");
     return alloc_framebuffer();
+    return 0;
 }
 
-void fill_framebuffer(char* buffer, char r, char g, char b) {
+void memset(void *dst, int value, unsigned long size) {
+  __builtin_memset(dst, value, size);
+}
+
+void fill_framebuffer(u8* buffer, u8 r, u8 g, u8 b, u8 a) {
   u8* row = buffer;
-  int color = (4 << 24) | (b << 16) | (g << 8) | r;
+  int color = ((u32)(a) << 24) | ((u32)(b) << 16) | ((u32)(g) << 8) | r;
 
-  for(int y = 0; y < 600; y++) {
-    for(int x = 0; x < 800; x++) {
-      *row++ = r;
-      *row++ = g;
-      *row++ = b;
-      *row++ = 0;
-
-    }
-    row = buffer + ((800 * 4) * y);
-  }
-  /*
   for(int y = 0; y < 600; y++) {
     u32* pixel = (u32*)row;
     for(int x = 0; x < 800; x++) {
@@ -63,13 +64,12 @@ void fill_framebuffer(char* buffer, char r, char g, char b) {
     }
     row += 800 * 4;
   }
-  */
 }
 
 void draw_rectangle(u8* dest_buffer, u32 x, u32 y, u32 width, u32 height, u8 r, u8 g, u8 b) {
   u32* s = ((u32*) dest_buffer); 
   u32* d = s;
-  int color = r << 24 | g << 16 | b << 8 | 900;
+  int color = (0 << 24) | b << 16 | g << 8 | r;
   for(int _y = 0; _y < height; _y++) {
     for(int _x = 0; _x < width; _x++) {
       *d = color;    
@@ -77,13 +77,32 @@ void draw_rectangle(u8* dest_buffer, u32 x, u32 y, u32 width, u32 height, u8 r, 
     }
     d = s + ((_y + y) * 800) + x;
   }
-  
 }
 
-void run(char* framebuffer, int framebuffer_width, int framebuffer_height) {
+void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
+  int width = 800;
+  int height = 600;
+  int pitch = width * 4;
+
+  u8* row = dest_buffer;
+  for(int y = 0; y < height; ++y) {
+    u32* pixel = (u32*)row;
+    for(int x = 0; x < width; ++x) {
+      uint8_t blue = (x + x_offset);
+      uint8_t green = (y + y_offset);
+
+      *pixel++ = ((blue << 8) | green);
+    }
+    row += pitch;
+  }
+}
+void run(u8* framebuffer, u32 framebuffer_width, u32 framebuffer_height) {
   //cstr_print("Hello from run!\n");
-  fill_framebuffer(framebuffer, 0, 0, 200);
-  //draw_rectangle(framebuffer, 0, 0, 100, 100, 200, 200, 200);
+  // fill_framebuffer(framebuffer, 0, 200, 0, 0);
+  // draw_rectangle(framebuffer, 0, 0, 100, 100, 0, 0, global_c);
+  render_weird_gradient(framebuffer, global_xoffset, global_yoffset);
+  global_xoffset += 2;
+  global_yoffset += 2;
 
   vm_paint(framebuffer, 800, 600);
 }

@@ -152,8 +152,8 @@ macro_rules! impl_vm_pop {
         impl<E: Env> Vm<E> {
             pub unsafe fn $func_name(&mut self) -> $t {
                 let val = unsafe { self.value_stack.pop().unwrap().$var_name };
-                val as $t
-                //bytemuck::cast(val)
+                //val as $t
+                bytemuck::cast(val)
             }
         }
         impl_pop_from_value_stack!($t, $func_name);
@@ -561,7 +561,7 @@ impl<E: Env> Vm<E> {
     }
 
     pub fn push_value(&mut self, val: impl Into<StackValue> + Debug) {
-        //println!("Pushing value: {:?}", val);
+        // println!("Pushing value: {:?}", val);
         self.value_stack.push(val.into());
     }
     pub fn pop_any(&mut self) -> StackValue {
@@ -576,7 +576,7 @@ impl<E: Env> Vm<E> {
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
-            //println!("Popping: {:?}", val);
+            // println!("Popping: {:?}", val);
             val
         }
     }
@@ -584,7 +584,7 @@ impl<E: Env> Vm<E> {
     #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
-        //println!("fetching: {:?}", op);
+        // println!("fetching: {:?}", op);
         op
     }
 
@@ -1226,7 +1226,7 @@ macro_rules! impl_mem_store {
                 dest.copy_from_slice(&data_buffer);
 
                 /*
-                let test_num: u32 = (1 << 24) | (2 << 16) | (3 << 8) | 4;
+                let test_num: u32 = (200 << 24) | (200 << 16) | (200 << 8) | 200;
                 println!("expected {} {:?}", test_num, test_num.to_le_bytes());
                 println!(
                     "store op: addr: {}, raw: {raw}, data: {:?}, buffer: {:?}",
@@ -1235,6 +1235,7 @@ macro_rules! impl_mem_store {
                 println!("mem: {:?}", dest);
                 */
                 self.ip += 1;
+
                 Ok(())
             }
         }
