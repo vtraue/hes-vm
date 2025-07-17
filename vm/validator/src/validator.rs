@@ -851,7 +851,18 @@ impl ValidatorContext {
             Op::MemoryFill { .. } => self.validate_memory_fill(info)?,
             Op::MemoryInit { data_id, .. } => self.validate_memory_init(bytecode, info, data_id)?,
             Op::MemoryGrow { .. } => self.validate_memory_grow(info)?,
+            Op::I32WrapI64 => {
+                validate_types! {self, [ValueType::I64] => [ValueType::I32]}
+            }
+            Op::I64ExtendI32s => {
+                validate_types!(self, [ValueType::I32] => [ValueType::I64]);
+            }
+
+            Op::I64ExtendI32u => {
+                validate_types!(self, [ValueType::I32] => [ValueType::I64]);
+            }
         };
+
         self.ip += 1;
         println!("Stack now: {:?}", self.type_stack);
         Ok(())

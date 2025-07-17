@@ -10,10 +10,12 @@ __attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(ch
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
+typedef uint64_t u64;
 
 typedef int8_t i8;
 typedef int16_t i16;
 typedef int32_t i32;
+typedef int64_t i64;
 
 uint8_t global_xoffset = 0;
 uint8_t global_yoffset = 0;
@@ -53,6 +55,7 @@ void memset(void *dst, int value, unsigned long size) {
   __builtin_memset(dst, value, size);
 }
 
+
 void fill_framebuffer(u8* buffer, u8 r, u8 g, u8 b, u8 a) {
   u8* row = buffer;
   int color = ((u32)(a) << 24) | ((u32)(b) << 16) | ((u32)(g) << 8) | r;
@@ -80,27 +83,28 @@ void draw_rectangle(u8* dest_buffer, u32 x, u32 y, u32 width, u32 height, u8 r, 
 }
 
 void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
-  int width = 800;
+  int width = 800 / 2;
   int height = 600;
-  int pitch = width * 4;
+  int pitch = 800 * 4;
 
   u8* row = dest_buffer;
   for(int y = 0; y < height; ++y) {
-    u32* pixel = (u32*)row;
+    u64* pixel = (u64*)row;
     for(int x = 0; x < width; ++x) {
       uint8_t blue = (x + x_offset);
       uint8_t green = (y + y_offset);
-
-      *pixel++ = ((blue << 8) | green);
+      uint32_t p = ((blue << 16) | (green << 8));
+      *pixel++ = (u64) p << 32 | p;
     }
     row += pitch;
   }
 }
+
 void run(u8* framebuffer, u32 framebuffer_width, u32 framebuffer_height) {
   //cstr_print("Hello from run!\n");
   // fill_framebuffer(framebuffer, 0, 200, 0, 0);
-  // draw_rectangle(framebuffer, 0, 0, 100, 100, 0, 0, global_c);
   render_weird_gradient(framebuffer, global_xoffset, global_yoffset);
+  draw_rectangle(framebuffer, 0, 0, 100, 100, 100, 0, 0);
   global_xoffset += 2;
   global_yoffset += 2;
 

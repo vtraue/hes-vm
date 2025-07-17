@@ -599,9 +599,14 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 //TODO: (joh): Besseres Error Handling
                 //println!("start frame!");
+                use std::time::Instant;
+                let now = Instant::now();
+
                 self.exec
                     .run_frame(self.state.as_mut().unwrap(), 800, 600)
                     .unwrap();
+                let elapsed = now.elapsed();
+                println!("Time for update: {:.2?}ms", elapsed.as_millis());
 
                 let state = match &mut self.state {
                     Some(canvas) => canvas,

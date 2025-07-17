@@ -171,6 +171,9 @@ pub enum Op {
     I64Shru,
     I64Rotl,
     I64Rotr,
+    I32WrapI64,
+    I64ExtendI32s,
+    I64ExtendI32u,
 
     MemoryCopy,
     MemoryFill { extra: usize },
@@ -355,7 +358,9 @@ impl FromBytecode for Op {
             0x89 => Op::I64Shru,
             0x8A => Op::I64Rotl,
             0x8B => Op::I64Rotr,
-
+            0xA7 => Op::I32WrapI64,
+            0xAC => Op::I64ExtendI32s,
+            0xAD => Op::I64ExtendI32u,
             0xFC => read_fc_op(reader)?, //Memory
             0x40 => Op::MemoryGrow {
                 extra: reader.parse()?,
@@ -474,6 +479,9 @@ impl fmt::Display for Op {
                 write!(f, "memory.init {data_id}")
             }
             Op::MemoryGrow { .. } => write!(f, "memory.grow"),
+            Op::I32WrapI64 => write!(f, "i32.wrap_i64"),
+            Op::I64ExtendI32s => write!(f, "i64.extend_i32_s"),
+            Op::I64ExtendI32u => write!(f, "i64.extend_i32_u"),
         }
     }
 }

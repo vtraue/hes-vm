@@ -151,7 +151,7 @@ macro_rules! impl_vm_pop {
     ($func_name: ident, $t: tt, $var_name: ident) => {
         impl<E: Env> Vm<E> {
             pub unsafe fn $func_name(&mut self) -> $t {
-                let val = unsafe { self.value_stack.pop().unwrap().$var_name };
+                let val = unsafe { self.value_stack.pop().unwrap_unchecked().$var_name };
                 //val as $t
                 bytemuck::cast(val)
             }
@@ -364,6 +364,29 @@ impl_local_value_acc!(i64, I64, i64);
 impl_local_value_acc!(f32, F32, f32);
 impl_local_value_acc!(f64, F64, f64);
 
+macro_rules! impl_binop_push {
+    ($this: ident, $t: tt, $a: ident, $b: ident, $action: expr) => {
+        unsafe {
+            debug_assert!($this.value_stack.len() >= 1);
+            let $b = $this.pop_value::<$t>();
+            let $a = $this.pop_value::<$t>();
+            let res = $action;
+            $this.push_value(res);
+            $this.ip += 1;
+        }
+    };
+}
+
+macro_rules! impl_convert {
+    ($this: ident, $a: ident, $src_t: tt, $action: expr) => {
+        unsafe {
+            let $a = $this.pop_value::<$src_t>();
+            let res = $action;
+            $this.push_value(res);
+            $this.ip += 1;
+        }
+    };
+}
 #[derive(Debug, Clone)]
 pub struct Vm<E: Env> {
     ip: usize,
@@ -468,7 +491,7 @@ impl<E: Env> Vm<E> {
     fn init(bytecode: &Bytecode, info: &BytecodeInfo) -> Result<Vm<E>, InstanceError> {
         let code = Code::from_module::<E>(bytecode, info)?;
         let mut mem = Self::make_memory(bytecode, info);
-        let locals = Vec::new();
+        let locals = Vec::with_capacity(20);
         let start_func_id = bytecode.start.as_ref().map(|i| i.data as usize);
         let value_stack = Vec::with_capacity(20);
         let globals = Self::get_global_instances(bytecode, info)?;
@@ -503,8 +526,8 @@ impl<E: Env> Vm<E> {
             locals,
             mem,
             start_func_id,
-            activation_stack: Vec::new(),
-            labels: Vec::new(),
+            activation_stack: Vec::with_capacity(20),
+            labels: Vec::with_capacity(20),
             local_offset: 0,
             func_id: None,
             _marker: PhantomData {},
@@ -592,8 +615,9 @@ impl<E: Env> Vm<E> {
         self.labels.push(label);
     }
     pub fn exec_local_get(&mut self, id: usize) {
-        let local_val = self.locals[self.local_offset + id];
-        self.push_value(local_val);
+        debug_assert!(self.locals.get(self.local_offset + id).is_some());
+        let local_val = unsafe { self.locals.get_unchecked(self.local_offset + id) };
+        self.push_value(*local_val);
         self.ip += 1;
     }
     pub fn exec_global_get(&mut self, id: usize) {
@@ -608,7 +632,8 @@ impl<E: Env> Vm<E> {
 
     pub fn exec_local_set(&mut self, id: usize) {
         let val = self.value_stack.pop().unwrap();
-        let local_val = &mut self.locals[self.local_offset + id];
+        debug_assert!(self.locals.get(self.local_offset + id).is_some());
+        let local_val = unsafe { self.locals.get_unchecked_mut(self.local_offset + id) };
 
         unsafe { local_val.set_inner_from_stack_val(val) };
         //dbg!("local set: {:?}", local_val);
@@ -621,7 +646,7 @@ impl<E: Env> Vm<E> {
         self.ip += 1;
     }
     pub fn exec_local_tee(&mut self, id: usize) {
-        let val = self.value_stack.last().unwrap();
+        let val = unsafe { self.value_stack.last().unwrap_unchecked() };
         let local_val = &mut self.locals[self.local_offset + id];
         unsafe { local_val.set_inner_from_stack_val(*val) };
         self.ip += 1;
@@ -654,6 +679,7 @@ impl<E: Env> Vm<E> {
         }
     }
 
+    #[inline(always)]
     pub fn exec_push(&mut self, value: impl Into<StackValue> + Debug) {
         self.push_value(value);
         self.ip += 1;
@@ -661,7 +687,6 @@ impl<E: Env> Vm<E> {
 
     pub fn exec_end(&mut self) -> bool {
         if self.labels.len() > 0 {
-            //dbg!("popping label");
             self.labels.pop();
             self.ip += 1;
             false
@@ -987,51 +1012,51 @@ impl<E: Env> Vm<E> {
             Op::F32Const(val) => self.exec_push(val.clone()),
             Op::F64Const(val) => self.exec_push(val.clone()),
             Op::I32Eqz => self.exec_unop_push(|val: u32| val == 0),
-            Op::I32Eq => self.exec_binop_push(|a: u32, b: u32| a == b),
-            Op::I32Ne => self.exec_binop_push(|a: u32, b: u32| a != b),
-            Op::I32Lts => self.exec_binop_push(|a: i32, b: i32| a < b),
-            Op::I32Ltu => self.exec_binop_push(|a: u32, b: u32| a < b),
-            Op::I32Gts => self.exec_binop_push(|a: i32, b: i32| a > b),
-            Op::I32Gtu => self.exec_binop_push(|a: u32, b: u32| a > b),
-            Op::I32Leu => self.exec_binop_push(|a: u32, b: u32| a <= b),
-            Op::I32Les => self.exec_binop_push(|a: i32, b: i32| a <= b),
-            Op::I32Geu => self.exec_binop_push(|a: u32, b: u32| a >= b),
-            Op::I32Ges => self.exec_binop_push(|a: i32, b: i32| a >= b),
+            Op::I32Eq => impl_binop_push!(self, u32, a, b, a == b),
+            Op::I32Ne => impl_binop_push!(self, u32, a, b, a != b),
+            Op::I32Lts => impl_binop_push!(self, i32, a, b, a < b),
+            Op::I32Ltu => impl_binop_push!(self, u32, a, b, a < b),
+            Op::I32Gts => impl_binop_push!(self, i32, a, b, a > b),
+            Op::I32Gtu => impl_binop_push!(self, u32, a, b, a > b),
+            Op::I32Leu => impl_binop_push!(self, u32, a, b, a <= b),
+            Op::I32Les => impl_binop_push!(self, i32, a, b, a <= b),
+            Op::I32Geu => impl_binop_push!(self, i32, a, b, a >= b),
+            Op::I32Ges => impl_binop_push!(self, i32, a, b, a >= b),
             Op::I64Eqz => self.exec_unop_push(|val: u32| val == 0),
-            Op::I64Eq => self.exec_binop_push(|a: u32, b: u32| a == b),
-            Op::I64Ne => self.exec_binop_push(|a: u64, b: u64| a != b),
-            Op::I64Lts => self.exec_binop_push(|a: i64, b: i64| a < b),
-            Op::I64Ltu => self.exec_binop_push(|a: u64, b: u64| a < b),
-            Op::I64Gts => self.exec_binop_push(|a: i64, b: i64| a > b),
-            Op::I64Gtu => self.exec_binop_push(|a: u64, b: u64| a > b),
-            Op::I64Les => self.exec_binop_push(|a: u64, b: u64| a <= b),
-            Op::I64Leu => self.exec_binop_push(|a: i64, b: i64| a <= b),
-            Op::I64Geu => self.exec_binop_push(|a: u64, b: u64| a >= b),
-            Op::I64Ges => self.exec_binop_push(|a: i64, b: i64| a >= b),
+            Op::I64Eq => impl_binop_push!(self, u32, a, b, a == b),
+            Op::I64Ne => impl_binop_push!(self, u32, a, b, a != b),
+            Op::I64Lts => impl_binop_push!(self, i32, a, b, a < b),
+            Op::I64Ltu => impl_binop_push!(self, u32, a, b, a < b),
+            Op::I64Gts => impl_binop_push!(self, i32, a, b, a > b),
+            Op::I64Gtu => impl_binop_push!(self, u32, a, b, a > b),
+            Op::I64Les => impl_binop_push!(self, u32, a, b, a <= b),
+            Op::I64Leu => impl_binop_push!(self, i32, a, b, a <= b),
+            Op::I64Geu => impl_binop_push!(self, i32, a, b, a >= b),
+            Op::I64Ges => impl_binop_push!(self, i32, a, b, a >= b),
             Op::I32Add => self.exec_binop_push(|a: u32, b: u32| a + b),
-            Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a.wrapping_sub(b)),
+            Op::I32Sub => impl_binop_push!(self, u32, a, b, a.wrapping_sub(b)),
             Op::I32Mul => self.exec_binop_push(|a: u32, b: u32| a * b),
-            Op::I32Divs => self.exec_binop_push(|a: i32, b: i32| a / b),
-            Op::I32Divu => self.exec_binop_push(|a: u32, b: u32| a / b),
+            Op::I32Divs => impl_binop_push!(self, u32, a, b, a / b),
+            Op::I32Divu => impl_binop_push!(self, u32, a, b, a / b),
             Op::I32Rems => self.exec_binop_push(|a: i32, b: i32| a % b),
             Op::I32Remu => self.exec_binop_push(|a: u32, b: u32| a % b),
             Op::I32And => self.exec_binop_push(|a: u32, b: u32| a & b),
             Op::I32Or => self.exec_binop_push(|a: u32, b: u32| a | b),
             Op::I32Xor => self.exec_binop_push(|a: u32, b: u32| a ^ b),
-            Op::I32Shl => self.exec_binop_push(|a: u32, b: u32| a << b),
+            Op::I32Shl => impl_binop_push!(self, u32, a, b, a.wrapping_shl(b)),
             Op::I32Shrs => self.exec_binop_push(|a: i32, b: i32| a >> b),
             Op::I32Shru => self.exec_binop_push(|a: u32, b: u32| a >> b),
             Op::I32Rotl => todo!(),
             Op::I32Rotr => todo!(),
-            Op::I64Add => self.exec_binop_push(|a: u64, b: u64| a + b),
-            Op::I64Sub => self.exec_binop_push(|a: u64, b: u64| a.wrapping_sub(b)),
+            Op::I64Add => impl_binop_push!(self, u32, a, b, a + b),
+            Op::I64Sub => impl_binop_push!(self, u32, a, b, a.wrapping_sub(b)),
             Op::I64Mul => self.exec_binop_push(|a: u64, b: u64| a * b),
             Op::I64Divs => self.exec_binop_push(|a: i64, b: i64| a / b),
             Op::I64Divu => self.exec_binop_push(|a: u64, b: u64| a / b),
             Op::I64Rems => self.exec_binop_push(|a: i64, b: i64| a % b),
             Op::I64Remu => self.exec_binop_push(|a: u64, b: u64| a % b),
-            Op::I64And => self.exec_binop_push(|a: u64, b: u64| a & b),
-            Op::I64Or => self.exec_binop_push(|a: u64, b: u64| a | b),
+            Op::I64And => impl_binop_push!(self, u32, a, b, a & b),
+            Op::I64Or => impl_binop_push!(self, u32, a, b, a | b),
             Op::I64Xor => self.exec_binop_push(|a: u64, b: u64| a ^ b),
             Op::I64Shl => self.exec_binop_push(|a: u64, b: u64| a << b),
             Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),
@@ -1042,6 +1067,9 @@ impl<E: Env> Vm<E> {
             Op::MemoryCopy => todo!(),
             Op::MemoryFill { .. } => self.exec_memory_fill(),
             Op::MemoryGrow { .. } => self.exec_memory_grow(),
+            Op::I32WrapI64 => impl_convert!(self, a, u64, a as u32),
+            Op::I64ExtendI32s => impl_convert!(self, a, i32, a as i64),
+            Op::I64ExtendI32u => impl_convert!(self, a, u32, a as u64),
         };
         Ok(false)
     }
@@ -1163,6 +1191,7 @@ macro_rules! impl_mem_load {
         impl<E: Env> Vm<E> {
             fn $fn_name(&mut self, arg: Memarg) -> Result<(), RuntimeError> {
                 debug_assert!(self.mem.as_ref().unwrap().len() > 0);
+
                 let addr = unsafe { self.pop_value::<i32>() as usize };
                 let addr_start = addr + arg.offset as usize;
                 let range = addr_start..addr_start + std::mem::size_of::<$storage_type>();
@@ -1172,8 +1201,9 @@ macro_rules! impl_mem_load {
                     .unwrap()
                     .get(range)
                     .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
-                //println!("data: {:?}", buffer);
-                let val: $storage_type = $storage_type::from_le_bytes(buffer.try_into().unwrap());
+
+                let val: $storage_type =
+                    $storage_type::from_le_bytes(unsafe { buffer.try_into().unwrap_unchecked() });
                 //println!("val: {:?}", val);
                 let target: $target_type = val.into();
                 self.push_value(target);
@@ -1216,24 +1246,22 @@ macro_rules! impl_mem_store {
                 let addr_start = addr + arg.offset as usize;
                 let range = addr_start..addr_start + std::mem::size_of::<$real_type>();
 
-                let dest = self
-                    .mem
-                    .as_mut()
-                    .unwrap()
-                    .get_mut(range)
-                    .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
+                let dest = unsafe {
+                    self.mem
+                        .as_mut()
+                        .unwrap_unchecked()
+                        .get_mut(range)
+                        .ok_or(RuntimeError::MemoryAddressOutOfScope)?
+                };
 
                 dest.copy_from_slice(&data_buffer);
 
-                /*
-                let test_num: u32 = (200 << 24) | (200 << 16) | (200 << 8) | 200;
-                println!("expected {} {:?}", test_num, test_num.to_le_bytes());
-                println!(
-                    "store op: addr: {}, raw: {raw}, data: {:?}, buffer: {:?}",
-                    addr, data, data_buffer
-                );
-                println!("mem: {:?}", dest);
-                */
+                // println!(
+                //     "store op: addr: {}, raw: {raw}, data: {:?}, buffer: {:?}",
+                //     addr, data, data_buffer
+                // );
+                // println!("mem: {:?}", dest);
+
                 self.ip += 1;
 
                 Ok(())
