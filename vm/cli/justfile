@@ -1,7 +1,10 @@
 build:
-    clang --target=wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all -O0  test.c -o out.wasm
+    clang --target=wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all -O2  src/test.c -o out.wasm
 
+validate: build
+    cargo run out.wasm validate
+    
 print: build
     wasm-tools print out.wasm
 run: build
-    cargo run out.wasm run run
+    cargo run out.wasm console

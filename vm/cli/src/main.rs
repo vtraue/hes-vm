@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use console::graphics::App;
 use interpreter::slow_vm::{DebugEnv, LocalValue, Vm};
 use itertools::Itertools;
 use parser::{
@@ -24,6 +25,7 @@ struct Args {
 enum Commands {
     Validate,
     Run { name: String },
+    Console,
 }
 
 pub fn read_and_validate_file(file: &mut impl BytecodeReader) -> Result<ValidateResult> {
@@ -84,13 +86,19 @@ pub fn execute_run_command(
 pub fn main() -> Result<()> {
     let args = Args::parse();
 
-    let mut file = File::open(args.path).unwrap();
     match args.command {
         Commands::Validate => {
+            let mut file = File::open(args.path)?;
             let _validate_result = read_and_validate_file(&mut file)?;
+            println!("OK!");
             Ok(())
         }
-        Commands::Run { name } => execute_run_command(&name, Vec::new(), &mut file),
+        Commands::Console => App::run(args.path).context("Unable to run console"),
+
+        Commands::Run { name } => {
+            let mut file = File::open(args.path).unwrap();
+            execute_run_command(&name, Vec::new(), &mut file)
+        }
         _ => bail!("Unknown command: {:?}", args.command),
     }
 }

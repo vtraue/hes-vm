@@ -21,6 +21,7 @@ use wgpu::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, Size},
+    error::EventLoopError,
     event::{KeyEvent, WindowEvent},
     event_loop::{self, ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
@@ -62,7 +63,56 @@ pub enum ConsoleError {
 
     #[error("Unable to request wgpu device: {0}")]
     RequestDevice(#[from] wgpu::RequestDeviceError),
+    #[error("Unable to create event loop: {0}")]
+    UnableToCreateEventLoop(#[from] EventLoopError),
 }
+#[derive(Debug)]
+pub enum ConsoleKey {
+    Up,
+    Down,
+    Left,
+    Right,
+    A,
+    B,
+    X,
+    Y,
+    R,
+    L,
+}
+impl From<ConsoleKey> for u32 {
+    fn from(value: ConsoleKey) -> Self {
+        match value {
+            ConsoleKey::Up => 0,
+            ConsoleKey::Down => 1,
+            ConsoleKey::Left => 2,
+            ConsoleKey::Right => 3,
+            ConsoleKey::A => 4,
+            ConsoleKey::B => 5,
+            ConsoleKey::X => 6,
+            ConsoleKey::Y => 7,
+            ConsoleKey::R => 8,
+            ConsoleKey::L => 9,
+        }
+    }
+}
+impl ConsoleKey {
+    pub fn from_winit_key(key: KeyCode) -> Option<Self> {
+        match key {
+            KeyCode::ArrowUp | KeyCode::KeyW => Some(ConsoleKey::Up),
+            KeyCode::ArrowLeft | KeyCode::KeyA => Some(ConsoleKey::Left),
+            KeyCode::ArrowRight | KeyCode::KeyD => Some(ConsoleKey::Right),
+            KeyCode::ArrowDown | KeyCode::KeyS => Some(ConsoleKey::Down),
+            KeyCode::KeyZ => Some(ConsoleKey::A),
+            KeyCode::KeyB => Some(ConsoleKey::B),
+            KeyCode::KeyX => Some(ConsoleKey::X),
+            KeyCode::KeyY => Some(ConsoleKey::Y),
+            KeyCode::KeyR => Some(ConsoleKey::R),
+            KeyCode::KeyL => Some(ConsoleKey::L),
+            _ => None,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Pod, Zeroable, Clone, Copy, Debug)]
 struct Vertex {
@@ -596,7 +646,14 @@ impl App {
 
         Ok(app)
     }
+    pub fn run(path: impl Into<String>) -> Result<(), ConsoleError> {
+        let event_loop = EventLoop::with_user_event().build()?;
+        let mut app = App::new(path)?;
+        event_loop.run_app(&mut app).unwrap();
+        Ok(())
+    }
 }
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let attributes =
@@ -641,7 +698,6 @@ impl ApplicationHandler for App {
                     state.handle_key(event_loop, code, key_state.is_pressed());
                 }
             },
-
             WindowEvent::RedrawRequested => {
                 //TODO: (joh): Besseres Error Handling
                 //println!("start frame!");
