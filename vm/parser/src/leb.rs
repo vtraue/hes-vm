@@ -74,7 +74,7 @@ impl Leb {
     }
 
     #[inline]
-    pub fn read_var_i32(reader: &mut impl Read) -> Result<i32, LebError> {
+    pub fn read_i32(reader: &mut impl Read) -> Result<i32, LebError> {
         // Optimization for single byte i32.
         let byte = reader.read_u8()?;
         if (byte & 0x80) == 0 {
@@ -135,7 +135,7 @@ impl Leb {
         Ok((result << ashift) >> ashift)
     }
 
-    pub fn read_var_i64(reader: &mut impl Read) -> Result<i64, LebError> {
+    pub fn read_i64(reader: &mut impl Read) -> Result<i64, LebError> {
         let mut result: i64 = 0;
         let mut shift = 0;
         loop {

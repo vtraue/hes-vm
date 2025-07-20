@@ -1,19 +1,25 @@
+pub mod env;
 use anyhow::{Context, Result, bail, ensure};
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use console::graphics::App;
-use interpreter::slow_vm::{DebugEnv, LocalValue, Vm};
+use interpreter::{
+    env::{Env, ExternalFunction, ExternalGlobal},
+    slow_vm::{DebugEnv, LocalValue, Vm},
+};
 use itertools::Itertools;
 use parser::{
     info::FunctionType,
-    reader::{BytecodeReader, ExportDesc, is_wasm_bytecode},
+    reader::{BytecodeReader, ExportDesc, ValueType, is_wasm_bytecode},
 };
 use std::{
     fs::File,
     io::{Cursor, Read, Seek},
 };
 use validator::validator::{ValidateResult, read_and_validate, read_and_validate_wat};
+
+use crate::env::HeadlessEnv;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -24,6 +30,7 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Validate,
+    Print,
     Run { name: String },
     Console,
 }
@@ -45,7 +52,7 @@ pub fn execute_run_command(
     file: &mut File,
 ) -> Result<()> {
     let validate_result = read_and_validate_file(file).context("Unable to parse file")?;
-    let mut env = DebugEnv {};
+    let mut env = HeadlessEnv {};
     let mut vm =
         Vm::init_from_validation_result(&validate_result).context("Unable to instantiate")?;
 
@@ -62,12 +69,6 @@ pub fn execute_run_command(
         vm.set_func(func_id, params.clone())
             .context("Unable to load function")?;
 
-        let result = vm
-            .run_func(&validate_result.bytecode, &validate_result.info, &mut env)
-            .context("Error while executing {func_name}")?;
-
-        vm.set_func(func_id, params)
-            .context("Unable to load function")?;
         let result = vm
             .run_func(&validate_result.bytecode, &validate_result.info, &mut env)
             .context("Error while executing {func_name}")?;
@@ -91,6 +92,20 @@ pub fn main() -> Result<()> {
             let mut file = File::open(args.path)?;
             let _validate_result = read_and_validate_file(&mut file)?;
             println!("OK!");
+            Ok(())
+        }
+        Commands::Print => {
+            let mut file = File::open(args.path)?;
+            let validate_result = read_and_validate_file(&mut file)?;
+            println!(
+                "{}",
+                validate_result
+                    .info
+                    .functions
+                    .iter()
+                    .map(|f| f.format(&validate_result.bytecode))
+                    .format("\n")
+            );
             Ok(())
         }
         Commands::Console => App::run(args.path).context("Unable to run console"),

@@ -16,7 +16,6 @@ pub enum Blocktype {
 impl FromBytecode for Blocktype {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         let b = reader.read_i8()?;
-        println!("b: {}", b);
 
         match b {
             0x40 => Ok(Self::Empty),
@@ -114,8 +113,8 @@ pub enum Op {
     I64Store8(Memarg),
     I64Store16(Memarg),
     I64Store32(Memarg),
-    I32Const(u32),
-    I64Const(u64),
+    I32Const(i32),
+    I64Const(i64),
     F32Const(f32),
     F64Const(f64),
     I32Eqz,

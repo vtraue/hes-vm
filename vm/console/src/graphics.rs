@@ -158,7 +158,7 @@ const VERTICES: &[Vertex] = &[
     },
 ];
 const INDICES: &[u16] = &[0, 1, 3, 1, 2, 3];
-const FB_SIZE: (u32, u32) = (320, 180);
+const FB_SIZE: (u32, u32) = (256, 256);
 #[derive(Debug)]
 struct State {
     window: Arc<Window>,
@@ -229,7 +229,6 @@ impl State {
         let diffuse_rgba = diffuse_image.to_rgba8();
         use image::GenericImageView;
         let dimensions = diffuse_image.dimensions();
-        println!("dim: {:?}", dimensions);
 
         let texture_size = wgpu::Extent3d {
             width: FB_SIZE.0,
@@ -271,6 +270,7 @@ impl State {
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
+
             ..Default::default()
         });
         let texture_bind_group_layout =
@@ -385,9 +385,6 @@ impl State {
     }
 
     pub fn update_framebuffer_data(&mut self, pixels: &[u8], width: u32, height: u32) {
-        println!("updating: {width}, {height}");
-        println!("buffer size: {}", pixels.len());
-
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfoBase {
                 texture: &self.texture,
@@ -484,6 +481,11 @@ impl Env for State {
                 result: vec![],
                 id: 1,
             }),
+            "io_print_sint" => Some(ExternalFunction {
+                params: vec![ValueType::I32],
+                result: vec![],
+                id: 2,
+            }),
             _ => None,
         }
     }
@@ -520,6 +522,7 @@ impl Env for State {
 
                 Ok(())
             }
+            2 => Ok(println!("{}", params[0].i32())),
             _ => unreachable!(),
         }
     }
@@ -529,6 +532,7 @@ impl Env for State {
 struct Funcs {
     init: usize,
     run: usize,
+    input: Option<usize>,
 }
 impl Funcs {
     pub fn from_validate_result(result: &ValidateResult) -> Result<Self, ConsoleError> {
@@ -543,8 +547,8 @@ impl Funcs {
         let init = exports
             .get_function_id("init")
             .ok_or(ConsoleError::NoInitFunc)?;
-
-        Ok(Self { init, run })
+        let input = exports.get_function_id("input");
+        Ok(Self { init, run, input })
     }
 }
 #[derive(Debug)]
@@ -633,6 +637,26 @@ impl Executor {
         )?;
         Ok(())
     }
+
+    fn run_input(
+        &mut self,
+        state: &mut State,
+        key: ConsoleKey,
+        pressed: bool,
+    ) -> Result<(), RuntimeError> {
+        let args: [LocalValue; 3] = [
+            LocalValue::I32(self.init_func_result.unwrap()),
+            LocalValue::I32(key.into()),
+            LocalValue::I32(pressed.into()),
+        ];
+        self.vm.set_func(self.funcs.input.unwrap(), args)?;
+        self.vm.run_func(
+            &self.validate_result.bytecode,
+            &self.validate_result.info,
+            state,
+        )?;
+        Ok(())
+    }
 }
 #[derive(Debug)]
 pub struct App {
@@ -693,8 +717,17 @@ impl ApplicationHandler for App {
                     let state = self.state.as_mut().unwrap();
                     self.exec.reload_all(state).unwrap();
                 }
-                _ => {
+                (key, pressed) => {
                     let state = self.state.as_mut().unwrap();
+
+                    match self.exec.funcs.input {
+                        Some(_) => {
+                            if let Some(k) = ConsoleKey::from_winit_key(code) {
+                                self.exec.run_input(state, k, pressed).unwrap();
+                            }
+                        }
+                        None => todo!(),
+                    }
                     state.handle_key(event_loop, code, key_state.is_pressed());
                 }
             },

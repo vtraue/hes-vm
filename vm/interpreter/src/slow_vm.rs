@@ -333,14 +333,16 @@ macro_rules! impl_local_value_conversion {
     ($($type: ty => $field_name:ident),+$(,)?) => {
         $(impl From<$type> for LocalValue {
             fn from(value: $type) -> Self {
-                Self::$field_name(value)
+                Self::$field_name(bytemuck::cast(value))
             }
         })+
     };
 }
 impl_local_value_conversion! {
     u32 => I32,
+    i32 => I32,
     u64 => I64,
+    i64 => I64,
     f32 => F32,
     f64 => F64
 }
@@ -352,6 +354,7 @@ macro_rules! impl_local_value_acc {
                 let Self::$field_name(val) = self else {
                     unreachable!()
                 };
+                //*val as $type
                 bytemuck::cast(*val)
             }
         }
@@ -599,7 +602,7 @@ impl<E: Env> Vm<E> {
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
-            // println!("Popping: {:?}", val);
+            //println!("Popping: {:?}", val);
             val
         }
     }
@@ -607,7 +610,7 @@ impl<E: Env> Vm<E> {
     #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
-        // println!("fetching: {:?}", op);
+        //println!("fetching: {:?}", op);
         op
     }
 
@@ -891,6 +894,7 @@ impl<E: Env> Vm<E> {
             self.value_stack.truncate(target_label.stack_height);
         }
     }
+
     pub fn exec_br_if(&mut self, target: usize, jump: isize) {
         if unsafe { self.pop_value() } {
             self.exec_br(target, jump);
@@ -898,6 +902,7 @@ impl<E: Env> Vm<E> {
             self.ip += 1;
         }
     }
+
     pub fn exec_memory_init(
         &mut self,
         bytecode: &Bytecode,
@@ -905,8 +910,8 @@ impl<E: Env> Vm<E> {
     ) -> Result<(), RuntimeError> {
         let data_info = bytecode.get_data(data_id).unwrap();
         assert!(data_info.is_passive());
-        let source = unsafe { self.pop_i32() } as usize;
         let size = unsafe { self.pop_i32() } as usize;
+        let source = unsafe { self.pop_i32() } as usize;
         let dest = unsafe { self.pop_i32() } as usize;
         let mem = self.mem.as_mut().unwrap();
         let src = data_info.get_data();
@@ -1034,7 +1039,7 @@ impl<E: Env> Vm<E> {
             Op::I64Geu => impl_binop_push!(self, i32, a, b, a >= b),
             Op::I64Ges => impl_binop_push!(self, i32, a, b, a >= b),
             Op::I32Add => self.exec_binop_push(|a: u32, b: u32| a + b),
-            Op::I32Sub => impl_binop_push!(self, u32, a, b, a.wrapping_sub(b)),
+            Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a.wrapping_sub(b)),
             Op::I32Mul => self.exec_binop_push(|a: u32, b: u32| a * b),
             Op::I32Divs => impl_binop_push!(self, u32, a, b, a / b),
             Op::I32Divu => impl_binop_push!(self, u32, a, b, a / b),
@@ -1049,7 +1054,7 @@ impl<E: Env> Vm<E> {
             Op::I32Rotl => todo!(),
             Op::I32Rotr => todo!(),
             Op::I64Add => impl_binop_push!(self, u32, a, b, a + b),
-            Op::I64Sub => impl_binop_push!(self, u32, a, b, a.wrapping_sub(b)),
+            Op::I64Sub => impl_binop_push!(self, u32, a, b, a - b),
             Op::I64Mul => self.exec_binop_push(|a: u64, b: u64| a * b),
             Op::I64Divs => self.exec_binop_push(|a: i64, b: i64| a / b),
             Op::I64Divu => self.exec_binop_push(|a: u64, b: u64| a / b),
@@ -1125,7 +1130,7 @@ impl<E: Env> Vm<E> {
         let res = if let Some(func_id) = self.func_id {
             let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
             let res = self.stack_to_local_vals(func_t.results.iter().cloned());
-            println!("res: {:?}", res);
+            // println!("res: {:?}", res);
             assert!(res.len() == func_t.results.len());
             Ok(res)
         } else {

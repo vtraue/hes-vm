@@ -1,12 +1,14 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #define BUILTIN
 __attribute__((import_module("env"), import_name("io_print_string"))) void vm_print(char* ptr, int size);
-__attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(char* framebuffer, int width, int height);
+__attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(uint8_t* framebuffer, int width, int height);
+__attribute__((import_module("env"), import_name("io_print_sint"))) void vm_print_int(int32_t num);
 
 #define WASM_PAGE_SIZE 65536
-#define FB_WIDTH 320
-#define FB_HEIGHT 180
+#define FB_WIDTH 256
+#define FB_HEIGHT 256
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -34,21 +36,42 @@ void cstr_print(const char* str) {
   vm_print(str, l);
 }
 
-char* alloc_pages(int pages) {
-    return (char*)(__builtin_wasm_memory_grow(0, pages));
+uint8_t* alloc_pages(int pages) {
+    return (uint8_t*)(__builtin_wasm_memory_grow(0, pages));
 }
 
-char* alloc_framebuffer() {
-  int size_bytes = (FB_WIDTH * FB_HEIGHT * 4);
+typedef enum Key_Code : uint32_t {
+  KEYCODE_UP = 0,
+  KEYCODE_DOWN = 1,
+  KEYCODE_LEFT = 2,
+  KEYCODE_RIGHT = 3,
+  KEYCODE_A = 4,
+  KEYCODE_B = 5,
+  KEYCODE_X = 6,
+  KEYCODE_Y = 7,
+  KEYCODE_R = 8,
+  KEYCODE_L = 9,
+  KEYCODE_COUNT = 10,
+} Key_Code;
+
+typedef struct Game_Data {
+  u8 framebuffer[FB_WIDTH * FB_HEIGHT * 4];
+  bool keys[KEYCODE_COUNT];
+  int32_t position_x;
+  int32_t position_y;
+} Game_Data;
+Game_Data* alloc_game_data() {
+  int size_bytes = sizeof(Game_Data);
   int size_pages = size_bytes / WASM_PAGE_SIZE;   
-  return alloc_pages(size_pages + 1);
+  return (Game_Data*)(alloc_pages(size_pages + 1));
 }
 
 
-char* init() {
+Game_Data* init() {
     cstr_print("Hello from init!\n");
-    return alloc_framebuffer();
-    return 0;
+    vm_print_int((int32_t)5 - (int32_t)3);
+    vm_print_int((int32_t)3 - (int32_t)5);
+    return alloc_game_data();
 }
 
 void memset(void *dst, int value, unsigned long size) {
@@ -99,13 +122,47 @@ void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
     row += pitch;
   }
 }
-void run(u8* framebuffer, u32 framebuffer_width, u32 framebuffer_height) {
+
+void input(Game_Data* game, uint32_t key, bool down) {
+  game->keys[key] = down; 
+}
+
+void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   //cstr_print("Hello from run!\n");
   // fill_framebuffer(framebuffer, 0, 200, 0, 0);
-  render_weird_gradient(framebuffer, global_xoffset, global_yoffset);
-  draw_rectangle(framebuffer, 40, 40, 100, 100, 250, 50, 0);
+  render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
+
+  if(game->keys[KEYCODE_UP]) {
+    if(game->position_y > 0) {
+      game->position_y -= 1;
+    }
+  }
+
+  if(game->keys[KEYCODE_DOWN]) {
+    if(game->position_y < FB_HEIGHT) {
+      game->position_y += 1;
+      
+    }
+  }
+
+  if(game->keys[KEYCODE_LEFT]) {
+    if(game->position_x > 0) {
+      game->position_x -= 1;
+    }
+  }
+
+  if(game->keys[KEYCODE_RIGHT]) {
+    if(game->position_x < FB_WIDTH) {
+      game->position_x += 1;
+    }
+  }
+  vm_print_int(game->position_x);
+  vm_print_int(game->position_y);
+  
+  draw_rectangle(game->framebuffer, game->position_x, game->position_y, 16, 16, 250, 50, 0);
+
   global_xoffset += 2;
   global_yoffset += 2;
 
-  vm_paint(framebuffer, FB_WIDTH, FB_HEIGHT);
+  vm_paint(game->framebuffer, FB_WIDTH, FB_HEIGHT);
 }

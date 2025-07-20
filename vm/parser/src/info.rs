@@ -47,6 +47,24 @@ impl Function {
             FunctionType::Imported { .. } => None,
         }
     }
+    pub fn format(&self, bytecode: &Bytecode) -> String {
+        let t = bytecode.get_type(self.type_id).unwrap();
+        match self.t {
+            FunctionType::Internal { code_id, export_id } => {
+                let code = bytecode.get_code(code_id).unwrap();
+                format!(
+                    "func {}({}): {t} =\n{}",
+                    export_id.unwrap_or(""),
+                    code_id,
+                    code
+                )
+            }
+            FunctionType::Imported { import_id } => {
+                let import = bytecode.get_import(import_id).unwrap();
+                format!("native func {import}: {t}")
+            }
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub enum GlobalInfo {

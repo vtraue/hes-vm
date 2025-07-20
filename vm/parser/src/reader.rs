@@ -10,6 +10,7 @@ use std::{
 
 use byteorder::ReadBytesExt;
 use itertools::Itertools;
+use log::trace;
 use parser_derive::FromBytecode;
 
 use crate::{
@@ -101,6 +102,17 @@ impl<T: FromBytecode> FromBytecode for Vec<T> {
         parse_vec(reader)
     }
 }
+impl FromBytecode for i32 {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        Ok(Leb::read_i32(reader)?)
+    }
+}
+impl FromBytecode for i64 {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        Ok(Leb::read_i64(reader)?)
+    }
+}
+
 impl FromBytecode for u32 {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         Ok(Leb::read_u32(reader)?)
@@ -289,6 +301,8 @@ pub const WASM_HEADER_VERSION: &[u8; 4] = &[1, 0, 0, 0];
 
 impl FromBytecode for Header {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        trace!("Reading bytecode header");
+
         let header = try_read_with_pos(reader, |reader| {
             let mut header: [u8; 4] = [0; 4];
             reader.read_exact(&mut header)?;
@@ -789,7 +803,7 @@ impl Display for Function {
             .data
             .iter()
             .try_for_each(|l| write!(f, "{}\n", l.data))?;
-        write!(f, "Code:\n {}\n", self.code.data)
+        write!(f, "--Code--\n{}\n", self.code.data)
     }
 }
 

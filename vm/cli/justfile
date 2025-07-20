@@ -7,4 +7,4 @@ validate: build
 print: build
     wasm-tools print out.wasm
 run: build
-    cargo run out.wasm console
+    cargo run --release out.wasm console 
