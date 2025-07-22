@@ -268,12 +268,15 @@ class ExportSection extends Section {
     void write(BytecodeWriter bw) throws IOException {
         BytecodeWriter exportBytes = new BytecodeWriter();
         exportBytes.writeU32(exports.size() + 1);
+
+
         for(Export e : exports) {
             writeExport(e, exportBytes);
         }
 
         //Exportiere immer Memory ID 0
         String memoryName = "memory";
+        exportBytes.writeU32(memoryName.length());
         exportBytes.writeBytes(memoryName.getBytes(StandardCharsets.UTF_8));
         exportBytes.writeByte((byte)0x02);
         exportBytes.writeByte((byte)0x00);
@@ -446,6 +449,7 @@ class DataSection extends Section {
     private void writeActiveDataMode(int offset, BytecodeWriter bw) throws IOException {
         bw.writeByte((byte) 0);
         bw.writeOpcode(InstructionOpCode.I32_CONST);
+        bw.writeU32(offset);
         bw.writeOpcode(InstructionOpCode.END);
     }
 

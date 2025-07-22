@@ -2,6 +2,9 @@ package wasm_builder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -12,16 +15,18 @@ public class Func {
 	final private Validator validator;
 	private ArrayList<Local> locals;
 	private int funcIdx;
+	private WasmBuilder wasmBuilder;
 
-	public Func(FuncType funcType, List<Local> locals, List<GlobalType> globals) {
+	public Func(FuncType funcType, List<Local> locals, List<GlobalType> globals, WasmBuilder wasmBuilder) {
+		this.wasmBuilder = wasmBuilder;
 		this.funcType = funcType;
 		this.body = new BytecodeWriter();
 		this.locals = new ArrayList<>(locals);
 		this.validator = new Validator(globals, locals);
 	}
 
-	public Func( FuncType funcType) {
-		this( funcType, Collections.emptyList(), Collections.emptyList());
+	public Func( FuncType funcType, WasmBuilder wasmBuilder) {
+		this( funcType, Collections.emptyList(), Collections.emptyList(), wasmBuilder);
 	}
 
 	public ByteArrayOutputStream getBody() {
@@ -38,6 +43,11 @@ public class Func {
 
 	public void addLocal(Local localType) {
 		this.locals.add(localType);
+	}
+
+
+	public int addStringData(List<String> strings) {
+		return this.wasmBuilder.addStringData(strings);
 	}
 
 	public void emitEnd() throws IOException {

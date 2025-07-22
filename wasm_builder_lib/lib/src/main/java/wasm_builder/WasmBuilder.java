@@ -73,7 +73,7 @@ public class WasmBuilder {
 
 		// Type Section
 		if (!funcTypes.isEmpty()) {
-			TypeSection ts = new TypeSection(funcTypes);
+			TypeSection ts = new TypeSection(allFuncTypes);
 			ts.write(bw);
 		}
 
@@ -177,11 +177,11 @@ public class WasmBuilder {
 	public Func createFunction(FuncType funcType, List<Local> locals) {
 		ArrayList<GlobalType> allGlobals = new ArrayList<>(importedGlobals);
 		allGlobals.addAll(globals);
-		return new Func(funcType, locals, allGlobals);
+		return new Func(funcType, locals, allGlobals, this);
 	}
 
 	public Func createFunction(FuncType funcType) {
-		return new Func(funcType );
+		return new Func(funcType, this);
 	}
 
 	public void setGlobals(List<GlobalType> globals) {
