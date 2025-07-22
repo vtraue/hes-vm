@@ -1163,6 +1163,21 @@ impl<E: Env> Vm<E> {
             Ok(&mem[addr..addr + count])
         }
     }
+    pub fn get_bytes_from_mem_mut<'a>(
+        &'a mut self,
+        addr: usize,
+        count: usize,
+    ) -> Result<&'a mut [u8], RuntimeError> {
+        let mem = self
+            .mem
+            .as_mut()
+            .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
+        if addr + count >= mem.len() {
+            Err(RuntimeError::MemoryAddressOutOfScope)
+        } else {
+            Ok(&mut mem[addr..addr + count])
+        }
+    }
 }
 
 #[derive(Debug)]

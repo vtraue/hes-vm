@@ -4,11 +4,13 @@
 #define BUILTIN
 __attribute__((import_module("env"), import_name("io_print_string"))) void vm_print(char* ptr, int size);
 __attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(uint8_t* framebuffer, int width, int height);
+__attribute__((import_module("env"), import_name("gfx_clear_buffer_rgb"))) void vm_clear(uint8_t* framebuffer, int r, int g, int b);
+__attribute__((import_module("env"), import_name("gfx_draw_rect_rgb"))) void vm_draw_rect_rgb(uint8_t* framebuffer, int x, int y, int width, int height, int r, int g, int b);
 __attribute__((import_module("env"), import_name("io_print_sint"))) void vm_print_int(int32_t num);
 
 #define WASM_PAGE_SIZE 65536
-#define FB_WIDTH 256
-#define FB_HEIGHT 256
+#define FB_WIDTH 352
+#define FB_HEIGHT 240
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -59,22 +61,26 @@ typedef struct Game_Data {
   bool keys[KEYCODE_COUNT];
   int32_t position_x;
   int32_t position_y;
+  int32_t current_speed;
 } Game_Data;
+
 Game_Data* alloc_game_data() {
   int size_bytes = sizeof(Game_Data);
   int size_pages = size_bytes / WASM_PAGE_SIZE;   
+ 
   return (Game_Data*)(alloc_pages(size_pages + 1));
 }
 
 
 Game_Data* init() {
     cstr_print("Hello from init!\n");
-    vm_print_int((int32_t)5 - (int32_t)3);
-    vm_print_int((int32_t)3 - (int32_t)5);
-    return alloc_game_data();
+    Game_Data* data = alloc_game_data();
+    data->current_speed = 2;
+
+    return data;
 }
 
-void memset(void *dst, int value, unsigned long size) {
+void memset(void *dst, uint32_t value, unsigned long size) {
   __builtin_memset(dst, value, size);
 }
 
@@ -85,23 +91,20 @@ void fill_framebuffer(u8* buffer, u8 r, u8 g, u8 b, u8 a) {
 
   for(int y = 0; y < FB_HEIGHT; y++) {
     u32* pixel = (u32*)row;
-    for(int x = 0; x < FB_WIDTH; x++) {
-      *pixel++ = color;
-    }
-    row += 800 * 4;
+    memset((void*)pixel, color, FB_WIDTH * 4);
+    row += FB_WIDTH * 4;
   }
 }
 
 void draw_rectangle(u8* dest_buffer, u32 x, u32 y, u32 width, u32 height, u8 r, u8 g, u8 b) {
-  u32* s = ((u32*) dest_buffer) + ((y * FB_WIDTH) + x); 
-  u32* d = s;
+  u8* s = dest_buffer + ((y * FB_WIDTH * 4) + x * 4); 
+  u64* d = (u64*) s;
   int color = (0 << 24) | b << 16 | g << 8 | r;
-  for(int _y = 0; _y < height; _y++) {
-    for(int _x = 0; _x < width; _x++) {
-      *d = color;    
-      d++;
+  for(int _y = 0; _y < (height); _y++) {
+    for(int _x = 0; _x < (width / 2); _x++) {
+      *d++ = (u64) color << 32 | color;    
     }
-    d = s + ((_y) * FB_WIDTH);
+    d = (u64*)(s + ((_y) * FB_WIDTH * 4));
   }
 }
 
@@ -129,37 +132,37 @@ void input(Game_Data* game, uint32_t key, bool down) {
 
 void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   //cstr_print("Hello from run!\n");
-  // fill_framebuffer(framebuffer, 0, 200, 0, 0);
-  render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
-
+  //fill_framebuffer(game->framebuffer, 0, 255, 255, 255);
+  //render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
+  vm_clear(game->framebuffer, 0, 0, 200);
   if(game->keys[KEYCODE_UP]) {
-    if(game->position_y > 0) {
-      game->position_y -= 1;
+    if(game->position_y - game->current_speed + 16 > 0) {
+      game->position_y -= game->current_speed;
     }
   }
 
   if(game->keys[KEYCODE_DOWN]) {
-    if(game->position_y < FB_HEIGHT) {
-      game->position_y += 1;
+    if((game->position_y + game->current_speed + 16) < FB_HEIGHT) {
+      game->position_y += game->current_speed;
       
     }
   }
 
   if(game->keys[KEYCODE_LEFT]) {
-    if(game->position_x > 0) {
-      game->position_x -= 1;
+    if(game->position_x - game->current_speed - 16 > 0) {
+      game->position_x -= game->current_speed;
     }
   }
 
   if(game->keys[KEYCODE_RIGHT]) {
-    if(game->position_x < FB_WIDTH) {
-      game->position_x += 1;
+    if((game->position_x + game->current_speed + 16) < FB_WIDTH) {
+      game->position_x += game->current_speed;
     }
   }
   vm_print_int(game->position_x);
   vm_print_int(game->position_y);
-  
-  draw_rectangle(game->framebuffer, game->position_x, game->position_y, 16, 16, 250, 50, 0);
+  //draw_rectangle(game->framebuffer, game->position_x, game->position_y, 16, 16, 0 ,0, 200);
+  vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 16, 0, 250, 0);
 
   global_xoffset += 2;
   global_yoffset += 2;

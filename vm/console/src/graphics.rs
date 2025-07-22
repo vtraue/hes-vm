@@ -158,7 +158,7 @@ const VERTICES: &[Vertex] = &[
     },
 ];
 const INDICES: &[u16] = &[0, 1, 3, 1, 2, 3];
-const FB_SIZE: (u32, u32) = (256, 256);
+const FB_SIZE: (u32, u32) = (352, 240);
 #[derive(Debug)]
 struct State {
     window: Arc<Window>,
@@ -464,6 +464,32 @@ impl State {
         output.present();
         Ok(())
     }
+
+    pub fn fill_buffer_with_color(buffer: &mut [u8], r: u32, g: u32, b: u32, a: u32) {
+        let buf: &mut [u32] = bytemuck::cast_slice_mut(buffer);
+        let pixel = a << 24 | b << 16 | g << 8 | r;
+        buf.fill(pixel);
+    }
+    pub fn draw_rectanlge_color(
+        buffer: &mut [u8],
+        pos_x: u32,
+        pos_y: u32,
+        width: u32,
+        height: u32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+    ) {
+        let pixel = a << 24 | b << 16 | g << 8 | r;
+        for ele in (0..height) {
+            let buffer_pos = (((pos_y + ele) * FB_SIZE.0 * 4) + (pos_x * 4)) as usize;
+            let slice: &mut [u32] = bytemuck::cast_slice_mut(
+                &mut buffer[buffer_pos..buffer_pos + (width as usize * 4)],
+            );
+            slice.fill(pixel);
+        }
+    }
 }
 impl Env for State {
     fn get_func(env: &str, name: &str) -> Option<ExternalFunction> {
@@ -485,6 +511,30 @@ impl Env for State {
                 params: vec![ValueType::I32],
                 result: vec![],
                 id: 2,
+            }),
+            "gfx_clear_buffer_rgb" => Some(ExternalFunction {
+                params: vec![
+                    ValueType::I32, //buffer
+                    ValueType::I32, //r
+                    ValueType::I32, //g
+                    ValueType::I32, //b
+                ],
+                result: vec![],
+                id: 3,
+            }),
+            "gfx_draw_rect_rgb" => Some(ExternalFunction {
+                params: vec![
+                    ValueType::I32, //buffer
+                    ValueType::I32, //x
+                    ValueType::I32, //y
+                    ValueType::I32, //width
+                    ValueType::I32, //height
+                    ValueType::I32, //r
+                    ValueType::I32, //g
+                    ValueType::I32, //b
+                ],
+                result: vec![],
+                id: 4,
             }),
             _ => None,
         }
@@ -523,6 +573,36 @@ impl Env for State {
                 Ok(())
             }
             2 => Ok(println!("{}", params[0].i32())),
+
+            //gfx_fill_buffer
+            3 => {
+                let ptr = params[0].u32();
+                let (r, g, b, a) = (params[1].u32(), params[2].u32(), params[3].u32(), 0);
+                let data = vm
+                    .get_bytes_from_mem_mut(ptr as usize, (FB_SIZE.0 * FB_SIZE.1 * 4) as usize)
+                    .map_err(|_| 1_usize)?;
+                Self::fill_buffer_with_color(data, r, g, b, a);
+                Ok(())
+            }
+            4 => {
+                let ptr = params[0].u32();
+                let (x, y, w, h, r, g, b, a) = (
+                    params[1].u32(),
+                    params[2].u32(),
+                    params[3].u32(),
+                    params[4].u32(),
+                    params[5].u32(),
+                    params[6].u32(),
+                    params[7].u32(),
+                    0,
+                );
+                let data = vm
+                    .get_bytes_from_mem_mut(ptr as usize, (FB_SIZE.0 * FB_SIZE.1 * 4) as usize)
+                    .map_err(|_| 1_usize)?;
+
+                Self::draw_rectanlge_color(data, x, y, w, h, r, g, b, a);
+                Ok(())
+            }
             _ => unreachable!(),
         }
     }
