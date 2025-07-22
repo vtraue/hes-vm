@@ -23,7 +23,7 @@ public class App {
 
   public static void main(String... args) throws IOException {
     File folder = new File("test");
-    BytecodeBuilder bytecodeBuilder = new BytecodeBuilder();  
+    WasmBuilder bytecodeBuilder = new WasmBuilder();
     for(File entry : folder.listFiles()) {
       String content = new String(Files.readAllBytes(entry.toPath()));
       ReflangLexer lexer = new ReflangLexer(CharStreams.fromString(content));
@@ -46,8 +46,12 @@ public class App {
         }
       }
       builder.leaveFunction();
-      bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(WasmValueType.i32, true)));
-      builder.importFunctions(bytecodeBuilder);
+        try {
+            bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(ValueType.i32, true, 0)));
+        } catch (WasmBuilderException e) {
+            throw new RuntimeException(e);
+        }
+        builder.importFunctions(bytecodeBuilder);
 
       ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
       for(TypedStatement s : typedNodes) { 
@@ -73,7 +77,7 @@ public class App {
       bytecodeBuilder.setStartFunction(builder.getGlobalFunctionId(builder.getFunction("main").get()));
       bytecodeBuilder.build(wasmFuncs);
       FileOutputStream out = new FileOutputStream("gen.wasm");
-      out.write(bytecodeBuilder.getWasmBuilder().getByteArray());
+      out.write(bytecodeBuilder.getByteArray());
       out.close();
     }
   }

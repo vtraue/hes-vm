@@ -8,7 +8,7 @@ import java.util.Optional;
 import org.example.TypedAstBuilder.Function;
 
 import wasm_builder.Func;
-import wasm_builder.WasmValueType;
+import wasm_builder.ValueType;
 
 sealed interface TypedAstNode {
 };
@@ -31,7 +31,7 @@ record TypedId(String name, TypedAstBuilder.Symbol sym) implements TypedExpressi
   public void toWasmCode(wasm_builder.Func func, TypedAstBuilder builder) throws IOException {
     func.emitLocalGet(sym.id());  
     if(!sym.local()) {
-      func.emitLoad();
+      func.emitI32Load();
     }
   }
 };
@@ -44,12 +44,12 @@ record TypedLiteral(Literal lit, Type t) implements TypedExpression {
   @Override
   public void toWasmCode(wasm_builder.Func func, TypedAstBuilder builder) throws IOException {
     switch(this.lit) {
-      case BoolLiteral b -> func.emitConst(b.lit() ? 1 : 0);
+      case BoolLiteral b -> func.emitI32Const(b.lit() ? 1 : 0);
       case StringLiteral l -> {
-        func.builder.addStringData(Arrays.asList(l.literal()));
-        func.emitConst(l.pointer());
+        func.addStringData(Arrays.asList(l.literal()));
+        func.emitI32Const(l.pointer());
       }
-      case IntLiteral i -> func.emitConst(i.literal());
+      case IntLiteral i -> func.emitI32Const(i.literal());
     }
   }
     
@@ -95,7 +95,7 @@ record TypedDeref(TypedId id, Type t) implements TypedExpression {
 	@Override
 	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     id.toWasmCode(func, builder); 
-    func.emitLoad();  
+    func.emitI32Load();
 	}
 
 	@Override
@@ -149,14 +149,14 @@ record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr) imple
       func.emitLocalSet(id.sym().id());
 
       func.emitGlobalGet(0);  
-      func.emitConst(4);
+      func.emitI32Const(4);
       func.emitAdd();
       func.emitGlobalSet(0);
 
       if(expr.isPresent()) {
         func.emitLocalGet(id.sym().id());
         expr.get().toWasmCode(func, builder);
-        func.emitStore();
+        func.emitI32Store();
       }
     }
   }
@@ -171,7 +171,7 @@ record TypedAssign(TypedId id, TypedExpression expr) implements TypedStatement {
     } else {
       func.emitLocalGet(id.sym().id());
       expr.toWasmCode(func, builder);
-      func.emitStore();
+      func.emitI32Store();
     }
 
   }
@@ -271,7 +271,7 @@ record TypedDerefAssign(TypedId id, TypedExpression expr) implements TypedStatem
 	public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
     func.emitLocalGet(id.sym().id); 
     expr.toWasmCode(func, builder);
-    func.emitStore();
+    func.emitI32Store();
     
 	}
 }

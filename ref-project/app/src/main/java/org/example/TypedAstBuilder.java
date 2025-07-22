@@ -3,11 +3,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.lang.Math;
 
-import wasm_builder.BytecodeBuilder;
+import wasm_builder.WasmBuilder;
 import wasm_builder.Func;
 import wasm_builder.FuncType;
 import wasm_builder.Local;
-import wasm_builder.WasmValueType;
+import wasm_builder.WasmBuilder;
+import wasm_builder.ValueType;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,7 +28,7 @@ public class TypedAstBuilder {
       this.type = type;
       this.local = local;
     }
-    WasmValueType toValueType() {
+    ValueType toValueType() {
       return this.type.toWasmValueType();
     }
 
@@ -51,7 +52,7 @@ public class TypedAstBuilder {
     int getId();
     Optional<Params> getArgs();
     Optional<Type> getReturnType();
-    Optional<List<WasmValueType>> getArgValueTypes();
+    Optional<List<ValueType>> getArgValueTypes();
     FuncType toWasmFuncType();  
   }
 
@@ -71,7 +72,7 @@ public class TypedAstBuilder {
       return this.locals.stream().map(sym -> new Local(sym.toValueType())).toList();
     }
 
-    public Optional<List<WasmValueType>> getArgValueTypes() {
+    public Optional<List<ValueType>> getArgValueTypes() {
       return this.argTypes.map(Params::toWasmValueTypes);
     }
     
@@ -106,7 +107,7 @@ public class TypedAstBuilder {
     Optional<Params> argTypes
    ) implements Function {
 
-    public Optional<List<WasmValueType>> getArgValueTypes() {
+    public Optional<List<ValueType>> getArgValueTypes() {
       return this.argTypes.map(Params::toWasmValueTypes);
     }
 
@@ -132,7 +133,7 @@ public class TypedAstBuilder {
       return this.returnType; 
     }
 
-    public void importFunction(BytecodeBuilder builder) {
+    public void importFunction(WasmBuilder builder) {
       builder.importFunc(this.env, this.name, this.toWasmFuncType());
     }
   }
@@ -325,7 +326,7 @@ public class TypedAstBuilder {
     return fn.getId();
   }
 
-  public void importFunctions(BytecodeBuilder builder) {
+  public void importFunctions(WasmBuilder builder) {
     var funcs = new ExternalFunction[this.externalFunctions.size()];
     for(var extFunc : this.externalFunctions.values()) {
       funcs[extFunc.id] = extFunc;

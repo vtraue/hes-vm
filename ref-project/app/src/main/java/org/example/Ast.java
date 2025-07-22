@@ -8,7 +8,7 @@ import java.util.stream.Collectors;
 import org.example.TypedAstBuilder.Function;
 import org.example.TypedAstBuilder.Symbol;
 
-import wasm_builder.WasmValueType;
+import wasm_builder.ValueType;
 
 //TODO:(joh): Bessere Fehler!
 
@@ -27,7 +27,7 @@ sealed interface Expression extends Statement {
 };
 
 sealed interface Type extends AstNode {
-  WasmValueType toWasmValueType(); 
+  ValueType toWasmValueType();
 };
 
 record PointerType(PrimitiveType parent, int depth) implements Type {
@@ -53,8 +53,8 @@ record PointerType(PrimitiveType parent, int depth) implements Type {
 	}
 
 	@Override
-	public WasmValueType toWasmValueType() {
-    return WasmValueType.i32;
+	public ValueType toWasmValueType() {
+    return ValueType.i32;
 	}
 
   public Type deref() {
@@ -91,8 +91,8 @@ enum PrimitiveType implements Type {
     }
   }
 
-  public WasmValueType toWasmValueType() {
-    return WasmValueType.i32;
+  public ValueType toWasmValueType() {
+    return ValueType.i32;
   }
 
   @Override
@@ -553,7 +553,7 @@ record Param(Id id, Type type) implements AstNode {
     return new Ok<>(new TypedParam((TypedId)tId.unwrap(), this.type));
   }
 
-  public WasmValueType toWasmValueType() {
+  public ValueType toWasmValueType() {
     return this.type.toWasmValueType();
   }
 }
@@ -564,7 +564,7 @@ record Params(List<Param> params) implements AstNode {
         "(%s)", params.stream().map(Param::toDebugText).collect(Collectors.joining(",")));
   }
 
-  public List<WasmValueType> toWasmValueTypes() {
+  public List<ValueType> toWasmValueTypes() {
     return this.params
       .stream()
       .map(Param::toWasmValueType)
