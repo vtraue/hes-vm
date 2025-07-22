@@ -7,6 +7,10 @@ __attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(ui
 __attribute__((import_module("env"), import_name("gfx_clear_buffer_rgb"))) void vm_clear(uint8_t* framebuffer, int r, int g, int b);
 __attribute__((import_module("env"), import_name("gfx_draw_rect_rgb"))) void vm_draw_rect_rgb(uint8_t* framebuffer, int x, int y, int width, int height, int r, int g, int b);
 __attribute__((import_module("env"), import_name("io_print_sint"))) void vm_print_int(int32_t num);
+__attribute__((import_module("env"), import_name("io_print_sint64"))) void vm_print_int64(int64_t num);
+__attribute__((import_module("env"), import_name("clock_get_time_passed_ms"))) int64_t vm_get_time_ms();
+__attribute__((import_module("env"), import_name("rand_range_sint32"))) int32_t vm_rand_range(int32_t min, int32_t max);
+
 
 #define WASM_PAGE_SIZE 65536
 #define FB_WIDTH 352
@@ -131,10 +135,12 @@ void input(Game_Data* game, uint32_t key, bool down) {
 }
 
 void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
-  //cstr_print("Hello from run!\n");
+  int64_t then = vm_get_time_ms();
+
+  //cstr_print("Hello from rint64_t numun!\n");
   //fill_framebuffer(game->framebuffer, 0, 255, 255, 255);
   //render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
-  vm_clear(game->framebuffer, 0, 0, 200);
+  vm_clear(game->framebuffer, 200, 0, 0);
   if(game->keys[KEYCODE_UP]) {
     if(game->position_y - game->current_speed + 16 > 0) {
       game->position_y -= game->current_speed;
@@ -159,13 +165,28 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
       game->position_x += game->current_speed;
     }
   }
+
+  /*
   vm_print_int(game->position_x);
   vm_print_int(game->position_y);
-  //draw_rectangle(game->framebuffer, game->position_x, game->position_y, 16, 16, 0 ,0, 200);
-  vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 16, 0, 250, 0);
+  */
+  //draw_rectangle(game->framebuffer, game->position_x, game->position_y, 16, 16, 250 ,0, 250);
+  vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 17, 0, 0, 0);
 
-  global_xoffset += 2;
-  global_yoffset += 2;
+  global_xoffset += 4;
+  global_yoffset += 4;
 
+  i64 time_passed = vm_get_time_ms() - then;
+
+  /*
+  cstr_print("Time passed: ");
+  vm_print_int64(time_passed);
+  cstr_print("\n");
+  
+  cstr_print("Random number: ");
+  vm_print_int(vm_rand_range(-10, 10));
+  cstr_print("\n");
+  */
   vm_paint(game->framebuffer, FB_WIDTH, FB_HEIGHT);
+ 
 }

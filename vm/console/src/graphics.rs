@@ -1,14 +1,22 @@
 use bytemuck::*;
+use core::sync;
 use interpreter::{
     env::{Env, ExternalFunction},
     slow_vm::{InstanceError, LocalValue, RuntimeError, Vm},
 };
+use notify::Watcher;
 use parser::reader::{BytecodeReader, ParserError, ValueType, is_wasm_bytecode};
+use rand::{Rng, rngs::ThreadRng};
 use std::{
     collections::HashMap,
     fs::File,
     io::{self, BufReader, Read},
-    sync::Arc,
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 use validator::validator::{
@@ -49,6 +57,8 @@ pub enum ConsoleError {
 
     #[error("Module required to export an init function")]
     NoInitFunc,
+    #[error("Unable to set up file watcher")]
+    UnableToSetUpFileWatcher(#[from] notify::Error),
 
     #[error("Runtime error occured: {0}")]
     RuntimeError(#[from] RuntimeError),
@@ -175,6 +185,8 @@ struct State {
     texture: wgpu::Texture,
     texture_size: wgpu::Extent3d,
     diffuse_bind_group: wgpu::BindGroup,
+    start_time: Instant,
+    rng: ThreadRng,
 }
 
 impl State {
@@ -366,6 +378,7 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
         let num_indices = INDICES.len() as u32;
+
         Ok(Self {
             window,
             surface,
@@ -381,6 +394,8 @@ impl State {
             diffuse_bind_group,
             texture: diffuse_texture,
             texture_size,
+            start_time: Instant::now(),
+            rng: rand::rng(),
         })
     }
 
@@ -496,6 +511,7 @@ impl Env for State {
         if env != "env" {
             return None;
         }
+        //TODO:
         match name {
             "io_print_string" => Some(ExternalFunction {
                 params: vec![ValueType::I32, ValueType::I32],
@@ -536,6 +552,22 @@ impl Env for State {
                 result: vec![],
                 id: 4,
             }),
+            "clock_get_time_passed_ms" => Some(ExternalFunction {
+                params: vec![],
+                result: vec![ValueType::I64],
+                id: 5,
+            }),
+
+            "io_print_sint64" => Some(ExternalFunction {
+                params: vec![ValueType::I64],
+                result: vec![],
+                id: 6,
+            }),
+            "rand_range_sint32" => Some(ExternalFunction {
+                params: vec![ValueType::I32, ValueType::I32],
+                result: vec![ValueType::I32],
+                id: 7,
+            }),
             _ => None,
         }
     }
@@ -548,7 +580,7 @@ impl Env for State {
         &mut self,
         vm: &mut Vm<Self>,
         params: &[LocalValue],
-        _results: &mut [LocalValue],
+        results: &mut [LocalValue],
         func_id: usize,
     ) -> Result<(), usize> {
         match func_id {
@@ -603,6 +635,19 @@ impl Env for State {
                 Self::draw_rectanlge_color(data, x, y, w, h, r, g, b, a);
                 Ok(())
             }
+            5 => {
+                let duration = self.start_time.elapsed().as_millis();
+                results[0] = LocalValue::I64(duration as u64);
+
+                Ok(())
+            }
+            6 => Ok(println!("{}", params[0].i64())),
+            7 => {
+                let num = self.rng.random_range(params[0].i32()..params[1].i32());
+                results[0] = LocalValue::I32(bytemuck::cast(num));
+                Ok(())
+            }
+
             _ => unreachable!(),
         }
     }
@@ -633,7 +678,7 @@ impl Funcs {
 }
 #[derive(Debug)]
 pub struct Executor {
-    wasm_path: String,
+    wasm_path: PathBuf,
     validate_result: ValidateResult,
     funcs: Funcs,
     init_func_result: Option<u32>,
@@ -655,17 +700,17 @@ impl Executor {
         Ok(res)
     }
 
-    pub fn new(path: impl Into<String>) -> Result<Self, ConsoleError> {
-        let p = path.into();
-        let file = File::open(&p).map_err(|e| ConsoleError::UnableToLoadFile(e))?;
+    pub fn new(path: PathBuf) -> Result<Self, ConsoleError> {
+        let file = File::open(&path).map_err(|e| ConsoleError::UnableToLoadFile(e))?;
         let mut reader = BufReader::new(file);
 
         let validate_result = Self::get_validate_result(&mut reader)?;
         let funcs = Funcs::from_validate_result(&validate_result)?;
 
         let vm = Vm::init_from_validation_result(&validate_result)?;
+
         Ok(Executor {
-            wasm_path: p,
+            wasm_path: path,
             vm,
             validate_result,
             funcs,
@@ -679,7 +724,17 @@ impl Executor {
         self.validate_result = Self::get_validate_result(&mut reader)?;
         self.funcs = Funcs::from_validate_result(&self.validate_result)?;
         self.vm = Vm::init_from_validation_result(&self.validate_result)?;
-        self.run_init(state);
+        self.run_init(state)?;
+        Ok(())
+    }
+
+    pub fn reload_code(&mut self, state: &mut State) -> Result<(), ConsoleError> {
+        let file = File::open(&self.wasm_path).map_err(|e| ConsoleError::UnableToLoadFile(e))?;
+        let mut reader = BufReader::new(file);
+        self.validate_result = Self::get_validate_result(&mut reader)?;
+        self.funcs = Funcs::from_validate_result(&self.validate_result)?;
+        self.vm
+            .reload_code(&self.validate_result.bytecode, &self.validate_result.info)?;
         Ok(())
     }
 
@@ -695,6 +750,7 @@ impl Executor {
         println!("Init done!\n");
         assert!(result.len() == 1);
         self.init_func_result = Some(result[0].u32());
+
         Ok(())
     }
 
@@ -742,17 +798,34 @@ impl Executor {
 pub struct App {
     state: Option<State>,
     exec: Executor,
+    auto_hot_reload: bool,
+    file_watch_rec: Receiver<notify::Result<notify::Event>>,
+    file_watcher: notify::PollWatcher,
 }
 impl App {
-    pub fn new(path: impl Into<String>) -> Result<Self, ConsoleError> {
+    pub fn new(path: PathBuf, auto_hot_reload: bool) -> Result<Self, ConsoleError> {
+        let (file_watch_sender, file_watch_rec) = mpsc::channel();
+        let config = notify::Config::default()
+            .with_poll_interval(Duration::from_secs(2))
+            .with_compare_contents(true);
+
+        let mut file_watcher = notify::PollWatcher::new(file_watch_sender, config)?;
+
+        file_watcher.watch(&path, notify::RecursiveMode::Recursive)?;
         let exec = Executor::new(path)?;
-        let app = Self { state: None, exec };
+        let app = Self {
+            state: None,
+            exec,
+            auto_hot_reload,
+            file_watch_rec,
+            file_watcher,
+        };
 
         Ok(app)
     }
-    pub fn run(path: impl Into<String>) -> Result<(), ConsoleError> {
+    pub fn run(path: PathBuf) -> Result<(), ConsoleError> {
         let event_loop = EventLoop::with_user_event().build()?;
-        let mut app = App::new(path)?;
+        let mut app = App::new(path, true)?;
         event_loop.run_app(&mut app).unwrap();
         Ok(())
     }
@@ -797,6 +870,11 @@ impl ApplicationHandler for App {
                     let state = self.state.as_mut().unwrap();
                     self.exec.reload_all(state).unwrap();
                 }
+                (KeyCode::KeyT, true) => {
+                    let state = self.state.as_mut().unwrap();
+                    self.exec.reload_code(state).unwrap();
+                }
+
                 (key, pressed) => {
                     let state = self.state.as_mut().unwrap();
 
@@ -817,16 +895,30 @@ impl ApplicationHandler for App {
                 use std::time::Instant;
                 let now = Instant::now();
 
-                self.exec
-                    .run_frame(self.state.as_mut().unwrap(), FB_SIZE.0, FB_SIZE.1)
-                    .unwrap();
-                let elapsed = now.elapsed();
-                println!("Time for update: {:.2?}ms", elapsed.as_millis());
-
                 let state = match &mut self.state {
                     Some(canvas) => canvas,
                     None => return,
                 };
+                for ev in self.file_watch_rec.try_iter() {
+                    match ev {
+                        Ok(e) => match e.kind {
+                            notify::EventKind::Modify(_) => {
+                                println!("blub!\n");
+                                if self.auto_hot_reload {
+                                    self.exec.reload_code(state).unwrap();
+                                }
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                }
+
+                self.exec.run_frame(state, FB_SIZE.0, FB_SIZE.1).unwrap();
+
+                let elapsed = now.elapsed();
+                //println!("Time for update: {:.2?}ms", elapsed.as_millis());
+
                 let size = state.window.inner_size();
 
                 match state.render() {

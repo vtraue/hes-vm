@@ -16,6 +16,7 @@ use parser::{
 use std::{
     fs::File,
     io::{Cursor, Read, Seek},
+    path::PathBuf,
 };
 use validator::validator::{ValidateResult, read_and_validate, read_and_validate_wat};
 
@@ -23,7 +24,7 @@ use crate::env::HeadlessEnv;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    path: String,
+    path: PathBuf,
     #[command(subcommand)]
     command: Commands,
 }

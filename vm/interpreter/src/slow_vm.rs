@@ -1148,6 +1148,39 @@ impl<E: Env> Vm<E> {
         self.ip = 0;
     }
 
+    pub fn reload_code(
+        &mut self,
+        bytecode: &Bytecode,
+        info: &BytecodeInfo,
+    ) -> Result<(), InstanceError> {
+        self.reset_state();
+        self.code = Code::from_module::<E>(bytecode, info)?;
+        self.start_func_id = bytecode.start.as_ref().map(|i| i.data as usize);
+        self.globals = Self::get_global_instances(bytecode, info)?;
+        self.types = bytecode
+            .iter_types()
+            .map(|i| i.map_into::<Type>().collect());
+
+        if let Some(data) = bytecode.iter_data()
+            && let Some(ref mut mem) = self.mem
+        {
+            data.filter_map(|d| {
+                if let Data::Active { expr, data, .. } = d {
+                    Some((expr, data))
+                } else {
+                    None
+                }
+            })
+            .try_for_each(|(expr, data)| {
+                Self::copy_active_mem_section(
+                    mem.as_mut_slice(),
+                    expr.data.iter().map(|p| p.data),
+                    &data.data,
+                )
+            })?;
+        };
+        Ok(())
+    }
     pub fn get_bytes_from_mem<'a>(
         &'a self,
         addr: usize,
