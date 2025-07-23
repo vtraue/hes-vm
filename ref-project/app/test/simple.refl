@@ -2,15 +2,15 @@ import env fn print(str: string, size: int);
 import env fn printNum(num: int);
 import env fn trap();
 
-export fn should_work(a: int) -> int {
+fn should_work(a: int) -> int {
 	return 1;
 }
 
-export fn should_work1(a: int, b: int) -> int {
+fn should_work1(a: int, b: int) -> int {
 	return 2;
 }
 
-export fn should_work2(a: int, b: int, c: int) -> int {
+fn should_work2(a: int, b: int, c: int) -> int {
 	return 3;
 }
 
@@ -23,7 +23,7 @@ fn assert(cond: bool) {
 }
 
 
-export fn test() {
+fn test() {
   return;
 }
 
@@ -32,7 +32,7 @@ fn test_fn(ref: int*) {
   return;
 }
 export fn main() {
-  print("hallo welt!", 5);
+  print("UA", 5);
   printNum(100);
   test_num := 5;
 

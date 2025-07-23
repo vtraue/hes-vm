@@ -1,7 +1,7 @@
 
 package wasm_builder;
 
-public enum WasmInstructionOpCode {
+public enum InstructionOpCode {
 	UNREACHABLE((short) 0x00),
 	NOP((short) 0x01),
 	END((short) 0x0b),
@@ -22,6 +22,9 @@ public enum WasmInstructionOpCode {
 	I32_LOAD((short) 0x28),
 	I32_STORE((short) 0x36),
 	I32_CONST((short) 0x41),
+	I64_CONST((short) 0x42),
+	F32_CONST((short) 0x43),
+	F64_CONST((short) 0x44),
 	I32_EQZ((short) 0x45),
 	I32_EQ((short) 0x46),
 	I32_NE((short) 0x47),
@@ -37,11 +40,16 @@ public enum WasmInstructionOpCode {
 	I32_AND((short) 0x71),
 	I32_OR((short) 0x72),
 	I32_XOR((short) 0x73),
+	//Reference Instructions
+	REF_NULL((short) 0xD0),
+	REF_IS_NULL((short) 0xD1),
+	REF_FUNC((short) 0xD2),
+
 	;
 
 	public short code;
 
-	private WasmInstructionOpCode(short code) {
+	private InstructionOpCode(short code) {
 		this.code = code;
 	}
 }

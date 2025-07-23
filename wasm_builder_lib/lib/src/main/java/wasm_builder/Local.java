@@ -1,7 +1,7 @@
 package wasm_builder;
 
-public record Local(WasmValueType type, String name) {
-    public Local (WasmValueType type) {
+public record Local(ValueType type, String name) {
+    public Local (ValueType type) {
         this(type, "");
     }
 }
