@@ -174,7 +174,7 @@ pub enum Op {
     I64ExtendI32s,
     I64ExtendI32u,
 
-    MemoryCopy,
+    MemoryCopy { extra_1: usize, extra_2: usize },
     MemoryFill { extra: usize },
     MemoryInit { data_id: usize, extra: usize }, //TODO: (joh): Float ops
     MemoryGrow { extra: usize },
@@ -231,9 +231,14 @@ pub fn read_fc_op(reader: &mut impl BytecodeReader) -> Result<Op, ParserError> {
             data_id: reader.parse()?,
             extra: reader.parse()?,
         },
+        10 => Op::MemoryCopy {
+            extra_1: reader.parse()?,
+            extra_2: reader.parse()?,
+        },
         11 => Op::MemoryFill {
             extra: reader.parse()?,
         },
+
         _ => todo!(),
     };
     Ok(instr)
@@ -442,7 +447,7 @@ impl fmt::Display for Op {
             Op::I64Leu => write!(f, "i64.leu"),
             Op::I64Ges => write!(f, "i64.ges"),
             Op::I64Geu => write!(f, "i64.geu"),
-            Op::MemoryCopy => write!(f, "memory.copy"),
+            Op::MemoryCopy { .. } => write!(f, "memory.copy"),
             Op::MemoryFill { .. } => write!(f, "memory.fill"),
             Op::I32Add => write!(f, "i32.add"),
             Op::I32Sub => write!(f, "i32.sub"),

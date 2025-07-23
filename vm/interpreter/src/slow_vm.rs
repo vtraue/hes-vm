@@ -153,7 +153,8 @@ macro_rules! impl_vm_pop {
             pub unsafe fn $func_name(&mut self) -> $t {
                 let val = unsafe { self.value_stack.pop().unwrap_unchecked().$var_name };
                 //val as $t
-                bytemuck::cast(val)
+                let res = bytemuck::cast(val);
+                res
             }
         }
         impl_pop_from_value_stack!($t, $func_name);
@@ -261,7 +262,9 @@ impl Code {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum LocalValue {
     I32(u32),
+    S32(i32),
     I64(u64),
+    S64(i64),
     F32(f32),
     F64(f64),
 }
@@ -271,7 +274,9 @@ impl Display for LocalValue {
         //TODO: Finde einen Weg das besser mit den Typen zu printen ohne dass es eklig wird
         match self {
             LocalValue::I32(i) => write!(f, "{}", i),
+            LocalValue::S32(i) => write!(f, "{}", i),
             LocalValue::I64(i) => write!(f, "{}", i),
+            LocalValue::S64(i) => write!(f, "{}", i),
             LocalValue::F32(i) => write!(f, "{}", i),
             LocalValue::F64(i) => write!(f, "{}", i),
         }
@@ -282,6 +287,8 @@ impl From<LocalValue> for StackValue {
     fn from(value: LocalValue) -> Self {
         match value {
             LocalValue::I32(val) => Self { i32: val },
+            LocalValue::S32(val) => Self { i32: val as u32 },
+            LocalValue::S64(val) => Self { i64: val as u64 },
             LocalValue::I64(val) => Self { i64: val },
             LocalValue::F32(val) => Self { f32: val },
             LocalValue::F64(val) => Self { f64: val },
@@ -293,6 +300,8 @@ impl LocalValue {
         match self {
             LocalValue::I32(_) => ValueType::I32,
             LocalValue::I64(_) => ValueType::I64,
+            LocalValue::S32(_) => ValueType::I32,
+            LocalValue::S64(_) => ValueType::I64,
             LocalValue::F32(_) => ValueType::F32,
             LocalValue::F64(_) => ValueType::F64,
         }
@@ -302,6 +311,8 @@ impl LocalValue {
         match self {
             LocalValue::I32(v) => *v = unsafe { val.i32 },
             LocalValue::I64(v) => *v = unsafe { val.i64 },
+            LocalValue::S32(v) => *v = unsafe { val.i32 as i32 },
+            LocalValue::S64(v) => *v = unsafe { val.i64 as i64 },
             LocalValue::F32(v) => *v = unsafe { val.f32 },
             LocalValue::F64(v) => *v = unsafe { val.f64 },
         };
@@ -602,7 +613,7 @@ impl<E: Env> Vm<E> {
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
-            //println!("Popping: {:?}", val);
+            // println!("Popping: {:?}", val);
             val
         }
     }
@@ -610,7 +621,7 @@ impl<E: Env> Vm<E> {
     #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
-        //println!("fetching: {:?}", op);
+        // println!("fetching: {:?}", op);
         op
     }
 
@@ -940,7 +951,7 @@ impl<E: Env> Vm<E> {
         self.ip += 1;
     }
 
-    pub fn exec_memory_fill(&mut self) {
+    pub fn exec_memory_fill(&mut self) -> Result<(), RuntimeError> {
         let (n, val, dest) = unsafe {
             (
                 self.pop_u32() as usize,
@@ -949,9 +960,32 @@ impl<E: Env> Vm<E> {
             )
         };
         let mem = self.mem.as_mut().unwrap();
-        let region = &mut mem[dest..dest + n];
+        let region = mem
+            .get_mut(dest..dest + n)
+            .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
         region.fill(val as u8);
         self.ip += 1;
+        Ok(())
+    }
+
+    pub fn exec_memory_copy(&mut self) -> Result<(), RuntimeError> {
+        let (n, s, d) = unsafe {
+            (
+                self.pop_value::<u32>() as usize,
+                self.pop_value::<u32>() as usize,
+                self.pop_value::<u32>() as usize,
+            )
+        };
+        let mem = self.mem.as_mut().unwrap();
+        _ = mem
+            .get(s..s + n)
+            .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
+        _ = mem
+            .get(d..d + n)
+            .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
+        mem.copy_within(s..s + n, d);
+        self.ip += 1;
+        Ok(())
     }
     pub fn exec_op(&mut self, bytecode: &Bytecode, env: &mut E) -> Result<bool, RuntimeError> {
         match self.fetch_instruction() {
@@ -1069,8 +1103,8 @@ impl<E: Env> Vm<E> {
             Op::MemoryInit { data_id, .. } => self.exec_memory_init(bytecode, *data_id)?,
             Op::I64Rotl => todo!(),
             Op::I64Rotr => todo!(),
-            Op::MemoryCopy => todo!(),
-            Op::MemoryFill { .. } => self.exec_memory_fill(),
+            Op::MemoryCopy { .. } => self.exec_memory_copy()?,
+            Op::MemoryFill { .. } => self.exec_memory_fill()?,
             Op::MemoryGrow { .. } => self.exec_memory_grow(),
             Op::I32WrapI64 => impl_convert!(self, a, u64, a as u32),
             Op::I64ExtendI32s => impl_convert!(self, a, i32, a as i64),

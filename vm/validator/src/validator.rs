@@ -698,6 +698,16 @@ impl ValidatorContext {
         t.iter_results().for_each(|t| self.push(t));
         Ok(())
     }
+
+    pub fn validate_memory_copy(&mut self, info: &BytecodeInfo) -> Result<(), ValidationError> {
+        if !info.has_memory() {
+            Err(ValidationError::UnexpectedNoMemories)
+        } else {
+            validate_types!(self, [ValueType::I32, ValueType::I32, ValueType::I32] => []);
+            Ok(())
+        }
+    }
+
     pub fn validate_memory_init(
         &mut self,
         bytecode: &Bytecode,
@@ -847,7 +857,7 @@ impl ValidatorContext {
             | Op::I64Shru
             | Op::I64Rotl
             | Op::I64Rotr => self.validate_binop(I64)?,
-            Op::MemoryCopy => todo!(),
+            Op::MemoryCopy { .. } => self.validate_memory_copy(info)?,
             Op::MemoryFill { .. } => self.validate_memory_fill(info)?,
             Op::MemoryInit { data_id, .. } => self.validate_memory_init(bytecode, info, data_id)?,
             Op::MemoryGrow { .. } => self.validate_memory_grow(info)?,

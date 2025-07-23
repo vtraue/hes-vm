@@ -1,5 +1,5 @@
 build:
-    clang --target=wasm32 -nostdlib -mbulk-memory -Wl,--no-entry -Wl,--export-all -O2  src/test.c -o out.wasm
+    clang --target=wasm32 -nostdlib -mbulk-memory -Wl,--no-entry -Wl,--export-all -O1  src/test.c -o out.wasm
 
 validate: build
     cargo run out.wasm validate

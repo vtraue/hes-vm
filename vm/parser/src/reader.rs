@@ -10,7 +10,7 @@ use std::{
 
 use byteorder::ReadBytesExt;
 use itertools::Itertools;
-use log::trace;
+use log::{error, info, trace};
 use parser_derive::FromBytecode;
 
 use crate::{
@@ -301,9 +301,10 @@ pub const WASM_HEADER_VERSION: &[u8; 4] = &[1, 0, 0, 0];
 
 impl FromBytecode for Header {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        trace!("Reading bytecode header");
+        info!("Reading bytecode header");
 
         let header = try_read_with_pos(reader, |reader| {
+            trace!("Reading header magic number");
             let mut header: [u8; 4] = [0; 4];
             reader.read_exact(&mut header)?;
             Ok(header)
@@ -315,7 +316,7 @@ impl FromBytecode for Header {
 
         let version = try_read_with_pos(reader, |reader| {
             let mut version: [u8; 4] = [0; 4];
-
+            trace!("Reading wasm version");
             reader.read_exact(&mut version)?;
             if version != *WASM_HEADER_VERSION {
                 Err(ParserError::InvalidVersion(version))
@@ -421,6 +422,7 @@ impl ValueType {
 
 impl FromBytecode for ValueType {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        trace!("Reading value type");
         reader.read_u8()?.try_into()
     }
 }
@@ -433,8 +435,10 @@ pub struct Type {
 
 impl FromBytecode for Type {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        trace!("Reading type");
         let magic = reader.read_u8()?;
         if magic != TYPE_MAGIC {
+            error!("Invalid encoding for type: Wrong Type magic");
             Err(ParserError::InvalidFunctionTypeEncoding(magic))
         } else {
             Ok(Self {
@@ -496,6 +500,8 @@ pub struct ConstExpr {
 
 impl FromBytecode for ConstExpr {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        info!("Reading const expr");
+
         Ok(ConstExpr {
             expr: iter_const_expr(reader).collect::<Result<Vec<_>, _>>()?,
         })
@@ -561,6 +567,8 @@ impl Limits {
 }
 impl FromBytecode for Limits {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        trace!("Reading limits");
+
         match reader.read_u8()? {
             0x00 => Ok(Self {
                 min: reader.parse()?,

@@ -5,8 +5,8 @@ __attribute__((import_module("env"), import_name("io_print_string"))) void vm_pr
 __attribute__((import_module("env"), import_name("gfx_paint"))) void vm_paint(char* framebuffer, int width, int height);
 
 #define WASM_PAGE_SIZE 65536
-#define FB_WIDTH 320
-#define FB_HEIGHT 180
+#define FB_WIDTH 800
+#define FB_HEIGHT 600
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;

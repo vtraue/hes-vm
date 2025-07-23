@@ -19,6 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use ultraviolet::Mat4;
 use validator::validator::{
     ReadAndValidateError, ValidateResult, read_and_validate, read_and_validate_wat,
 };
@@ -123,6 +124,7 @@ impl ConsoleKey {
     }
 }
 
+/*
 #[repr(C)]
 #[derive(Pod, Zeroable, Clone, Copy, Debug)]
 struct Vertex {
@@ -149,6 +151,8 @@ impl Vertex {
         }
     }
 }
+*/
+/*
 const VERTICES: &[Vertex] = &[
     Vertex {
         position: [1.0, 1.0, 0.0],
@@ -168,30 +172,32 @@ const VERTICES: &[Vertex] = &[
     },
 ];
 const INDICES: &[u16] = &[0, 1, 3, 1, 2, 3];
-const FB_SIZE: (u32, u32) = (352, 240);
+*/
+const FB_SIZE: (u32, u32) = (640, 360);
 #[derive(Debug)]
 struct State {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    uniform_buffer: wgpu::Buffer,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_vertices: u32,
-    num_indices: u32,
+    //index_buffer: wgpu::Buffer,
+    //num_vertices: u32,
+    //num_indices: u32,
     texture: wgpu::Texture,
     texture_size: wgpu::Extent3d,
     diffuse_bind_group: wgpu::BindGroup,
     start_time: Instant,
     rng: ThreadRng,
+    clip_rect: (u32, u32, u32, u32),
 }
 
 impl State {
     pub async fn new(window: Arc<Window>) -> Result<Self, ConsoleError> {
-        let num_vertices = VERTICES.len() as u32;
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -236,6 +242,35 @@ impl State {
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
+
+        let matrix = ScalingMatrix::new(
+            FB_SIZE.0 as f32,
+            FB_SIZE.1 as f32,
+            size.width as f32,
+            size.height as f32,
+        );
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("scaling matrix uniform"),
+            contents: matrix.uniform_buffer.as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let vertices: [[f32; 2]; 3] = [[-1.0, -1.0], [3.0, -1.0], [-1.0, 3.0]];
+        let vertices_slice = bytemuck::cast_slice(&vertices);
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: vertices_slice,
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let vertex_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: (vertices_slice.len() / vertices.len()) as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 0,
+                shader_location: 0,
+            }],
+        };
+
         let diffuse_bytes = include_bytes!("logo2.png");
         let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
         let diffuse_rgba = diffuse_image.to_rgba8();
@@ -276,14 +311,18 @@ impl State {
         let diffuse_texture_view =
             diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
-
-            ..Default::default()
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 1.0,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
         });
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -305,6 +344,18 @@ impl State {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                matrix.uniform_buffer.len() as u64
+                            ),
+                        },
+                        count: None,
+                    },
                 ],
             });
         let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -317,6 +368,10 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniform_buffer.as_entire_binding(),
                 },
             ],
             label: Some("diffuse_bind_group"),
@@ -335,7 +390,7 @@ impl State {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Vertex::desc()],
+                buffers: &[vertex_buffer_layout],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -347,38 +402,21 @@ impl State {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Cw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
+            primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
+        /*
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
         let num_indices = INDICES.len() as u32;
-
+        */
         Ok(Self {
             window,
             surface,
@@ -388,14 +426,16 @@ impl State {
             is_surface_configured: false,
             render_pipeline,
             vertex_buffer,
-            index_buffer,
-            num_vertices,
-            num_indices,
+            //index_buffer,
+            //num_vertices,
+            //num_indices,
             diffuse_bind_group,
             texture: diffuse_texture,
             texture_size,
             start_time: Instant::now(),
             rng: rand::rng(),
+            clip_rect: matrix.clip_rect(),
+            uniform_buffer,
         })
     }
 
@@ -419,6 +459,18 @@ impl State {
 
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 && !self.is_surface_configured {
+            let matrix = ScalingMatrix::new(
+                FB_SIZE.0 as f32,
+                FB_SIZE.1 as f32,
+                width as f32,
+                height as f32,
+            );
+
+            self.queue
+                .write_buffer(&self.uniform_buffer, 0, &matrix.uniform_buffer);
+
+            self.clip_rect = matrix.clip_rect();
+
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
@@ -471,9 +523,16 @@ impl State {
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        //render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        //render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        render_pass.set_scissor_rect(
+            self.clip_rect.0,
+            self.clip_rect.1,
+            self.clip_rect.2,
+            self.clip_rect.3,
+        );
 
+        render_pass.draw(0..3, 0..1);
         drop(render_pass);
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -485,6 +544,7 @@ impl State {
         let pixel = a << 24 | b << 16 | g << 8 | r;
         buf.fill(pixel);
     }
+
     pub fn draw_rectanlge_color(
         buffer: &mut [u8],
         pos_x: u32,
@@ -644,7 +704,8 @@ impl Env for State {
             6 => Ok(println!("{}", params[0].i64())),
             7 => {
                 let num = self.rng.random_range(params[0].i32()..params[1].i32());
-                results[0] = LocalValue::I32(bytemuck::cast(num));
+
+                results[0] = LocalValue::S32(num as i32);
                 Ok(())
             }
 
@@ -934,5 +995,67 @@ impl ApplicationHandler for App {
 
             _ => {}
         }
+    }
+}
+
+//Von: https://github.com/parasyte/pixels
+pub struct ScalingMatrix {
+    transform: Mat4,
+    clip_rect: (u32, u32, u32, u32),
+    uniform_buffer: Vec<u8>,
+}
+impl ScalingMatrix {
+    pub fn new(
+        texture_width: f32,
+        texture_height: f32,
+        screen_width: f32,
+        screen_height: f32,
+    ) -> Self {
+        let width_ratio = (screen_width / texture_width);
+        let height_ratio = (screen_height / texture_height);
+        let scale = width_ratio.min(height_ratio);
+        let scaled_width = texture_width * scale;
+        let scaled_height = texture_height * scale;
+        let sw = scaled_width / screen_width;
+        let sh = scaled_height / screen_height;
+        let tx = (screen_width / 2.0).fract() / screen_width;
+        let ty = (screen_height / 2.0).fract() / scaled_height;
+        #[rustfmt::skip]
+        let transform: [f32; 16] = [
+            sw,  0.0, 0.0, 0.0,
+            0.0, sh,  0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            tx,  ty,  0.0, 1.0,
+        ];
+
+        // Create a clipping rectangle
+        let clip_rect = {
+            let scaled_width = scaled_width.min(screen_width);
+            let scaled_height = scaled_height.min(screen_height);
+            let x = ((screen_width - scaled_width) / 2.0) as u32;
+            let y = ((screen_height - scaled_height) / 2.0) as u32;
+
+            (x, y, scaled_width as u32, scaled_height as u32)
+        };
+
+        let mat = Mat4::from(transform);
+
+        // Compute the constant buffer
+        let mut uniform_buffer = Vec::new();
+        uniform_buffer.extend_from_slice(mat.as_byte_slice());
+        uniform_buffer.extend_from_slice(&texture_width.to_le_bytes());
+        uniform_buffer.extend_from_slice(&texture_height.to_le_bytes());
+        uniform_buffer.extend_from_slice(&(1.0 / texture_width).to_le_bytes());
+        uniform_buffer.extend_from_slice(&(1.0 / texture_height).to_le_bytes());
+
+        Self {
+            transform: mat,
+            clip_rect,
+            uniform_buffer,
+        }
+    }
+
+    pub(crate) fn clip_rect(&self) -> (u32, u32, u32, u32) {
+        self.clip_rect
     }
 }
