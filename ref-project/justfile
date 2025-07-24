@@ -1,11 +1,16 @@
 build:
-	./gradlew build
+	./gradlew spotlessApply && ./gradlew build
 
 run:
-	./gradlew run && mv app/gen.wasm app/web/gen.wasm 
+	./gradlew run --args="test/simple.refl" && cp app/gen.wasm app/web/gen.wasm 
 
 to-wat:
 	wasm2wat app/web/gen.wasm > out/out.wat & bat out/out.wat
+
+to-runtime:
+	cp app/gen.wasm ../vm/in.wasm && cd ../vm/cli && cargo run ../in.wasm run run
+runtime-print:
+	cp app/gen.wasm ../vm/in.wasm && cd ../vm/cli && cargo run ../in.wasm print
 
 webserver: run
   http-server app/web

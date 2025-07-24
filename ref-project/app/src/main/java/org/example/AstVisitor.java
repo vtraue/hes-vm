@@ -343,17 +343,21 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
 
   @Override
   public AstNode visitRef(ReflangParser.RefContext ctx) {
-    System.out.println("blub");
     Id target = (Id)this.visit(ctx.name);    
     return new Ref(target);
   }
 
   @Override
   public AstNode visitDeref(ReflangParser.DerefContext ctx) {
-    System.out.println("blib");
     Id target = (Id)this.visit(ctx.name);    
     return new Deref(target);
   }
 
+  @Override
+  public AstNode visitCast(ReflangParser.CastContext ctx) {
+    Type t = (Type)this.visit(ctx.t);
+    Expression expr = (Expression)this.visit(ctx.src_expr);    
+    return new Cast(t, expr);
+  }
 }
 

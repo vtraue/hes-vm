@@ -46,7 +46,11 @@ application {
 	// Define the main class for the application.
 	mainClass = 'org.example.App'
 }
-
+jar {
+manifest {
+	attributes 'Main-Class': application.mainClass
+}
+}
 spotless {
 // optional: limit format enforcement to just the files changed by this feature branch
 ratchetFrom 'origin/main'

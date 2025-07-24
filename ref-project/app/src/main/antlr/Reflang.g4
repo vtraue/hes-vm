@@ -4,15 +4,14 @@ grammar Reflang;
 program : statement* EOF;
 
 statement:
-				   vardecl
-				|  vardeclt
+		   vardecl
+		|  vardeclt
         |  assign
         |  derefAssign
         |  stmtExpr 
         |  export_fndecl
         |  import_fndecl
-    	  |  fndecl
-        |  cond
+    	|  fndecl
         |  while
         |  break
         |  return
@@ -45,7 +44,6 @@ args    :  first = expr (',' rest += expr)* ;
 block	  : '{' statements += statement* '}';
 while   :  'while' '(' expr ')' block ;
 cond    :  'if' '(' cond_expr = expr ')' if_block = block ('else' else_block = block)? ;
-
 pointerType: (parent=primitive_type)depth+=STAR+;  
 
 type: pointerType 
@@ -55,9 +53,12 @@ primitive_type: TYPE_INT #TInt
 		| TYPE_STRING #TString
 		| TYPE_BOOL #TBool ; 
 
-expr 		:  fncall #fnc
+cast : 'cast''('t=type','src_expr = expr ')';
+//cast : t=type '(' src_expr = expr ')';
+
+expr 	:  fncall #fnc
         |  block #code_block
-				|  lhs = expr '*' rhs = expr # Mult
+		|  lhs = expr '*' rhs = expr # Mult
         |  lhs = expr '/' rhs = expr # Div
         |  lhs = expr '+' rhs = expr # Add
         |  lhs = expr '-' rhs = expr # Sub
@@ -67,14 +68,16 @@ expr 		:  fncall #fnc
         |  lhs = expr '>=' rhs = expr # Ge
         |  lhs = expr '<' rhs = expr # Lt
         |  lhs = expr '<=' rhs = expr # Le
-				| varname # Id 
-				| NUMBER # LiteralNmb
-				| bool_literal #LiteralBool
-				| '(' expr ')' # Paren
-				| STRING # LiteralStr
+		| varname # Id 
+		| NUMBER # LiteralNmb
+		| bool_literal #LiteralBool
+		| '(' expr ')' # Paren
+		| STRING # LiteralStr
         | AMPERSAND name=varname #Ref
         | (name=varname)(POINTSTAR) #Deref
-				;
+		| cond #condExpr 
+		| cast #castExpr;
+
 bool_literal : TRUE #LiteralTrue | FALSE #LiteralFalse;
 
 // Lexer
@@ -91,7 +94,6 @@ IMPORT	: 'import';
 EXPORT 	: 'export';
 FN		  : 'fn';
 STAR    : '*';
-LEN     : 'len'; 
 RAW_DATA: 'raw_data';
 AMPERSAND: '&';
 POINTSTAR: '.*';

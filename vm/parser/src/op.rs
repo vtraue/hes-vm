@@ -77,7 +77,7 @@ pub enum Op {
     Loop(Blocktype),
     If { bt: Blocktype, jmp: isize },
     Else(isize),
-    End,
+    End(bool),
     Br { label: usize, jmp: isize },
     BrIf { label: usize, jmp: isize },
     Return,
@@ -194,7 +194,7 @@ impl Op {
         )
     }
     pub fn is_terminator(&self) -> bool {
-        matches!(self, Self::End)
+        matches!(self, Self::End(_))
     }
 
     pub fn continues(&self, depth: i32) -> (i32, bool) {
@@ -257,7 +257,7 @@ impl FromBytecode for Op {
                 jmp: 0,
             },
             0x05 => Self::Else(0),
-            0x0B => Self::End,
+            0x0B => Self::End(false),
             0x0C => Self::Br {
                 label: reader.parse()?,
                 jmp: 0,
@@ -385,7 +385,7 @@ impl fmt::Display for Op {
             Op::Loop(blocktype) => write!(f, "loop {blocktype}"),
             Op::If { bt, jmp } => write!(f, "if {bt} (jmp: {jmp})"),
             Op::Else(jmp) => write!(f, "else (delta ip: {jmp}"),
-            Op::End => write!(f, "end"),
+            Op::End(_) => write!(f, "end"),
             Op::Br { label, jmp } => write!(f, "br {label} (jmp: {jmp})"),
             Op::BrIf { label, jmp } => write!(f, "br_if {label} (jmp: {jmp})"),
             Op::Return => write!(f, "return"),

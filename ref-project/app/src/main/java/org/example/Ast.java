@@ -242,6 +242,7 @@ record BinOp(Expression lhs, BinopType op, Expression rhs) implements Expression
 
         Type lhsT = typedLhsData.getType();
         Type rhsT = typedRhsData.getType();
+
         if (!typedLhsData.getType().equals(typedRhsData.getType())) {
             return new Err<>(
                     String.format(
@@ -763,7 +764,7 @@ record While(Expression expr, Block block) implements Statement {
     }
 }
 
-record Cond(Expression cond, Block ifBlock, Optional<Block> elseBlock) implements Statement {
+record Cond(Expression cond, Block ifBlock, Optional<Block> elseBlock) implements Expression {
     public String toDebugText() {
         return String.format(
                 "if(%s) %s %s",
@@ -790,15 +791,51 @@ record Cond(Expression cond, Block ifBlock, Optional<Block> elseBlock) implement
             return typedBlock;
         }
 
-        Optional<TypedBlock> typedElseBlock = Optional.empty();
+        var ifBlock = (TypedBlock) typedBlock.unwrap();
+        var ifT = ifBlock.getType();
+        Optional<TypedBlock> outTypedElseBlock = Optional.empty();
         if (elseBlock.isPresent()) {
             var typedElseResult = this.elseBlock.get().getTypedAstNode(builder);
             if (!typedElseResult.isOk()) {
                 return typedElseResult;
             }
-            typedElseBlock = Optional.of((TypedBlock) typedElseResult.unwrap());
+
+            TypedBlock typedElseBlock = (TypedBlock) typedElseResult.unwrap();
+
+            var elseT = typedElseBlock.getType();
+
+            if (typedElseBlock.getType() != ifBlock.getType()) {
+                return new Err<>(
+                        String.format(
+                                "If block needs to return the same type as else block. Expected %s,"
+                                        + " got %s",
+                                ifT, elseT));
+            }
+
+            outTypedElseBlock = Optional.of(typedElseBlock);
+        } else {
+            if (ifT != PrimitiveType.Void) {
+                return new Err<>("If block that returns a type requires an else block");
+            }
         }
-        var ifBlock = (TypedBlock) typedBlock.unwrap();
-        return new Ok<>(new TypedCond(condExpr, ifBlock, typedElseBlock));
+        return new Ok<>(new TypedCond(condExpr, ifBlock, ifT, outTypedElseBlock));
+    }
+}
+
+record Cast(Type target, Expression expr) implements Expression {
+
+    @Override
+    public Result<TypedAstNode, String> getTypedAstNode(TypedAstBuilder builder) {
+        var typedExprRes = expr.getTypedAstNode(builder);
+        if (!typedExprRes.isOk()) {
+            return new Err<>(typedExprRes.getErr());
+        }
+        var typedExpr = (TypedExpression) typedExprRes.unwrap();
+        return new Ok<>(new TypedCast(target, typedExpr));
+    }
+
+    @Override
+    public String toDebugText() {
+        return String.format("%s(%s)", target.toString(), expr.toDebugText());
     }
 }

@@ -255,7 +255,7 @@ public class TypedAstBuilder {
         currentEnv = nextEnv;
     }
 
-    Optional<Function> getFunction(String name) {
+    public Optional<Function> getFunction(String name) {
         var inner = this.functions.get(name);
         if (inner == null) {
             return Optional.ofNullable(this.externalFunctions.get(name));

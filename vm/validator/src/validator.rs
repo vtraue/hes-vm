@@ -766,7 +766,7 @@ impl ValidatorContext {
                 self.validate_block(bytecode, &op, &bt)?;
             }
             Op::Else(_) => self.validate_else(op)?,
-            Op::End => self.validate_end()?,
+            Op::End(_) => self.validate_end()?,
             Op::Br { label, .. } => self.validate_br(label)?,
             Op::BrIf { label, .. } => self.validate_br_if(label)?,
             Op::Return => self.validate_return(t)?,
@@ -978,14 +978,23 @@ pub fn patch_function_jumps<'a>(
         })
 }
 
+pub fn patch_function_end(function: &mut Function) {
+    match function.get_terminator_mut().unwrap() {
+        Op::End(e) => *e = true,
+        _ => unreachable!(),
+    }
+}
+
 pub fn valiadate_and_patch_bytecode(
     bytecode: &mut Bytecode,
 ) -> Result<(Vec<Vec<JumpTableEntry>>, BytecodeInfo), ValidationError> {
     let info = BytecodeInfo::new(bytecode);
     let jumps = ValidatorContext::validate_all(bytecode, &info)?;
     if let Some(code) = bytecode.iter_code_mut() {
-        code.zip(jumps.iter())
-            .try_for_each(|(f, j)| patch_function_jumps(f, j))?;
+        code.zip(jumps.iter()).try_for_each(|(f, j)| {
+            patch_function_end(f);
+            patch_function_jumps(f, j)
+        })?;
     };
     Ok((jumps, info))
 }

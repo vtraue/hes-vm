@@ -477,7 +477,7 @@ impl<E: Env> Vm<E> {
                 Op::F32Const(val) => stack.push(val.into()),
                 Op::F64Const(val) => stack.push(val.into()),
                 Op::GlobalGet(_) => todo!(),
-                Op::End => break,
+                Op::End(_) => break,
                 _ => return Err(InstanceError::InvalidConstOp(op)),
             }
         }
@@ -571,11 +571,18 @@ impl<E: Env> Vm<E> {
 
     fn leave_wasm_function(&mut self) -> bool {
         assert!(self.activation_stack.len() > 0);
-        //println!("leaving current function");
+        println!("leaving current function");
         let prev = self.activation_stack.pop().unwrap();
         match self.activation_stack.last() {
             Some(frame) => {
-                //println!("huh");
+                println!(
+                    "prev_func: {}, next_func: {}, prev ip: {}, frame ip: {}, current ip: {}",
+                    prev.func_id,
+                    frame.func_id,
+                    prev.ip,
+                    frame.ip,
+                    self.func_id.unwrap()
+                );
                 self.func_id = Some(frame.func_id);
                 self.ip = frame.ip;
                 self.locals.truncate(prev.locals_offset);
@@ -621,7 +628,7 @@ impl<E: Env> Vm<E> {
     #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
-        // println!("fetching: {:?}", op);
+        println!("fetching: {:?}", op);
         op
     }
 
@@ -699,8 +706,8 @@ impl<E: Env> Vm<E> {
         self.ip += 1;
     }
 
-    pub fn exec_end(&mut self) -> bool {
-        if self.labels.len() > 0 {
+    pub fn exec_end(&mut self, end: bool) -> bool {
+        if !end {
             self.labels.pop();
             self.ip += 1;
             false
@@ -709,7 +716,6 @@ impl<E: Env> Vm<E> {
                 self.leave_wasm_function();
                 false
             } else {
-                //println!("Blub");
                 true
             }
         }
@@ -734,8 +740,7 @@ impl<E: Env> Vm<E> {
                     let frame = self.activation_stack.last_mut().unwrap();
                     *frame = f
                 }
-                //println!("internal call");
-
+                println!("Entering: {}", func_id);
                 self.ip = internal_function_instance.code_offset;
                 let locals = internal_function_instance.locals.clone();
 
@@ -998,8 +1003,8 @@ impl<E: Env> Vm<E> {
             Op::Loop(blocktype) => self.exec_loop(blocktype.clone()),
             Op::If { bt, jmp } => self.exec_if(*jmp, bt.clone()),
             Op::Else(jmp) => self.exec_else(*jmp),
-            Op::End => {
-                if self.exec_end() {
+            Op::End(end) => {
+                if self.exec_end(*end) {
                     return Ok(true);
                 };
             }

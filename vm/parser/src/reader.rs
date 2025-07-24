@@ -833,8 +833,13 @@ impl Function {
     pub fn get_op(&self, index: usize) -> Option<&Op> {
         self.code.data.data.get(index).map(|op| &op.data)
     }
+
     pub fn get_op_mut(&mut self, index: usize) -> Option<&mut Op> {
         self.code.data.data.get_mut(index).map(|op| &mut op.data)
+    }
+
+    pub fn get_terminator_mut(&mut self) -> Option<&mut Op> {
+        self.code.data.data.last_mut().map(|op| &mut op.data)
     }
     pub fn iter_ops(&self) -> impl Iterator<Item = WithPosition<Op>> {
         self.code.data.data.iter().cloned()

@@ -49,7 +49,7 @@ record TypedLiteral(Literal lit, Type t) implements TypedExpression {
             case BoolLiteral b -> func.emitI32Const(b.lit() ? 1 : 0);
             case StringLiteral l -> {
                 func.addStringData(Arrays.asList(l.literal()));
-                func.emitI32Const(l.pointer());
+                func.emitI32Const(l.pointer() + 4);
             }
             case IntLiteral i -> func.emitI32Const(i.literal());
         }
@@ -275,18 +275,22 @@ record TypedWhile(TypedExpression expr, TypedBlock block) implements TypedStatem
 }
 ;
 
-record TypedCond(TypedExpression cond, TypedBlock ifBlock, Optional<TypedBlock> elseBlock)
-        implements TypedStatement {
+record TypedCond(TypedExpression cond, TypedBlock ifBlock, Type t, Optional<TypedBlock> elseBlock)
+        implements TypedExpression {
     @Override
     public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
         cond.toWasmCode(func, builder);
-
         func.emitIf();
-        func.emitBlockType();
+        if (t == PrimitiveType.Void) {
+            func.emitBlockType();
+        } else {
+            func.emitBlockType(t.toWasmValueType());
+        }
 
         for (var s : ifBlock.statements()) {
             s.toWasmCode(func, builder);
         }
+
         if (elseBlock.isPresent()) {
             func.emitElse();
             for (var s : elseBlock.get().statements()) {
@@ -295,14 +299,31 @@ record TypedCond(TypedExpression cond, TypedBlock ifBlock, Optional<TypedBlock> 
         }
         func.emitEnd();
     }
+
+    @Override
+    public Type getType() {
+        return ifBlock.getType();
+    }
 }
 
 record TypedDerefAssign(TypedId id, TypedExpression expr) implements TypedStatement {
-
     @Override
     public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
         func.emitLocalGet(id.sym().id);
         expr.toWasmCode(func, builder);
         func.emitI32Store();
+    }
+}
+
+record TypedCast(Type target, TypedExpression expr) implements TypedExpression {
+
+    @Override
+    public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
+        expr.toWasmCode(func, builder);
+    }
+
+    @Override
+    public Type getType() {
+        return target;
     }
 }
