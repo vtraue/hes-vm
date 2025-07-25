@@ -249,7 +249,7 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   
   i64 index = vm_get_time_ms() / 200;
   u32 frame = index % 6;
-  vm_print_int64(index % 6);
+  //vm_print_int64(index % 6);
 
   for(int i = 0; i < 200; i++) {
     i32 position_x = game->cat_positions_x[i];

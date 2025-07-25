@@ -101,8 +101,8 @@ void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
 }
 void run(u8* framebuffer, u32 framebuffer_width, u32 framebuffer_height) {
   //cstr_print("Hello from run!\n");
-  // fill_framebuffer(framebuffer, 0, 200, 0, 0);
-  render_weird_gradient(framebuffer, global_xoffset, global_yoffset);
+  fill_framebuffer(framebuffer, 0, 200, 0, 0);
+  //render_weird_gradient(framebuffer, global_xoffset, global_yoffset);
   draw_rectangle(framebuffer, 40, 40, 100, 100, 250, 50, 0);
   global_xoffset += 2;
   global_yoffset += 2;

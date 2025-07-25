@@ -44,17 +44,17 @@ public class App {
         }
         builder.leaveFunction();
         try {
-            bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(ValueType.i32, true, 0)));
+            bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(ValueType.i32, true, visitor.getStringLiteralPointer())));
         } catch (WasmBuilderException e) {
             throw new RuntimeException(e);
         }
         builder.importFunctions(bytecodeBuilder);
-
+        bytecodeBuilder.setDataSectionStartAddress(0);
         ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
         for (TypedStatement s : typedNodes) {
             if (s instanceof TypedExternFndecl extDecl) {}
             if (s instanceof TypedLiteral l && l.lit() instanceof StringLiteral str) {
-                bytecodeBuilder.addStringData(Arrays.asList(str.literal()));
+                //bytecodeBuilder.addStringData(Arrays.asList(str.literal()));
             }
             if (s instanceof TypedFndecl decl) {
                 InternalFunction funcType = (InternalFunction) builder.getFunction(decl.id()).get();

@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Optional;
 
 public class WasmBuilder {
+	private final int pageSize = 65536;
+	private int minPageSize = 1;
 
 	private BytecodeWriter bw = new BytecodeWriter();
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -24,7 +26,8 @@ public class WasmBuilder {
 
 	private ArrayList<Export> exportedFuncs = new ArrayList<>();
 	private ArrayList<byte[]> stringLiterals = new ArrayList<>();
-	private int stringLiteralMemIndex = 0;
+	private int stringLiteralMemIndexOffset = 0;
+	private int currentStringLiteralMemIndex = 0;
 
 	private void fillFuncTypes(List<Func> funcs) {
 	  for (Func f : funcs) {
@@ -91,7 +94,7 @@ public class WasmBuilder {
 		}
 
 		// Memory Section
-		MemorySection ms = new MemorySection();
+		MemorySection ms = new MemorySection(this.minPageSize);
 		ms.write(bw);
 
 		// Global Section
@@ -129,21 +132,29 @@ public class WasmBuilder {
 
 		// Data Section
 		if(!stringLiterals.isEmpty()) {
-			DataSection dataSection = new DataSection(stringLiterals);
+			DataSection dataSection = new DataSection(this.stringLiteralMemIndexOffset, this.stringLiterals);
 			dataSection.write(bw);
 		}
 
 		// Name Section
 		nameSection.write(bw);
 	}
+	public void setDataSectionStartAddress(int address) {
+		this.stringLiteralMemIndexOffset = address;
+		this.currentStringLiteralMemIndex = address;
+		int required_pages = ((currentStringLiteralMemIndex + 1) / pageSize);
+		System.out.printf("required pages: %d\n", required_pages);
+		this.minPageSize = 1 + required_pages;
+	}
 
 	public int addStringData(List<String> strings) {
-		int currentIndex = this.stringLiteralMemIndex;
+		int currentIndex = this.currentStringLiteralMemIndex;
 		for(String s : strings) {
 			var literal = getStringLiteralBytes(s);
-			this.stringLiteralMemIndex += literal.length;
+			this.currentStringLiteralMemIndex += literal.length;
 			this.stringLiterals.add(literal);
 		}
+		System.out.printf("current index: %d\n", currentIndex);
 		return currentIndex;
 	}
 

@@ -565,24 +565,15 @@ impl<E: Env> Vm<E> {
         let new_locals = params.chain(empty_locals);
         let locals_offset = self.locals.len();
         self.locals.extend(new_locals);
-        //println!("all locals: {:?}", self.locals);
         locals_offset
     }
 
     fn leave_wasm_function(&mut self) -> bool {
         assert!(self.activation_stack.len() > 0);
-        println!("leaving current function");
+        // println!("leaving current function");
         let prev = self.activation_stack.pop().unwrap();
         match self.activation_stack.last() {
             Some(frame) => {
-                println!(
-                    "prev_func: {}, next_func: {}, prev ip: {}, frame ip: {}, current ip: {}",
-                    prev.func_id,
-                    frame.func_id,
-                    prev.ip,
-                    frame.ip,
-                    self.func_id.unwrap()
-                );
                 self.func_id = Some(frame.func_id);
                 self.ip = frame.ip;
                 self.locals.truncate(prev.locals_offset);
@@ -591,7 +582,7 @@ impl<E: Env> Vm<E> {
                 true
             }
             None => {
-                println!("Function is over");
+                // println!("Function is over");
                 false
             }
         }
@@ -628,7 +619,7 @@ impl<E: Env> Vm<E> {
     #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
-        println!("fetching: {:?}", op);
+        //println!("fetching: {:?}", op);
         op
     }
 
@@ -740,7 +731,7 @@ impl<E: Env> Vm<E> {
                     let frame = self.activation_stack.last_mut().unwrap();
                     *frame = f
                 }
-                println!("Entering: {}", func_id);
+                // println!("Entering: {}", func_id);
                 self.ip = internal_function_instance.code_offset;
                 let locals = internal_function_instance.locals.clone();
 
@@ -1056,51 +1047,51 @@ impl<E: Env> Vm<E> {
             Op::F32Const(val) => self.exec_push(val.clone()),
             Op::F64Const(val) => self.exec_push(val.clone()),
             Op::I32Eqz => self.exec_unop_push(|val: u32| val == 0),
-            Op::I32Eq => impl_binop_push!(self, u32, a, b, a == b),
-            Op::I32Ne => impl_binop_push!(self, u32, a, b, a != b),
-            Op::I32Lts => impl_binop_push!(self, i32, a, b, a < b),
-            Op::I32Ltu => impl_binop_push!(self, u32, a, b, a < b),
-            Op::I32Gts => impl_binop_push!(self, i32, a, b, a > b),
-            Op::I32Gtu => impl_binop_push!(self, u32, a, b, a > b),
-            Op::I32Leu => impl_binop_push!(self, u32, a, b, a <= b),
-            Op::I32Les => impl_binop_push!(self, i32, a, b, a <= b),
-            Op::I32Geu => impl_binop_push!(self, i32, a, b, a >= b),
-            Op::I32Ges => impl_binop_push!(self, i32, a, b, a >= b),
+            Op::I32Eq => self.exec_binop_push(|a: u32, b: u32| a == b),
+            Op::I32Ne => self.exec_binop_push(|a: u32, b: u32| a != b),
+            Op::I32Lts => self.exec_binop_push(|a: i32, b: i32| a < b),
+            Op::I32Ltu => self.exec_binop_push(|a: u32, b: u32| a < b),
+            Op::I32Gts => self.exec_binop_push(|a: i32, b: i32| a > b),
+            Op::I32Gtu => self.exec_binop_push(|a: u32, b: u32| a > b),
+            Op::I32Leu => self.exec_binop_push(|a: u32, b: u32| a <= b),
+            Op::I32Les => self.exec_binop_push(|a: i32, b: i32| a <= b),
+            Op::I32Geu => self.exec_binop_push(|a: u32, b: u32| a >= b),
+            Op::I32Ges => self.exec_binop_push(|a: i32, b: i32| a >= b),
             Op::I64Eqz => self.exec_unop_push(|val: u32| val == 0),
-            Op::I64Eq => impl_binop_push!(self, u32, a, b, a == b),
-            Op::I64Ne => impl_binop_push!(self, u32, a, b, a != b),
-            Op::I64Lts => impl_binop_push!(self, i32, a, b, a < b),
-            Op::I64Ltu => impl_binop_push!(self, u32, a, b, a < b),
-            Op::I64Gts => impl_binop_push!(self, i32, a, b, a > b),
-            Op::I64Gtu => impl_binop_push!(self, u32, a, b, a > b),
-            Op::I64Les => impl_binop_push!(self, u32, a, b, a <= b),
-            Op::I64Leu => impl_binop_push!(self, i32, a, b, a <= b),
-            Op::I64Geu => impl_binop_push!(self, i32, a, b, a >= b),
-            Op::I64Ges => impl_binop_push!(self, i32, a, b, a >= b),
+            Op::I64Eq => self.exec_binop_push(|a: u64, b: u64| a == b),
+            Op::I64Ne => self.exec_binop_push(|a: u64, b: u64| a != b),
+            Op::I64Lts => self.exec_binop_push(|a: i64, b: i64| a < b),
+            Op::I64Ltu => self.exec_binop_push(|a: u64, b: u64| a < b),
+            Op::I64Gts => self.exec_binop_push(|a: i64, b: i64| a > b),
+            Op::I64Gtu => self.exec_binop_push(|a: u64, b: u64| a > b),
+            Op::I64Les => self.exec_binop_push(|a: u64, b: u64| a <= b),
+            Op::I64Leu => self.exec_binop_push(|a: i64, b: i64| a <= b),
+            Op::I64Geu => self.exec_binop_push(|a: u64, b: u64| a >= b),
+            Op::I64Ges => self.exec_binop_push(|a: i64, b: i64| a >= b),
             Op::I32Add => self.exec_binop_push(|a: u32, b: u32| a + b),
             Op::I32Sub => self.exec_binop_push(|a: u32, b: u32| a.wrapping_sub(b)),
             Op::I32Mul => self.exec_binop_push(|a: u32, b: u32| a * b),
-            Op::I32Divs => impl_binop_push!(self, u32, a, b, a / b),
-            Op::I32Divu => impl_binop_push!(self, u32, a, b, a / b),
+            Op::I32Divs => self.exec_binop_push(|a: i32, b: i32| a / b),
+            Op::I32Divu => self.exec_binop_push(|a: u32, b: u32| a / b),
             Op::I32Rems => self.exec_binop_push(|a: i32, b: i32| a % b),
             Op::I32Remu => self.exec_binop_push(|a: u32, b: u32| a % b),
             Op::I32And => self.exec_binop_push(|a: u32, b: u32| a & b),
             Op::I32Or => self.exec_binop_push(|a: u32, b: u32| a | b),
             Op::I32Xor => self.exec_binop_push(|a: u32, b: u32| a ^ b),
-            Op::I32Shl => impl_binop_push!(self, u32, a, b, a.wrapping_shl(b)),
+            Op::I32Shl => self.exec_binop_push(|a: u32, b: u32| a.wrapping_shl(b)),
             Op::I32Shrs => self.exec_binop_push(|a: i32, b: i32| a >> b),
             Op::I32Shru => self.exec_binop_push(|a: u32, b: u32| a >> b),
             Op::I32Rotl => todo!(),
             Op::I32Rotr => todo!(),
-            Op::I64Add => impl_binop_push!(self, u32, a, b, a + b),
-            Op::I64Sub => impl_binop_push!(self, u32, a, b, a - b),
+            Op::I64Add => self.exec_binop_push(|a: u64, b: u64| a + b),
+            Op::I64Sub => self.exec_binop_push(|a: u64, b: u64| a - b),
             Op::I64Mul => self.exec_binop_push(|a: u64, b: u64| a * b),
             Op::I64Divs => self.exec_binop_push(|a: i64, b: i64| a / b),
             Op::I64Divu => self.exec_binop_push(|a: u64, b: u64| a / b),
             Op::I64Rems => self.exec_binop_push(|a: i64, b: i64| a % b),
             Op::I64Remu => self.exec_binop_push(|a: u64, b: u64| a % b),
-            Op::I64And => impl_binop_push!(self, u32, a, b, a & b),
-            Op::I64Or => impl_binop_push!(self, u32, a, b, a | b),
+            Op::I64And => self.exec_binop_push(|a: u32, b: u32| a & b),
+            Op::I64Or => self.exec_binop_push(|a: u32, b: u32| a | b),
             Op::I64Xor => self.exec_binop_push(|a: u64, b: u64| a ^ b),
             Op::I64Shl => self.exec_binop_push(|a: u64, b: u64| a << b),
             Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),

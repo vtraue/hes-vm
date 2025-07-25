@@ -13,7 +13,9 @@ public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   
   List<Statement> statements = new ArrayList<Statement>();
   
-
+  public int getStringLiteralPointer() {
+    return this.stringLiteralPointer;
+  }
   @Override
   public AstNode visitStatement(ReflangParser.StatementContext ctx) {
     var result = visitChildren(ctx);

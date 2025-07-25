@@ -178,6 +178,14 @@ class TableSection extends Section {
 
 class MemorySection extends Section {
     final SectionId id = SectionId.Memory;
+    private int minSize;
+
+    public MemorySection() {
+        minSize = 1;
+    }
+    public MemorySection(int minSize) {
+        this.minSize = minSize;
+    }
 
     @Override
     void write(BytecodeWriter bw) throws IOException {
@@ -185,7 +193,7 @@ class MemorySection extends Section {
         bw.writeU32(3); // Section Size
         bw.writeU32(1); // Num Memories
         bw.writeU32(0); // limits flags
-        bw.writeU32(1); // limits min / initial
+        bw.writeU32(minSize); // limits min / initial
     }
 
     @Override
@@ -421,18 +429,19 @@ class CodeSection extends Section {
 class DataSection extends Section {
     final SectionId id = SectionId.Data;
     List<byte[]> stringLiterals;
-
-    DataSection(List<byte[]> stringLiterals) {
+    int offset;
+    DataSection(int offset, List<byte[]> stringLiterals) {
         this.stringLiterals = stringLiterals;
+        this.offset = offset;
     }
 
     @Override
     void write(BytecodeWriter bw) throws IOException {
         BytecodeWriter dataBytes = new BytecodeWriter();
         dataBytes.writeU32(stringLiterals.size());
-        int offset = 0;
+        int i = this.offset;
         for(var literal: stringLiterals) {
-            offset += writeStringData(literal, offset, dataBytes);
+            i += writeStringData(literal, i, dataBytes);
         }
 
         bw.writeByte((byte)id.ordinal());
