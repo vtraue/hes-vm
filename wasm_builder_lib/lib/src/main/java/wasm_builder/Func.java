@@ -116,63 +116,63 @@ public class Func {
 	}
 
 	// binops
-	public void emitAdd() throws IOException {
+	public void emitI32Add() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_ADD);
 	}
 
-	public void emitSub() throws IOException {
+	public void emitI32Sub() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_SUB);
 	}
 
-	public void emitMul() throws IOException {
+	public void emitI32Mul() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_MUL);
 	}
 
-	public void emitDiv() throws IOException {
+	public void emitI32Div() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_DIV_S);
 	}
 
-	public void emitRem() throws IOException {
+	public void emitI32Rem() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_REM_S);
 	}
 
-	public void emitAnd() throws IOException {
+	public void emitI32And() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_AND);
 	}
 
-	public void emitOr() throws IOException {
+	public void emitI32Or() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_OR);
 	}
 
-	public void emitXor() throws IOException {
+	public void emitI32Xor() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_XOR);
 	}
 
-	public void emitEqz() throws IOException {
+	public void emitI32Eqz() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_EQZ);
 	}
 
-	public void emitEq() throws IOException {
+	public void emitI32Eq() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_EQ);
 	}
 
-	public void emitNe() throws IOException {
+	public void emitI32Ne() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_NE);
 	}
 
-	public void emitLt() throws IOException {
+	public void emitI32Lt() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_LT_S);
 	}
 
-	public void emitGt() throws IOException {
+	public void emitI32Gt() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_GT_S);
 	}
 
-	public void emitLe() throws IOException {
+	public void emitI32Le() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_LE_S);
 	}
 
-	public void emitGe() throws IOException {
+	public void emitI32Ge() throws IOException {
 		body.writeOpcode(InstructionOpCode.I32_GE_S);
 	}
 
