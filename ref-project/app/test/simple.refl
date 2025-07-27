@@ -1,26 +1,15 @@
-import env fn println_string(str: string, size: int);
-import env fn print_int(num: int);
+import env fn gfx_paint(framebuffer: int, width: int, height: int);
+import env fn gfx_clear_buffer_rgb(framebuffer: int, r: int, g: int, b: int);
+import env fn gfx_draw_rect_rgb(framebuffer: int, x: int, y: int, width: int, height: int, r: int, g: int, b: int);
+import env fn gfx_create_framebuffer() -> int;
 
-fn str_len(arg: string) -> int {
-	str_len_ptr := cast(int*, cast(int, arg) - 4);
-
-	return str_len_ptr.*;
+export fn init() -> int {
+	return gfx_create_framebuffer();
 }
 
-fn println(arg: string) {
-	arg_len := str_len(arg);
-	println_string(arg, arg_len);
-
+export fn run(framebuffer: int, width: int, height: int) {
+	gfx_clear_buffer_rgb(framebuffer, 0, 0, 200);
+	gfx_paint(framebuffer, 640, 360);
 	return;
-}
-
-export fn run() -> int {
-	i := 0;
-	while(i < 10) {
-		println("Hallo Welt!");
-		i = i + 1;
-	}
-	
-	return str_len("abc");
 }
 

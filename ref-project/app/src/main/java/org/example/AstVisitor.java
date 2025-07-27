@@ -8,7 +8,6 @@ import java.util.stream.Stream;
 
 public class AstVisitor extends ReflangBaseVisitor<AstNode>{
   int depth = 0;
-  int currentVarDeclId = 0;
   private int stringLiteralPointer = 0;
   
   List<Statement> statements = new ArrayList<Statement>();

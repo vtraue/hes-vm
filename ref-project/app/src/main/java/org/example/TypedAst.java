@@ -152,7 +152,6 @@ record TypedVarDecl(TypedId id, Type type, Optional<TypedExpression> expr)
     public void toWasmCode(Func func, TypedAstBuilder builder) throws IOException {
         if (id.sym().local()) {
             if (expr.isPresent()) {
-                System.out.println("local var decl");
                 expr.get().toWasmCode(func, builder);
                 func.emitLocalSet(id.sym().id());
             }

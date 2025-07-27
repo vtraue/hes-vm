@@ -8,7 +8,8 @@ to-wat:
 	wasm2wat app/web/gen.wasm > out/out.wat & bat out/out.wat
 
 to-runtime:
-	cp app/gen.wasm ../vm/in.wasm && cd ../vm/cli && cargo run ../in.wasm run run
+	cp app/gen.wasm ../vm/in.wasm && cd ../vm/cli && export RUST_BACKTRACE=1; cargo run ../in.wasm console
+
 runtime-print:
 	cp app/gen.wasm ../vm/in.wasm && cd ../vm/cli && cargo run ../in.wasm print
 

@@ -1,7 +1,7 @@
 
 package wasm_builder;
 
-public enum ValueType implements Type, InstructionParam{
+public enum ValueType implements Type, InstructionParam {
 	i32((short) 0x7F),
 	i64((short) 0x7E),
 	f32((short) 0x7D),

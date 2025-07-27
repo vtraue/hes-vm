@@ -6,6 +6,19 @@ const uint8_t cat_data[] =
   #embed "resources/malu.bmp"
 };
 
+typedef enum Key_Code : uint32_t {
+  KEYCODE_UP = 0,
+  KEYCODE_DOWN = 1,
+  KEYCODE_LEFT = 2,
+  KEYCODE_RIGHT = 3,
+  KEYCODE_A = 4,
+  KEYCODE_B = 5,
+  KEYCODE_X = 6,
+  KEYCODE_Y = 7,
+  KEYCODE_R = 8,
+  KEYCODE_L = 9,
+  KEYCODE_COUNT = 10,
+} Key_Code;
 
 #define BUILTIN
 __attribute__((import_module("env"), import_name("io_print_string"))) void vm_print(char* ptr, int size);
@@ -16,6 +29,7 @@ __attribute__((import_module("env"), import_name("io_print_sint"))) void vm_prin
 __attribute__((import_module("env"), import_name("io_print_sint64"))) void vm_print_int64(int64_t num);
 __attribute__((import_module("env"), import_name("clock_get_time_passed_ms"))) int64_t vm_get_time_ms();
 __attribute__((import_module("env"), import_name("rand_range_sint32"))) int32_t vm_rand_range(int32_t min, int32_t max);
+__attribute__((import_module("env"), import_name("input_get_key_state"))) bool vm_get_key(Key_Code key);
 
 
 #define WASM_PAGE_SIZE 65536
@@ -53,19 +67,6 @@ uint8_t* alloc_pages(int pages) {
     return (uint8_t*)(__builtin_wasm_memory_grow(0, pages));
 }
 
-typedef enum Key_Code : uint32_t {
-  KEYCODE_UP = 0,
-  KEYCODE_DOWN = 1,
-  KEYCODE_LEFT = 2,
-  KEYCODE_RIGHT = 3,
-  KEYCODE_A = 4,
-  KEYCODE_B = 5,
-  KEYCODE_X = 6,
-  KEYCODE_Y = 7,
-  KEYCODE_R = 8,
-  KEYCODE_L = 9,
-  KEYCODE_COUNT = 10,
-} Key_Code;
 
 typedef struct Game_Data {
   u8 framebuffer[FB_WIDTH * FB_HEIGHT * 4];
@@ -215,26 +216,26 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   //fill_framebuffer(game->framebuffer, 0, 255, 255, 255);
   //render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
   vm_clear(game->framebuffer, 0, 128, 128);
-  if(game->keys[KEYCODE_UP]) {
+  if(vm_get_key(KEYCODE_UP)) {
     if(game->position_y - game->current_speed + 16 > 0) {
       game->position_y -= game->current_speed;
     }
   }
 
-  if(game->keys[KEYCODE_DOWN]) {
+  if(vm_get_key(KEYCODE_DOWN)) {
     if((game->position_y + game->current_speed + 16) < FB_HEIGHT) {
       game->position_y += game->current_speed;
       
     }
   }
 
-  if(game->keys[KEYCODE_LEFT]) {
+  if(vm_get_key(KEYCODE_LEFT)) {
     if(game->position_x - game->current_speed - 16 > 0) {
       game->position_x -= game->current_speed;
     }
   }
 
-  if(game->keys[KEYCODE_RIGHT]) {
+  if(vm_get_key(KEYCODE_RIGHT)) {
     if((game->position_x + game->current_speed + 16) < FB_WIDTH) {
       game->position_x += game->current_speed;
     }
@@ -244,7 +245,6 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   vm_print_int(game->position_y);
   */
   //draw_rectangle(game->framebuffer, game->position_x, game->position_y, 16, 16, 250 ,0, 250);
-  //vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 17, 0, 0, 0);
 
   
   i64 index = vm_get_time_ms() / 200;
@@ -269,6 +269,7 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
     blit(game->framebuffer, position_x, position_y, game->cat_image_data, game->cat_image_width * 4, frame * 16, 0, 16, 16);
     
   }
+  vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 17, 0, 0, 0);
   global_xoffset += 4;
   global_yoffset += 4;
 

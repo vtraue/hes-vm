@@ -1,8 +1,8 @@
 use bytemuck::*;
 use core::sync;
 use interpreter::{
-    env::{Env, ExternalFunction},
-    slow_vm::{InstanceError, LocalValue, RuntimeError, Vm},
+    env::{Env, ExternalFunction, NativeFuncCallError, NativeFuncCallErrorType},
+    slow_vm::{InstanceError, LocalValue, RuntimeError, Vm, WASM_PAGE_SIZE},
 };
 use notify::Watcher;
 use parser::reader::{BytecodeReader, ParserError, ValueType, is_wasm_bytecode};
@@ -11,6 +11,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{self, BufReader, Read},
+    ops::{Index, IndexMut},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -76,8 +77,11 @@ pub enum ConsoleError {
     RequestDevice(#[from] wgpu::RequestDeviceError),
     #[error("Unable to create event loop: {0}")]
     UnableToCreateEventLoop(#[from] EventLoopError),
+    #[error("Invalid Console Key ID: {0}")]
+    InvalidConsoleKey(u32),
 }
-#[derive(Debug)]
+
+#[derive(Debug, Clone, Copy)]
 pub enum ConsoleKey {
     Up,
     Down,
@@ -106,6 +110,26 @@ impl From<ConsoleKey> for u32 {
         }
     }
 }
+impl TryFrom<u32> for ConsoleKey {
+    fn try_from(value: u32) -> Result<ConsoleKey, Self::Error> {
+        match value {
+            0 => Ok(ConsoleKey::Up),
+            1 => Ok(Self::Down),
+            2 => Ok(Self::Left),
+            3 => Ok(Self::Right),
+            4 => Ok(Self::A),
+            5 => Ok(Self::B),
+            6 => Ok(Self::X),
+            7 => Ok(Self::Y),
+            8 => Ok(Self::R),
+            9 => Ok(Self::L),
+            _ => Err(ConsoleError::InvalidConsoleKey(value)),
+        }
+    }
+
+    type Error = ConsoleError;
+}
+
 impl ConsoleKey {
     pub fn from_winit_key(key: KeyCode) -> Option<Self> {
         match key {
@@ -123,7 +147,17 @@ impl ConsoleKey {
         }
     }
 }
-
+impl Index<ConsoleKey> for [bool; 10] {
+    type Output = bool;
+    fn index(&self, key: ConsoleKey) -> &Self::Output {
+        &self[key as usize]
+    }
+}
+impl IndexMut<ConsoleKey> for [bool; 10] {
+    fn index_mut(&mut self, index: ConsoleKey) -> &mut Self::Output {
+        &mut self[index as usize]
+    }
+}
 /*
 #[repr(C)]
 #[derive(Pod, Zeroable, Clone, Copy, Debug)]
@@ -194,6 +228,7 @@ struct State {
     start_time: Instant,
     rng: ThreadRng,
     clip_rect: (u32, u32, u32, u32),
+    button_states: [bool; 10],
 }
 
 impl State {
@@ -436,6 +471,7 @@ impl State {
             rng: rand::rng(),
             clip_rect: matrix.clip_rect(),
             uniform_buffer,
+            button_states: [false; 10],
         })
     }
 
@@ -565,13 +601,50 @@ impl State {
             slice.fill(pixel);
         }
     }
+    fn native_call_get_vm_mem(
+        vm: &Vm<Self>,
+        addr: usize,
+        size: usize,
+        func_id: usize,
+    ) -> Result<&[u8], NativeFuncCallError> {
+        vm.get_bytes_from_mem(addr as usize, size as usize)
+            .map_err(|_| {
+                NativeFuncCallError::new(
+                    NativeFuncCallErrorType::InvalidAddressSupplied(addr),
+                    func_id,
+                )
+            })
+    }
+    fn native_call_get_vm_mem_mut(
+        vm: &mut Vm<Self>,
+        addr: usize,
+        size: usize,
+        func_id: usize,
+    ) -> Result<&mut [u8], NativeFuncCallError> {
+        vm.get_bytes_from_mem_mut(addr as usize, size as usize)
+            .map_err(|e| {
+                let error_type = match e {
+                    RuntimeError::MemoryOutOfBounds {
+                        addr,
+                        requested,
+                        actual,
+                    } => NativeFuncCallErrorType::MemoryOutOfBounds {
+                        addr,
+                        requested_size: requested,
+                        actual,
+                    },
+                    _ => NativeFuncCallErrorType::InvalidAddressSupplied(addr),
+                };
+                NativeFuncCallError::new(error_type, func_id)
+            })
+    }
 }
 impl Env for State {
     fn get_func(env: &str, name: &str) -> Option<ExternalFunction> {
         if env != "env" {
             return None;
         }
-        //TODO:
+
         match name {
             "io_print_string" => Some(ExternalFunction {
                 params: vec![ValueType::I32, ValueType::I32],
@@ -628,6 +701,18 @@ impl Env for State {
                 result: vec![ValueType::I32],
                 id: 7,
             }),
+
+            "gfx_create_framebuffer" => Some(ExternalFunction {
+                params: vec![],
+                result: vec![ValueType::I32],
+                id: 8,
+            }),
+            "input_get_key_state" => Some(ExternalFunction {
+                params: vec![ValueType::I32],
+                result: vec![ValueType::I32],
+                id: 9,
+            }),
+
             _ => None,
         }
     }
@@ -635,31 +720,33 @@ impl Env for State {
     fn get_global(env: &str, name: &str) -> Option<interpreter::env::ExternalGlobal> {
         None
     }
-
     fn call(
         &mut self,
         vm: &mut Vm<Self>,
         params: &[LocalValue],
         results: &mut [LocalValue],
         func_id: usize,
-    ) -> Result<(), usize> {
+    ) -> Result<(), NativeFuncCallError> {
         match func_id {
             0 => {
                 let ptr = params[0].u32();
                 let count = params[1].u32();
-                let data = vm
-                    .get_bytes_from_mem(ptr as usize, count as usize)
-                    .map_err(|_| 1_usize)?;
-                let str = str::from_utf8(data).map_err(|_| 2_usize)?;
+                let data = Self::native_call_get_vm_mem(vm, ptr as usize, count as usize, 0)?;
+                let str = str::from_utf8(data).map_err(|_| {
+                    NativeFuncCallError::new(NativeFuncCallErrorType::InvalidUTF8, 0)
+                })?;
                 print!("{str}");
                 Ok(())
             }
             //paint
             1 => {
                 let (ptr, width, height) = (params[0].u32(), params[1].u32(), params[2].u32());
-                let data = vm
-                    .get_bytes_from_mem(ptr as usize, (width * height * 4) as usize)
-                    .map_err(|_| 1_usize)?;
+                let data = Self::native_call_get_vm_mem(
+                    vm,
+                    ptr as usize,
+                    (FB_SIZE.0 * FB_SIZE.1 * 4) as usize,
+                    1,
+                )?;
                 self.update_framebuffer_data(data, width, height);
 
                 Ok(())
@@ -670,9 +757,12 @@ impl Env for State {
             3 => {
                 let ptr = params[0].u32();
                 let (r, g, b, a) = (params[1].u32(), params[2].u32(), params[3].u32(), 0);
-                let data = vm
-                    .get_bytes_from_mem_mut(ptr as usize, (FB_SIZE.0 * FB_SIZE.1 * 4) as usize)
-                    .map_err(|_| 1_usize)?;
+                let data = Self::native_call_get_vm_mem_mut(
+                    vm,
+                    ptr as usize,
+                    (FB_SIZE.0 * FB_SIZE.1 * 4) as usize,
+                    3,
+                )?;
                 Self::fill_buffer_with_color(data, r, g, b, a);
                 Ok(())
             }
@@ -688,9 +778,12 @@ impl Env for State {
                     params[7].u32(),
                     0,
                 );
-                let data = vm
-                    .get_bytes_from_mem_mut(ptr as usize, (FB_SIZE.0 * FB_SIZE.1 * 4) as usize)
-                    .map_err(|_| 1_usize)?;
+                let data = Self::native_call_get_vm_mem_mut(
+                    vm,
+                    ptr as usize,
+                    (FB_SIZE.0 * FB_SIZE.1 * 4) as usize,
+                    4,
+                )?;
 
                 Self::draw_rectanlge_color(data, x, y, w, h, r, g, b, a);
                 Ok(())
@@ -708,7 +801,23 @@ impl Env for State {
                 results[0] = LocalValue::S32(num as i32);
                 Ok(())
             }
+            8 => {
+                //create_framebuffer
+                let pages_needed: usize = (FB_SIZE.0 * FB_SIZE.1 * 4) as usize / WASM_PAGE_SIZE;
+                println!("allocating {pages_needed}");
+                let ptr = vm.grow_memory(pages_needed + 1);
+                results[0] = LocalValue::I32(ptr as u32);
+                Ok(())
+            }
+            9 => {
+                let button: ConsoleKey = params[0].u32().try_into().map_err(|_| {
+                    NativeFuncCallError::new(NativeFuncCallErrorType::InvalidConsoleKey, 9)
+                })?;
+                let button_state = self.button_states[button];
+                results[0] = LocalValue::I32(button_state as u32);
 
+                Ok(())
+            }
             _ => unreachable!(),
         }
     }
@@ -942,6 +1051,7 @@ impl ApplicationHandler for App {
                     match self.exec.funcs.input {
                         Some(_) => {
                             if let Some(k) = ConsoleKey::from_winit_key(code) {
+                                state.button_states[k] = pressed;
                                 self.exec.run_input(state, k, pressed).unwrap();
                             }
                         }
@@ -964,7 +1074,6 @@ impl ApplicationHandler for App {
                     match ev {
                         Ok(e) => match e.kind {
                             notify::EventKind::Modify(_) => {
-                                println!("blub!\n");
                                 if self.auto_hot_reload {
                                     self.exec.reload_code(state).unwrap();
                                 }

@@ -21,7 +21,6 @@ public class App {
 
     public static void main(String... args) throws IOException {
         File f = new File(args[0]);
-        WasmBuilder bytecodeBuilder = new WasmBuilder();
         String content = new String(Files.readAllBytes(f.toPath()));
         ReflangLexer lexer = new ReflangLexer(CharStreams.fromString(content));
         CommonTokenStream tokens = new CommonTokenStream(lexer);
@@ -43,6 +42,7 @@ public class App {
             }
         }
         builder.leaveFunction();
+        WasmBuilder bytecodeBuilder = new WasmBuilder();
         try {
             bytecodeBuilder.setGlobals(Arrays.asList(new GlobalType(ValueType.i32, true, visitor.getStringLiteralPointer())));
         } catch (WasmBuilderException e) {
@@ -53,9 +53,6 @@ public class App {
         ArrayList<wasm_builder.Func> wasmFuncs = new ArrayList<>();
         for (TypedStatement s : typedNodes) {
             if (s instanceof TypedExternFndecl extDecl) {}
-            if (s instanceof TypedLiteral l && l.lit() instanceof StringLiteral str) {
-                //bytecodeBuilder.addStringData(Arrays.asList(str.literal()));
-            }
             if (s instanceof TypedFndecl decl) {
                 InternalFunction funcType = (InternalFunction) builder.getFunction(decl.id()).get();
                 wasm_builder.Func wasmFunc =

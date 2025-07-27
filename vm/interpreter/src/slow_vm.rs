@@ -18,9 +18,9 @@ use parser::{
 use smallvec::SmallVec;
 use validator::validator::{ReadAndValidateError, ValidateResult};
 
-use crate::env::Env;
+use crate::env::{Env, NativeFuncCallError, NativeFuncCallErrorType};
 use crate::{env::ExternalFunction, stack::StackValue};
-const WASM_PAGE_SIZE: usize = 65536;
+pub const WASM_PAGE_SIZE: usize = 65536;
 
 #[derive(Error, Debug)]
 pub enum InstanceError {
@@ -39,12 +39,13 @@ pub enum InstanceError {
     #[error("Invalid return type in const expr: {0}")]
     InvalidReturnTypeInConstExpr(ValueType),
 }
+
 #[derive(Error, Debug)]
 pub enum RuntimeError {
     #[error("Memory address out of scope")]
     MemoryAddressOutOfScope,
     #[error("Native function returned error code: {0}")]
-    NativeFuncCallError(usize),
+    NativeFuncCallError(NativeFuncCallError),
     #[error("Unreachable reached")]
     UnreachableReached,
     #[error("No function to execute")]
@@ -55,6 +56,12 @@ pub enum RuntimeError {
     UnknownExportedFunc(String), // #[error("Wrong parameter count provided: Got {0}, expected: {1}")]
     #[error("No function set")]
     NoFunctionSet,
+    #[error("Memory out of bounds: addr: {addr}, requested: {requested}, actual: {actual}")]
+    MemoryOutOfBounds {
+        addr: usize,
+        requested: usize,
+        actual: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -938,11 +945,16 @@ impl<E: Env> Vm<E> {
         Ok(())
     }
 
-    pub fn exec_memory_grow(&mut self) {
-        let grow_by = unsafe { self.pop_u32() as usize } * WASM_PAGE_SIZE;
+    pub fn grow_memory(&mut self, pages: usize) -> usize {
         let mem = self.mem.as_mut().unwrap();
         let old_size = mem.len();
-        mem.resize(old_size + grow_by, 0);
+        mem.resize(old_size + (pages * WASM_PAGE_SIZE), 0);
+        old_size
+    }
+
+    pub fn exec_memory_grow(&mut self) {
+        let grow_by = unsafe { self.pop_u32() as usize };
+        let old_size = self.grow_memory(grow_by);
         self.push_value(old_size as u32);
         self.ip += 1;
     }
@@ -1236,7 +1248,11 @@ impl<E: Env> Vm<E> {
             .as_mut()
             .ok_or(RuntimeError::MemoryAddressOutOfScope)?;
         if addr + count >= mem.len() {
-            Err(RuntimeError::MemoryAddressOutOfScope)
+            Err(RuntimeError::MemoryOutOfBounds {
+                addr,
+                requested: addr + count,
+                actual: mem.len(),
+            })
         } else {
             Ok(&mut mem[addr..addr + count])
         }
@@ -1402,17 +1418,27 @@ impl Env for DebugEnv {
         params: &[LocalValue],
         _results: &mut [LocalValue],
         func_id: usize,
-    ) -> Result<(), usize> {
+    ) -> Result<(), NativeFuncCallError> {
         match func_id {
-            0 => Err(params[0].u32() as usize),
+            0 => Err(NativeFuncCallError::new(
+                NativeFuncCallErrorType::Echo(params[0].u32() as usize),
+                0,
+            )),
             1 => Ok(println!("{}", params[0].u32())),
             2 => {
                 let ptr = params[0].u32();
                 let count = params[1].u32();
                 let data = vm
                     .get_bytes_from_mem(ptr as usize, count as usize)
-                    .map_err(|_| 1_usize)?;
-                let str = str::from_utf8(data).map_err(|_| 2_usize)?;
+                    .map_err(|_| {
+                        NativeFuncCallError::new(
+                            NativeFuncCallErrorType::InvalidAddressSupplied(ptr as usize),
+                            2,
+                        )
+                    })?;
+                let str = str::from_utf8(data).map_err(|_| {
+                    NativeFuncCallError::new(NativeFuncCallErrorType::InvalidUTF8, 2)
+                })?;
                 print!("{str}");
                 Ok(())
             }
