@@ -6,6 +6,12 @@ const uint8_t cat_data[] =
   #embed "resources/malu.bmp"
 };
 
+const uint8_t font_data[] =
+{
+  #embed "resources/font2.bmp"
+};
+
+
 typedef enum Key_Code : uint32_t {
   KEYCODE_UP = 0,
   KEYCODE_DOWN = 1,
@@ -68,6 +74,93 @@ uint8_t* alloc_pages(int pages) {
 }
 
 
+typedef struct Point {
+  i32 x;
+  i32 y;
+} Point;
+
+typedef struct Snake {
+  Point body[200];
+  u32 len;
+  Point direction;
+} Snake;
+
+void snake_push_segment(Snake* snake, Point p) {
+  snake->len += 1;
+  snake->body[snake->len - 1] = p;
+}
+
+Point* snake_head(Snake* snake) {
+  return &snake->body[0];
+}
+Point* snake_tail(Snake* snake) {
+  return &snake->body[snake->len - 1];
+}
+
+void snake_init(Snake* snake) {
+  snake_push_segment(snake, (Point) {2,0});
+  snake_push_segment(snake, (Point) {1,0});
+  snake_push_segment(snake, (Point) {0,0});
+  snake->direction = (Point) {1, 0};
+}
+
+void snake_draw(Snake* snake, u8* framebuffer) {
+  for(int i = 0; i < snake->len; ++i) {
+    Point p = snake->body[i];
+    vm_draw_rect_rgb(framebuffer, p.x * 16, p.y * 16, 16, 16, 100, 0, 50);
+  }
+  Point head = snake->body[0];
+  vm_draw_rect_rgb(framebuffer, head.x * 16, head.y * 16, 16, 16, 90, 100, 0);
+}
+
+void snake_update(Snake* snake) {
+  for(int i = snake->len - 1; i > 0; i--) {
+    snake->body[i] = snake->body[i - 1];
+  }
+  i32 width = (FB_WIDTH) / 16;
+  i32 height = (FB_HEIGHT) / 16;
+
+  Point* head = snake_head(snake);
+  head->x = (head->x + snake->direction.x) % width;
+  head->y = (head->y + snake->direction.y) % height;
+
+  if(head->x < 0) {
+    head->x = (width - 1);
+  }
+  if(head->y < 0) {
+    head->y = (height - 1);
+  }
+}
+
+void point_random(Point* p) {
+  p->x = vm_rand_range(0, FB_WIDTH) % (FB_WIDTH / 16);
+  p->y = vm_rand_range(0, FB_HEIGHT) % (FB_HEIGHT / 16);
+}
+
+void fruit_draw(u8* framebuffer, Point* fruit) {
+  vm_draw_rect_rgb(framebuffer, fruit->x * 16, fruit->y * 16, 16, 16, 255, 192, 203);
+}
+typedef struct Bitmap {
+  u16 bits_per_pixel; 
+  u32 width;
+  u32 height;
+  u8* data;
+} Bitmap;
+
+Bitmap bitmap_load(const u8* bitmap_data) {
+  u16 bits_per_pixel = *(u16*)(bitmap_data + 0x1C);
+  u32 width = *(i32*)(bitmap_data + 0x12);
+  u32 height = *(i32*)(bitmap_data + 0x16);
+  u32 data_offset = *(u32*)(bitmap_data + 0x0A);
+  u8* data = (u8*)(bitmap_data + data_offset);
+  return (Bitmap) {
+    bits_per_pixel,
+    width,
+    height,
+    data
+  };  
+}
+
 typedef struct Game_Data {
   u8 framebuffer[FB_WIDTH * FB_HEIGHT * 4];
   bool keys[KEYCODE_COUNT];
@@ -76,9 +169,12 @@ typedef struct Game_Data {
   i32 position_x;
   i32 position_y;
   i32 current_speed;
-  i32 cat_image_width;
-  i32 cat_image_height;
-  u8* cat_image_data;
+  Bitmap malu;
+  Bitmap font;
+  // Bitmap clouds;
+  u32 frame_count;
+  Snake snake;
+  Point fruit;
 } Game_Data;
 
 Game_Data* alloc_game_data() {
@@ -95,34 +191,23 @@ void assert(bool cond) {
   }
 }
 
+
 Game_Data* init() {
     cstr_print("Hello from init!\n");
     assert(cat_data[0] == 0x42);
     assert(cat_data[1] == 0x4D);
     Game_Data* data = alloc_game_data();
-    data->cat_image_width = *(i32*)(cat_data + 0x12);
-    data->cat_image_height = *(i32*)(cat_data + 0x16);
-    u32 data_offset = *(u32*)(cat_data + 0x0A);
-    data->cat_image_data = (u8*)(cat_data + data_offset);
+    data->malu = bitmap_load(cat_data);
+    data->font = bitmap_load(font_data);
+
     for(int i = 0; i < 200; i++) {
       data->cat_positions_x[i] = vm_rand_range(0, 300);
       data->cat_positions_y[i] = vm_rand_range(0, 300);
     }
-
-    u16 bits_per_pixel = *(u16*)(cat_data + 0x1C);
-
-    cstr_print("width: ");
-    vm_print_int((i32)data->cat_image_width);
-
-    cstr_print("height: ");
-    vm_print_int((i32)data->cat_image_height);
-
-    cstr_print("bits per pixel: ");
-    vm_print_int((i32) bits_per_pixel);
-
-    u32 test = *(u32*)(data->cat_image_data);
-    vm_print_int((i32) test);
     data->current_speed = 2;
+    snake_init(&data->snake);
+
+    point_random(&data->fruit);
 
     cstr_print("init done\n");
     return data;
@@ -166,24 +251,35 @@ void blit(u8* dest,
           u32 src_width, u32 src_height) {
 
   u8* dst = dest + ((dest_y * (FB_WIDTH * 4)) + dest_x * 4); 
-  u8* src = source + ((((src_height - 1) + src_y) * source_pitch) + ((src_width - 1) + src_x) * 4);
+  u8* src = source + (((src_height) - src_y - 1) * source_pitch);
 
   for(int y = 0; y < src_height; y++) {
     for(int x = 0; x < src_width; x++) {
-      u32 pixel = *(u32*)(src - (x * 4));
-      u8 a = (u8)(pixel << 0);
-      u8 r = (u8)(pixel << 16);
-      u8 g = (u8)(pixel << 8);
-      u8 b = (u8)(pixel << 0);
+      u32 pixel = *(u32*)(src + (x * 4));
+      u8 a = (pixel >> 24);
+      u8 r = (pixel >> 16);
+      u8 g = (pixel >> 8);
+      u8 b = (pixel >> 0);
       
       if(a > 0) {
-        *(u32*)(dst + (x * 4)) = pixel;
+        *(u32*)(dst + (x * 4)) = (a << 24) + (b << 16) + (g << 8) + r;
+        
       }
     }
     dst += FB_WIDTH * 4;
     src -= source_pitch;
   }
 }
+
+void blit_bitmap(u8* dest,
+                 u32 dest_x, u32 dest_y,
+                 Bitmap* src,
+                 u32 src_x, u32 src_y,
+                 u32 src_width, u32 src_height) {
+  
+    blit(dest, dest_x, dest_y, src->data, src->width * 4, src_x, src_y, src_width, src_height);
+}
+
 
 void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
   int width = FB_WIDTH / 2;
@@ -210,12 +306,13 @@ void input(Game_Data* game, uint32_t key, bool down) {
 
 
 void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
+  game->frame_count += 1;
   int64_t then = vm_get_time_ms();
 
   //cstr_print("Hello from rint64_t numun!\n");
   //fill_framebuffer(game->framebuffer, 0, 255, 255, 255);
   //render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
-  vm_clear(game->framebuffer, 0, 128, 128);
+  vm_clear(game->framebuffer, 50, 50, 50);
   if(vm_get_key(KEYCODE_UP)) {
     if(game->position_y - game->current_speed + 16 > 0) {
       game->position_y -= game->current_speed;
@@ -266,24 +363,62 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
       continue;
     }
 
-    blit(game->framebuffer, position_x, position_y, game->cat_image_data, game->cat_image_width * 4, frame * 16, 0, 16, 16);
+    //blit(game->framebuffer, position_x, position_y, game->malu.data, game->malu.width * 4, frame * 16, 0, 16, 16);
     
   }
-  vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 17, 0, 0, 0);
+  //vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 17, 0, 0, 0);
+
   global_xoffset += 4;
   global_yoffset += 4;
 
   i64 time_passed = vm_get_time_ms() - then;
-  
   cstr_print("Time passed: ");
-  vm_print_int64(time_passed);
+  vm_print_int64(time_passed / 100);
   cstr_print("\n");
   last_time_passed = time_passed;
+
+  if(vm_get_key(KEYCODE_DOWN)) {
+    game->snake.direction = (Point) {0, 1};
+  }
+  if(vm_get_key(KEYCODE_UP)) {
+    game->snake.direction = (Point) {0, -1};
+  }
+  if(vm_get_key(KEYCODE_RIGHT)) {
+    game->snake.direction = (Point) {1, 0};
+  }
+  if(vm_get_key(KEYCODE_LEFT)) {
+    game->snake.direction = (Point) {-1, 0};
+  }
+
+  if(game->frame_count % 5 == 0) { 
+    snake_update(&game->snake);
+    Point* head = snake_head(&game->snake);
+    Point* fruit = &game->fruit;
+
+    if(head->x == fruit->x && head->y == fruit->y) {
+      Point* tail = snake_tail(&game->snake);
+      snake_push_segment(&game->snake, *tail);
+      point_random(&game->fruit);
+    }
+  }
+
+  // vm_print_int(game->snake.x);
+  // vm_print_int(snake_head(&game->snake)->x);
+  // vm_print_int(snake_head(&game->snake)->y);
+  // blit(game->framebuffer, 0, 0, game->clouds.data, game->clouds.width * 4, 0, 0, game->clouds.width , game->clouds.height);
+
+  snake_draw(&game->snake, game->framebuffer);
+  fruit_draw(game->framebuffer, &game->fruit);
+  
+
   /*
   cstr_print("Random number: ");
   vm_print_int(vm_rand_range(-10, 10));
   cstr_print("\n");
   */
+  blit(game->framebuffer, 16, 16, game->font.data, game->font.width * 4, 0, 0, game->font.width , game->font.height);
+  vm_print_int(*(u8*)(game->font.data + 3));
+  //blit_bitmap(game->framebuffer, 0, 0, &game->font, 0, 0, 6, 10);
 
   vm_paint(game->framebuffer, FB_WIDTH, FB_HEIGHT);
  
