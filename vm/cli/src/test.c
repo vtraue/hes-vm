@@ -36,6 +36,7 @@ __attribute__((import_module("env"), import_name("io_print_sint64"))) void vm_pr
 __attribute__((import_module("env"), import_name("clock_get_time_passed_ms"))) int64_t vm_get_time_ms();
 __attribute__((import_module("env"), import_name("rand_range_sint32"))) int32_t vm_rand_range(int32_t min, int32_t max);
 __attribute__((import_module("env"), import_name("input_get_key_state"))) bool vm_get_key(Key_Code key);
+__attribute__((import_module("env"), import_name("system_shutdown"))) void vm_shutdown();
 
 
 #define WASM_PAGE_SIZE 65536
@@ -45,7 +46,6 @@ typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
-
 typedef int8_t i8;
 typedef int16_t i16;
 typedef int32_t i32;
@@ -191,6 +191,17 @@ void assert(bool cond) {
   }
 }
 
+bool is_uppercase_letter(char c) {
+  return c >= 'A' && c <= 'Z';  
+}
+
+bool is_lowercase_letter(char c) {
+  return c >= 'a' && c <= 'z';  
+}
+
+bool is_number(char c) {
+  return c >= '0' && c <= '9';
+}
 
 Game_Data* init() {
     cstr_print("Hello from init!\n");
@@ -247,11 +258,12 @@ void blit(u8* dest,
           u32 dest_x, u32 dest_y,
           u8* source,
           u32 source_pitch,
+          u32 source_image_height,
           u32 src_x, u32 src_y,
           u32 src_width, u32 src_height) {
 
   u8* dst = dest + ((dest_y * (FB_WIDTH * 4)) + dest_x * 4); 
-  u8* src = source + (((src_height) - src_y - 1) * source_pitch);
+  u8* src = source + ((source_image_height - 1 - src_y) * source_pitch) + (src_x * 4);
 
   for(int y = 0; y < src_height; y++) {
     for(int x = 0; x < src_width; x++) {
@@ -277,7 +289,13 @@ void blit_bitmap(u8* dest,
                  u32 src_x, u32 src_y,
                  u32 src_width, u32 src_height) {
   
-    blit(dest, dest_x, dest_y, src->data, src->width * 4, src_x, src_y, src_width, src_height);
+    blit(dest, dest_x, dest_y, src->data, src->width * 4, src->height, src_x, src_y, src_width, src_height);
+}
+
+void blit_glyph(u8* dest, Bitmap* font, u32 dest_x, u32 dest_y, u32 x_index, u32 y_index) {
+  // vm_print_int(x_index);
+  // vm_print_int(y_index);
+  blit_bitmap(dest, dest_x, dest_y, font, x_index * 6, y_index * 10, 6, 10);  
 }
 
 
@@ -303,7 +321,52 @@ void input(Game_Data* game, uint32_t key, bool down) {
   game->keys[key] = down; 
 }
 
+Point get_glyph_index(char c) {
+  u32 offset = 0;
+  if(is_lowercase_letter(c)) {
+     offset = (c - 'a') + (13 * 2);
+  }
+  else if(is_uppercase_letter(c)) {
+     offset = (c - 'A');
+  }
+  else if(is_number(c)) {
+     offset = (c - '0') + (13 * 4);
+      }
+  else {
+    return (Point){0};
+  } 
 
+  u32 x = offset % 13;
+  u32 y = offset / 13;
+  return (Point){x, y};
+}
+
+void draw_glyph(u8* framebuffer, Bitmap* font, u32 x, u32 y, char glyph) {
+  Point p = get_glyph_index(glyph);
+  blit_glyph(framebuffer, font, x, y, p.x, p.y);
+}
+
+void draw_string(u8* framebuffer, Bitmap* font, u32 x, u32 y, char* str) {
+  u32 x_offset = 0;  
+  u32 y_offset = 0;
+  char* s = str;
+
+  while(*s != 0) {
+    if(*s == '\n') {
+      y_offset += 10;
+      x_offset = 0;
+      s++;
+    } else if(*s == ' ') {
+      x_offset += 6;
+      s++;
+    }
+    else {
+      draw_glyph(framebuffer, font, x + x_offset, y + y_offset, *s);
+      x_offset += 6;
+      s++;
+    }
+  }
+}
 
 void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   game->frame_count += 1;
@@ -311,8 +374,8 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
 
   //cstr_print("Hello from rint64_t numun!\n");
   //fill_framebuffer(game->framebuffer, 0, 255, 255, 255);
-  //render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
-  vm_clear(game->framebuffer, 50, 50, 50);
+  render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
+  //vm_clear(game->framebuffer, 0, 0, 200);
   if(vm_get_key(KEYCODE_UP)) {
     if(game->position_y - game->current_speed + 16 > 0) {
       game->position_y -= game->current_speed;
@@ -336,6 +399,9 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
     if((game->position_x + game->current_speed + 16) < FB_WIDTH) {
       game->position_x += game->current_speed;
     }
+  }
+  if(vm_get_key(KEYCODE_X)) {
+    vm_shutdown();
   }
   /*
   vm_print_int(game->position_x);
@@ -363,7 +429,7 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
       continue;
     }
 
-    //blit(game->framebuffer, position_x, position_y, game->malu.data, game->malu.width * 4, frame * 16, 0, 16, 16);
+    blit_bitmap(game->framebuffer, position_x, position_y, &game->malu, frame * 16, 0, 16, 16);
     
   }
   //vm_draw_rect_rgb(game->framebuffer, game->position_x, game->position_y, 16, 17, 0, 0, 0);
@@ -373,7 +439,7 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
 
   i64 time_passed = vm_get_time_ms() - then;
   cstr_print("Time passed: ");
-  vm_print_int64(time_passed / 100);
+  vm_print_int64(time_passed);
   cstr_print("\n");
   last_time_passed = time_passed;
 
@@ -390,7 +456,7 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
     game->snake.direction = (Point) {-1, 0};
   }
 
-  if(game->frame_count % 5 == 0) { 
+  if(game->frame_count % 2 == 0) { 
     snake_update(&game->snake);
     Point* head = snake_head(&game->snake);
     Point* fruit = &game->fruit;
@@ -416,10 +482,12 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   vm_print_int(vm_rand_range(-10, 10));
   cstr_print("\n");
   */
-  blit(game->framebuffer, 16, 16, game->font.data, game->font.width * 4, 0, 0, game->font.width , game->font.height);
-  vm_print_int(*(u8*)(game->font.data + 3));
-  //blit_bitmap(game->framebuffer, 0, 0, &game->font, 0, 0, 6, 10);
-
+  //blit(game->framebuffer, 16, 16, game->font.data, game->font.width * 4, 0, 0, game->font.width , game->font.height);
+  ///vm_print_int(*(u8*)(game->font.data + 3));
+  // blit_bitmap(game->framebuffer, 0, 0, &game->font, 0, 0, 6, 10);
+  // blit_bitmap(game->framebuffer, 6, 0, &game->font, 6, 0, 6, 10);
+  //draw_glyph(game->framebuffer, &game->font, 0, 0, 'C');
+  draw_string(game->framebuffer, &game->font, 0, 0, "HES VM praesentiert\nHallo Welt 123450\nPunktestand 500");
   vm_paint(game->framebuffer, FB_WIDTH, FB_HEIGHT);
  
 }

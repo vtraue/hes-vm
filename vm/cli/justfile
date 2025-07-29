@@ -1,10 +1,11 @@
 build:
-    clang --target=wasm32 -nostdlib -mbulk-memory -Wl,--no-entry -Wl,--export-all -O1  src/test.c -o out.wasm
+    clang --target=wasm32 -nostdlib  -mbulk-memory -Wl,--no-entry -Wl,--export-all -O3  src/test.c -o out.wasm
 
 validate: build
     cargo run out.wasm validate
     
 print: build
     wasm-tools print out.wasm
+
 run: build
-    cargo run --release out.wasm console 
+    set CARGO_PROFILE_RELEASE_DEBUG=true; cargo flamegraph --release -- out.wasm console 

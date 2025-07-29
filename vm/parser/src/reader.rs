@@ -510,7 +510,7 @@ impl FromBytecode for ConstExpr {
 
 impl ConstExpr {
     pub fn iter_ops(&self) -> impl Iterator<Item = Op> {
-        self.expr.iter().map(|op| op.data)
+        self.expr.iter().map(|op| op.data.clone())
     }
 }
 
@@ -785,7 +785,11 @@ pub struct Expression {
 }
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.data.iter().map(|op| op.data).format("\n"))
+        write!(
+            f,
+            "{}",
+            self.data.iter().map(|op| op.data.clone()).format("\n")
+        )
     }
 }
 impl FromBytecode for Expression {

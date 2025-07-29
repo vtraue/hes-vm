@@ -229,6 +229,7 @@ struct State {
     rng: ThreadRng,
     clip_rect: (u32, u32, u32, u32),
     button_states: [bool; 10],
+    shutdown: bool,
 }
 
 impl State {
@@ -472,6 +473,7 @@ impl State {
             clip_rect: matrix.clip_rect(),
             uniform_buffer,
             button_states: [false; 10],
+            shutdown: false,
         })
     }
 
@@ -712,7 +714,11 @@ impl Env for State {
                 result: vec![ValueType::I32],
                 id: 9,
             }),
-
+            "system_shutdown" => Some(ExternalFunction {
+                params: vec![],
+                result: vec![],
+                id: 10,
+            }),
             _ => None,
         }
     }
@@ -809,6 +815,7 @@ impl Env for State {
                 results[0] = LocalValue::I32(ptr as u32);
                 Ok(())
             }
+
             9 => {
                 let button: ConsoleKey = params[0].u32().try_into().map_err(|_| {
                     NativeFuncCallError::new(NativeFuncCallErrorType::InvalidConsoleKey, 9)
@@ -816,6 +823,13 @@ impl Env for State {
                 let button_state = self.button_states[button];
                 results[0] = LocalValue::I32(button_state as u32);
 
+                Ok(())
+            }
+
+            //shutdown
+            10 => {
+                vm.quit();
+                self.shutdown = true;
                 Ok(())
             }
             _ => unreachable!(),
@@ -909,7 +923,7 @@ impl Executor {
     }
 
     fn run_init(&mut self, state: &mut State) -> Result<(), ConsoleError> {
-        self.vm.set_func(self.funcs.init, vec![])?;
+        self.vm.set_func(self.funcs.init, &[])?;
 
         let result = self.vm.run_func(
             &self.validate_result.bytecode,
@@ -935,7 +949,7 @@ impl Executor {
             LocalValue::I32(width),
             LocalValue::I32(height),
         ];
-        self.vm.set_func(self.funcs.run, args)?;
+        self.vm.set_func(self.funcs.run, &args)?;
         self.vm.run_func(
             &self.validate_result.bytecode,
             &self.validate_result.info,
@@ -955,7 +969,7 @@ impl Executor {
             LocalValue::I32(key.into()),
             LocalValue::I32(pressed.into()),
         ];
-        self.vm.set_func(self.funcs.input.unwrap(), args)?;
+        self.vm.set_func(self.funcs.input.unwrap(), &args)?;
         self.vm.run_func(
             &self.validate_result.bytecode,
             &self.validate_result.info,
@@ -971,6 +985,7 @@ pub struct App {
     auto_hot_reload: bool,
     file_watch_rec: Receiver<notify::Result<notify::Event>>,
     file_watcher: notify::PollWatcher,
+    paused: bool,
 }
 impl App {
     pub fn new(path: PathBuf, auto_hot_reload: bool) -> Result<Self, ConsoleError> {
@@ -984,6 +999,7 @@ impl App {
         file_watcher.watch(&path, notify::RecursiveMode::Recursive)?;
         let exec = Executor::new(path)?;
         let app = Self {
+            paused: false,
             state: None,
             exec,
             auto_hot_reload,
@@ -1044,6 +1060,9 @@ impl ApplicationHandler for App {
                     let state = self.state.as_mut().unwrap();
                     self.exec.reload_code(state).unwrap();
                 }
+                (KeyCode::KeyP, true) => {
+                    self.paused = !self.paused;
+                }
 
                 (key, pressed) => {
                     let state = self.state.as_mut().unwrap();
@@ -1055,7 +1074,7 @@ impl ApplicationHandler for App {
                                 self.exec.run_input(state, k, pressed).unwrap();
                             }
                         }
-                        None => todo!(),
+                        None => {}
                     }
                     state.handle_key(event_loop, code, key_state.is_pressed());
                 }
@@ -1084,7 +1103,12 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                self.exec.run_frame(state, FB_SIZE.0, FB_SIZE.1).unwrap();
+                if !self.paused {
+                    self.exec.run_frame(state, FB_SIZE.0, FB_SIZE.1).unwrap();
+                    if state.shutdown {
+                        event_loop.exit();
+                    }
+                }
 
                 let elapsed = now.elapsed();
                 //println!("Time for update: {:.2?}ms", elapsed.as_millis());

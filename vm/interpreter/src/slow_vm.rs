@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 use std::ops::DerefMut;
 
+use parser::op::BrTableEntry;
 use parser::reader::{Data, iter_without_position};
 use std::slice;
 use std::{
@@ -8,6 +9,7 @@ use std::{
     fmt::{Debug, Display},
 };
 use thiserror::Error;
+use tracing::{Level, span};
 
 use itertools::Itertools;
 use parser::{
@@ -160,7 +162,7 @@ macro_rules! impl_vm_pop {
             pub unsafe fn $func_name(&mut self) -> $t {
                 let val = unsafe { self.value_stack.pop().unwrap_unchecked().$var_name };
                 //val as $t
-                let res = bytemuck::cast(val);
+                let res = unsafe { std::mem::transmute::<_, $t>(val) };
                 res
             }
         }
@@ -399,11 +401,21 @@ macro_rules! impl_binop_push {
 }
 
 macro_rules! impl_convert {
-    ($this: ident, $a: ident, $src_t: tt, $action: expr) => {
+    ($this: ident, $a: ident, $src_t: tt, $target_t: tt, $action: expr) => {
         unsafe {
             let $a = $this.pop_value::<$src_t>();
             let res = $action;
-            $this.push_value(res);
+            $this.push_value(res as $target_t);
+            $this.ip += 1;
+        }
+    };
+}
+macro_rules! impl_convert2 {
+    ($this: ident, $a: ident, $src_t: tt, $cvt_t: tt, $target_t: tt, $action: expr) => {
+        unsafe {
+            let $a = $this.pop_value::<$src_t>() as $cvt_t;
+            let res = $action;
+            $this.push_value(res as $target_t);
             $this.ip += 1;
         }
     };
@@ -422,6 +434,7 @@ pub struct Vm<E: Env> {
     start_func_id: Option<usize>,
     local_offset: usize,
     func_id: Option<usize>,
+    shutdown: bool,
     _marker: PhantomData<E>,
 }
 
@@ -533,7 +546,7 @@ impl<E: Env> Vm<E> {
             .try_for_each(|(expr, data)| {
                 Self::copy_active_mem_section(
                     mem.as_mut_slice(),
-                    expr.data.iter().map(|p| p.data),
+                    expr.data.iter().map(|p| p.data.clone()),
                     &data.data,
                 )
             })?;
@@ -551,6 +564,7 @@ impl<E: Env> Vm<E> {
             labels: Vec::with_capacity(20),
             local_offset: 0,
             func_id: None,
+            shutdown: false,
             _marker: PhantomData {},
         })
     }
@@ -559,17 +573,13 @@ impl<E: Env> Vm<E> {
         Vm::init(&res.bytecode, &res.info)
     }
 
-    fn push_func_locals<'a>(
-        &mut self,
-        locals: &[ValueType],
-        params: impl Iterator<Item = LocalValue>,
-    ) -> usize {
+    fn push_func_locals<'a>(&mut self, locals: &[ValueType], params: &[LocalValue]) -> usize {
         let empty_locals = locals
             .iter()
             .cloned()
             .map(|t| LocalValue::init_from_type(t));
 
-        let new_locals = params.chain(empty_locals);
+        let new_locals = params.iter().cloned().chain(empty_locals);
         let locals_offset = self.locals.len();
         self.locals.extend(new_locals);
         locals_offset
@@ -608,7 +618,10 @@ impl<E: Env> Vm<E> {
     }
     pub fn pop_any(&mut self) -> StackValue {
         //println!("pop any");
-        self.value_stack.pop().unwrap()
+        match self.value_stack.pop() {
+            Some(s) => s,
+            None => unreachable!(),
+        }
     }
 
     pub fn discard(&mut self, count: usize) {
@@ -626,7 +639,7 @@ impl<E: Env> Vm<E> {
     #[inline]
     pub fn fetch_instruction(&self) -> &Op {
         let op = &self.code.instructions[self.ip];
-        //println!("fetching: {:?}", op);
+        // println!("fetching: {:?}", op);
         op
     }
 
@@ -729,8 +742,9 @@ impl<E: Env> Vm<E> {
     pub fn enter_native_function(
         &mut self,
         func_id: usize,
-        params: impl Iterator<Item = LocalValue>,
+        params: &[LocalValue],
     ) -> Result<(), RuntimeError> {
+        let _span = span!(Level::TRACE, "entering native function").entered();
         let next_frame = self.get_return_frame();
         match &self.code.functions[func_id].kind {
             FunctionType::Wasm(internal_function_instance) => {
@@ -770,11 +784,9 @@ impl<E: Env> Vm<E> {
     pub fn enter_function(
         &mut self,
         func_id: usize,
-        params: impl Iterator<Item = LocalValue>,
-        results: Vec<LocalValue>,
+        params: &[LocalValue],
         env: &mut E,
     ) -> Result<(), RuntimeError> {
-        let mut res = results;
         let next_frame = self.get_return_frame();
 
         match &self.code.functions[func_id].kind {
@@ -783,10 +795,19 @@ impl<E: Env> Vm<E> {
             FunctionType::Native(native_function_instance) => {
                 //println!("native call");
                 //TODO: (joh): Mache Fehler teil der Funktion
-                let params: SmallVec<[LocalValue; 32]> = params.collect();
-                env.call(self, &params, &mut res, native_function_instance.id)
+                let func = &self.code.functions[func_id];
+                let mut results = func
+                    .t
+                    .results
+                    .iter()
+                    .map(|v| LocalValue::init_from_type(*v))
+                    .collect::<SmallVec<[_; 16]>>();
+
+                env.call(self, params, &mut results, native_function_instance.id)
                     .map_err(|e| RuntimeError::NativeFuncCallError(e))?;
-                res.iter().for_each(|r| self.push_value(*r));
+                self.value_stack
+                    .extend(results.iter().cloned().map_into::<StackValue>());
+                //res.iter().for_each(|r| self.push_value(*r));
 
                 self.ip += 1;
 
@@ -794,7 +815,7 @@ impl<E: Env> Vm<E> {
             }
         }
     }
-    pub fn pop_type_arams<'a>(
+    pub fn pop_type_params<'a>(
         &mut self,
         params: impl IntoIterator<Item = &'a ValueType>,
     ) -> SmallVec<[LocalValue; 16]> {
@@ -819,18 +840,13 @@ impl<E: Env> Vm<E> {
             .cloned()
             .zip(popped)
             .map(|(p, t)| LocalValue::init_from_type_and_val(p, t))
-            .collect::<Vec<_>>();
+            .collect::<SmallVec<[_; 16]>>();
+
         self.value_stack
             .truncate(self.value_stack.len() - params.len());
 
-        let results = func
-            .t
-            .results
-            .iter()
-            .map(|v| LocalValue::init_from_type(*v));
-
         //println!("call params {:?}", params);
-        self.enter_function(id, params.iter().cloned(), results.collect(), env)
+        self.enter_function(id, &params, env)
     }
 
     pub fn exec_return(&mut self) -> bool {
@@ -889,24 +905,24 @@ impl<E: Env> Vm<E> {
         self.ip = (jmp + self.ip as isize) as usize;
     }
 
+    #[inline]
     pub fn exec_br(&mut self, target: usize, jmp: isize) {
         if target != 0 {
             self.labels.truncate(self.labels.len() - target);
         }
 
-        let target_label = self.labels.pop().unwrap();
+        let target_label = match self.labels.pop() {
+            Some(l) => l,
+            _ => unreachable!(),
+        };
+
         self.jump(jmp);
-        if target_label.out_count > 0 {
-            if target_label.out_count > 1 {
-                todo!()
-            } else {
-                let result = self.pop_any();
-                self.value_stack.truncate(target_label.stack_height);
-                self.push_any(result);
-            }
-        } else {
-            self.value_stack.truncate(target_label.stack_height);
+        /*
+        if target_label.out_count > 1 {
+            unreachable!()
         }
+        */
+        self.value_stack.truncate(target_label.stack_height);
     }
 
     pub fn exec_br_if(&mut self, target: usize, jump: isize) {
@@ -917,6 +933,15 @@ impl<E: Env> Vm<E> {
         }
     }
 
+    pub fn exec_br_table(&mut self, table: &[BrTableEntry], fallback: BrTableEntry) {
+        let n: u32 = unsafe { self.pop_value() };
+
+        if let Some(entry) = table.get(n as usize) {
+            self.exec_br(entry.label, entry.jump);
+        } else {
+            self.exec_br(fallback.label, fallback.jump);
+        }
+    }
     pub fn exec_memory_init(
         &mut self,
         bytecode: &Bytecode,
@@ -995,6 +1020,18 @@ impl<E: Env> Vm<E> {
         self.ip += 1;
         Ok(())
     }
+    pub fn exec_select(&mut self) {
+        let c = unsafe { self.pop_u32() };
+
+        if c != 0 {
+            self.pop_any();
+        } else {
+            let val2 = self.pop_any();
+            let _ = self.pop_any();
+            self.push_any(val2);
+        }
+        self.ip += 1;
+    }
     pub fn exec_op(&mut self, bytecode: &Bytecode, env: &mut E) -> Result<bool, RuntimeError> {
         match self.fetch_instruction() {
             Op::Unreachable => {
@@ -1025,7 +1062,7 @@ impl<E: Env> Vm<E> {
                 _ = self.pop_any();
                 self.ip += 1
             }
-            Op::Select(value_type) => todo!(),
+            Op::Select(value_type) => self.exec_select(),
             Op::LocalGet(id) => self.exec_local_get(*id as usize),
             Op::LocalSet(id) => self.exec_local_set(*id as usize),
             Op::LocalTee(id) => self.exec_local_tee(*id as usize),
@@ -1114,16 +1151,26 @@ impl<E: Env> Vm<E> {
             Op::MemoryCopy { .. } => self.exec_memory_copy()?,
             Op::MemoryFill { .. } => self.exec_memory_fill()?,
             Op::MemoryGrow { .. } => self.exec_memory_grow(),
-            Op::I32WrapI64 => impl_convert!(self, a, u64, a as u32),
-            Op::I64ExtendI32s => impl_convert!(self, a, i32, a as i64),
-            Op::I64ExtendI32u => impl_convert!(self, a, u32, a as u64),
+            Op::I32WrapI64 => impl_convert!(self, a, u64, u32, a as u32),
+            Op::I64ExtendI32s => impl_convert!(self, a, i32, i64, a as i64),
+            Op::I64ExtendI32u => impl_convert!(self, a, u32, u64, a as u64),
+            Op::I32Extend8s => impl_convert2!(self, a, i32, i8, i32, a as i32),
+            Op::I32Extend16s => impl_convert2!(self, a, i32, i16, i32, a as i32),
+            Op::BrTable { labels, default } => {
+                //NOTE: (joh): AARRARAAAAAAAGGAA ich HASSE DIESE SPRACHE!!!!!!!
+                let labels: SmallVec<[BrTableEntry; 16]> = SmallVec::from_slice(&labels);
+                self.exec_br_table(&labels, *default);
+            }
+            Op::I64Extend8s => impl_convert2!(self, a, i64, i8, i64, a as i64),
+            Op::I64Extend16s => impl_convert2!(self, a, i64, i16, i64, a as i64),
+            Op::I64Extend32s => impl_convert2!(self, a, i64, i32, i64, a as i64),
         };
         Ok(false)
     }
     pub fn enter_start_function(&mut self, env: &mut E) -> Result<(), RuntimeError> {
         if let Some(start) = self.start_func_id {
             //TODO: (joh):
-            self.enter_function(start, std::iter::empty(), vec![], env)
+            self.enter_function(start, &[], env)
         } else {
             Err(RuntimeError::UnexpectedNoStartFunction)
         }
@@ -1135,8 +1182,8 @@ impl<E: Env> Vm<E> {
         } else {
             loop {
                 let end = self.exec_op(bytecode, env)?;
-                //println!("stack now: {:?}", self.value_stack);
-                if end {
+
+                if end || self.shutdown {
                     break;
                 }
             }
@@ -1154,12 +1201,8 @@ impl<E: Env> Vm<E> {
             .collect()
     }
 
-    pub fn set_func(
-        &mut self,
-        func_id: usize,
-        params: impl IntoIterator<Item = LocalValue>,
-    ) -> Result<(), RuntimeError> {
-        self.enter_native_function(func_id, params.into_iter())
+    pub fn set_func(&mut self, func_id: usize, params: &[LocalValue]) -> Result<(), RuntimeError> {
+        self.enter_native_function(func_id, params)
     }
 
     pub fn run_func(
@@ -1172,7 +1215,6 @@ impl<E: Env> Vm<E> {
         let res = if let Some(func_id) = self.func_id {
             let func_t = &self.types.as_ref().unwrap()[info.functions[func_id].type_id];
             let res = self.stack_to_local_vals(func_t.results.iter().cloned());
-            // println!("res: {:?}", res);
             assert!(res.len() == func_t.results.len());
             Ok(res)
         } else {
@@ -1216,7 +1258,7 @@ impl<E: Env> Vm<E> {
             .try_for_each(|(expr, data)| {
                 Self::copy_active_mem_section(
                     mem.as_mut_slice(),
-                    expr.data.iter().map(|p| p.data),
+                    expr.data.iter().map(|p| p.data.clone()),
                     &data.data,
                 )
             })?;
@@ -1257,13 +1299,16 @@ impl<E: Env> Vm<E> {
             Ok(&mut mem[addr..addr + count])
         }
     }
+    pub fn quit(&mut self) {
+        self.shutdown = true;
+    }
 }
-
 #[derive(Debug)]
 pub struct ExecutionResult<E: Env> {
     validation_result: ValidateResult,
     exec: Vm<E>,
 }
+
 #[derive(Error, Debug)]
 pub enum ExecutionError {
     #[error("Unable to instantiate bytecode: {0}")]
@@ -1504,7 +1549,7 @@ mod tests {
                 (start 0)
             )
         "#,
-        vec![],
+        &[],
         vec![LocalValue::I32(6)]
     );
 
@@ -1527,7 +1572,7 @@ mod tests {
                 (start 0)
             )
         "#,
-        vec![],
+        &[],
         vec![LocalValue::I32(4)]
     }
 
@@ -1553,7 +1598,7 @@ mod tests {
                 )
             )
         "#,
-        vec![],
+        &[],
         vec![LocalValue::I32(99)]
     }
 
@@ -1580,7 +1625,7 @@ mod tests {
                 )
             )
         "#,
-        vec![],
+        &[],
         vec![LocalValue::I32(99)]
     }
 
@@ -1604,7 +1649,7 @@ mod tests {
                 )
             )
         "#,
-        vec![],
+        &[],
         vec![LocalValue::I32(0)]
     }
     run_code_expect_result! {
@@ -1632,8 +1677,8 @@ mod tests {
             )
 
         "#,
-        vec![],
-        vec![LocalValue::I32(100)]
+        &[],
+        &[LocalValue::I32(100)]
     }
 
     run_code_expect_failure! {
@@ -1677,8 +1722,8 @@ mod tests {
                 (start $main)
             )
         "#,
-        vec![],
-        vec![LocalValue::I32(100)]
+        &[],
+        &[LocalValue::I32(100)]
     }
 
     run_code_expect_result! {
@@ -1700,8 +1745,8 @@ mod tests {
                 (start $main)
             )
         "#,
-        vec![],
-        vec![LocalValue::I32(910)]
+        &[],
+        &[LocalValue::I32(910)]
     }
 
     run_code_expect_result! {

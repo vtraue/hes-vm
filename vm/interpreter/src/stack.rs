@@ -15,23 +15,23 @@ impl fmt::Debug for StackValue {
     }
 }
 macro_rules! impl_from_num_stackval {
-    ($field_name: ident, $type: tt) => {
+    ($field_name: ident, $type: tt, $target: tt) => {
         impl From<$type> for StackValue {
             fn from(value: $type) -> Self {
                 Self {
-                    $field_name: cast(value),
+                    $field_name: unsafe { std::mem::transmute::<$type, $target>(value) },
                 }
             }
         }
     };
 }
 
-impl_from_num_stackval!(i32, u32);
-impl_from_num_stackval!(i32, i32);
-impl_from_num_stackval!(i64, u64);
-impl_from_num_stackval!(i64, i64);
-impl_from_num_stackval!(f32, f32);
-impl_from_num_stackval!(f64, f64);
+impl_from_num_stackval!(i32, u32, u32);
+impl_from_num_stackval!(i32, i32, u32);
+impl_from_num_stackval!(i64, u64, u64);
+impl_from_num_stackval!(i64, i64, u64);
+impl_from_num_stackval!(f32, f32, f32);
+impl_from_num_stackval!(f64, f64, f64);
 
 impl From<bool> for StackValue {
     fn from(value: bool) -> Self {

@@ -1,5 +1,6 @@
 use byteorder::ReadBytesExt;
 use core::fmt;
+use itertools::Itertools;
 
 use crate::{
     leb::Leb,
@@ -69,20 +70,46 @@ pub enum JumpDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BrTableEntry {
+    pub label: usize,
+    pub jump: isize,
+}
+impl fmt::Display for BrTableEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.label, self.jump)
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     Unreachable,
     Nop,
     Block(Blocktype),
 
     Loop(Blocktype),
-    If { bt: Blocktype, jmp: isize },
+    If {
+        bt: Blocktype,
+        jmp: isize,
+    },
     Else(isize),
     End(bool),
-    Br { label: usize, jmp: isize },
-    BrIf { label: usize, jmp: isize },
+    Br {
+        label: usize,
+        jmp: isize,
+    },
+    BrIf {
+        label: usize,
+        jmp: isize,
+    },
+    BrTable {
+        labels: Box<[BrTableEntry]>,
+        default: BrTableEntry,
+    },
     Return,
     Call(usize),
-    CallIndirect { table: usize, type_id: isize },
+    CallIndirect {
+        table: usize,
+        type_id: isize,
+    },
     Drop,
     Select(Option<ValueType>),
     LocalGet(usize),
@@ -173,11 +200,26 @@ pub enum Op {
     I32WrapI64,
     I64ExtendI32s,
     I64ExtendI32u,
+    I32Extend8s,
+    I32Extend16s,
+    I64Extend8s,
+    I64Extend16s,
+    I64Extend32s,
 
-    MemoryCopy { extra_1: usize, extra_2: usize },
-    MemoryFill { extra: usize },
-    MemoryInit { data_id: usize, extra: usize }, //TODO: (joh): Float ops
-    MemoryGrow { extra: usize },
+    MemoryCopy {
+        extra_1: usize,
+        extra_2: usize,
+    },
+    MemoryFill {
+        extra: usize,
+    },
+    MemoryInit {
+        data_id: usize,
+        extra: usize,
+    }, //TODO: (joh): Float ops
+    MemoryGrow {
+        extra: usize,
+    },
 }
 
 impl Op {
@@ -369,6 +411,31 @@ impl FromBytecode for Op {
             0x40 => Op::MemoryGrow {
                 extra: reader.parse()?,
             },
+            0xC0 => Op::I32Extend8s,
+            0xC1 => Op::I32Extend16s,
+            0xC2 => Op::I64Extend8s,
+            0xC3 => Op::I64Extend16s,
+            0xC4 => Op::I64Extend32s,
+            0xE => {
+                let labels: Vec<usize> = reader.parse()?;
+                let default_label: usize = reader.parse()?;
+                let labels = labels
+                    .iter()
+                    .map(|label| BrTableEntry {
+                        label: *label,
+                        jump: 0,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+
+                Op::BrTable {
+                    labels,
+                    default: BrTableEntry {
+                        label: default_label,
+                        jump: 0,
+                    },
+                }
+            }
             _ => panic!("Unimplemented Opcode {:0X}", opcode),
         };
 
@@ -486,6 +553,14 @@ impl fmt::Display for Op {
             Op::I32WrapI64 => write!(f, "i32.wrap_i64"),
             Op::I64ExtendI32s => write!(f, "i64.extend_i32_s"),
             Op::I64ExtendI32u => write!(f, "i64.extend_i32_u"),
+            Op::BrTable { labels, default } => {
+                write!(f, "br.table {} {}", labels.into_iter().format(" "), default)
+            }
+            Op::I32Extend8s => write!(f, "i32.extend8_s"),
+            Op::I32Extend16s => write!(f, "i32.extend16_s"),
+            Op::I64Extend8s => write!(f, "i64.extend8_s"),
+            Op::I64Extend16s => write!(f, "i64.extend16_s"),
+            Op::I64Extend32s => write!(f, "i64.extend32_ls"),
         }
     }
 }

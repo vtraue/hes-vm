@@ -18,6 +18,7 @@ use std::{
     io::{Cursor, Read, Seek},
     path::PathBuf,
 };
+use tracing_subscriber::layer::SubscriberExt;
 use validator::validator::{ValidateResult, read_and_validate, read_and_validate_wat};
 
 use crate::env::HeadlessEnv;
@@ -47,11 +48,7 @@ pub fn read_and_validate_file(file: &mut impl BytecodeReader) -> Result<Validate
     }
 }
 
-pub fn execute_run_command(
-    func_name: &str,
-    params: impl IntoIterator<Item = LocalValue> + Clone,
-    file: &mut File,
-) -> Result<()> {
+pub fn execute_run_command(func_name: &str, params: &[LocalValue], file: &mut File) -> Result<()> {
     let validate_result = read_and_validate_file(file).context("Unable to parse file")?;
     let mut env = HeadlessEnv {};
     let mut vm =
@@ -67,7 +64,7 @@ pub fn execute_run_command(
 
         println!("code id: {}", func_id);
 
-        vm.set_func(func_id, params.clone())
+        vm.set_func(func_id, params)
             .context("Unable to load function")?;
 
         let result = vm
@@ -86,6 +83,10 @@ pub fn execute_run_command(
 }
 
 pub fn main() -> Result<()> {
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+    )
+    .expect("setup tracy layer");
     let args = Args::parse();
 
     match args.command {
@@ -113,7 +114,7 @@ pub fn main() -> Result<()> {
 
         Commands::Run { name } => {
             let mut file = File::open(args.path).unwrap();
-            execute_run_command(&name, Vec::new(), &mut file)
+            execute_run_command(&name, &[], &mut file)
         }
         _ => bail!("Unknown command: {:?}", args.command),
     }

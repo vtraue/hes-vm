@@ -9,6 +9,7 @@ export fn init() -> int {
 
 export fn run(framebuffer: int, width: int, height: int) {
 	gfx_clear_buffer_rgb(framebuffer, 0, 0, 200);
+	gfx_draw_rect_rgb(framebuffer, 16, 16, 16, 16, 200, 0, 0);
 	gfx_paint(framebuffer, 640, 360);
 	return;
 }

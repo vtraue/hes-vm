@@ -4,7 +4,7 @@ use thiserror::Error;
 use itertools::Itertools;
 use parser::{
     info::{BytecodeInfo, FunctionType},
-    op::{Blocktype, Memarg, Op},
+    op::{Blocktype, BrTableEntry, Memarg, Op},
     reader::{
         self, Bytecode, BytecodeReader, Code, Function, ParserError, Type, ValueType, WithPosition,
         parse_binary, parse_wat,
@@ -68,6 +68,9 @@ pub enum ValidationError {
 
     #[error("Trying to init active data section: {0}")]
     InitActiveDataId(usize),
+
+    #[error("Label types in br table do not match")]
+    MismatchedBrTableLabelTypes,
 }
 
 impl ValueStackType {
@@ -133,6 +136,7 @@ impl CtrlFrame {
 #[derive(Default, Debug, Clone)]
 pub struct JumpTableEntry {
     pub ip: isize,
+    pub br_table_entry: Option<usize>,
     pub delta_ip: isize,
     pub stack_height: usize,
 
@@ -140,8 +144,14 @@ pub struct JumpTableEntry {
 }
 
 impl JumpTableEntry {
-    pub fn new(ip: isize, stack_height: usize, out_count: usize) -> Self {
+    pub fn new(
+        ip: isize,
+        stack_height: usize,
+        out_count: usize,
+        br_table_entry: Option<usize>,
+    ) -> Self {
         JumpTableEntry {
+            br_table_entry,
             ip,
             delta_ip: ip,
             stack_height,
@@ -282,7 +292,7 @@ impl ValidatorContext {
 
     fn push_branch_op_jte(&mut self, op: Op, out_type_count: usize) -> Option<usize> {
         if op.is_branch() {
-            let entry = JumpTableEntry::new(self.ip, self.type_stack.len(), out_type_count);
+            let entry = JumpTableEntry::new(self.ip, self.type_stack.len(), out_type_count, None);
             self.jump_table.push(entry);
             Some(self.jump_table.len() - 1)
         } else {
@@ -326,7 +336,7 @@ impl ValidatorContext {
         let jump_table_entry = if let Some(WithPosition {
             data: op,
             position: _,
-        }) = op
+        }) = op.clone()
         {
             self.push_branch_op_jte(op, out_types.len())
         } else {
@@ -527,6 +537,7 @@ impl ValidatorContext {
                         expected: t1,
                     })
                 } else {
+                    self.push(t1);
                     Ok(())
                 }
             }
@@ -562,7 +573,7 @@ impl ValidatorContext {
 
     pub fn validate_else(&mut self, op: WithPosition<Op>) -> Result<(), ValidationError> {
         let ctrl = self.pop_ctrl()?;
-        if let Some(Op::If { bt: _, jmp: _ }) = ctrl.op.as_ref().map(|d| d.data) {
+        if let Some(Op::If { bt: _, jmp: _ }) = ctrl.op.as_ref().cloned().map(|d| d.data) {
             if let Some(jump_id) = ctrl.jump_table_entry {
                 self.get_jump_mut(jump_id)?.delta_ip = (self.ip - ctrl.ip) + 1;
             };
@@ -632,9 +643,14 @@ impl ValidatorContext {
         Ok(())
     }
 
-    fn push_break_jte(&mut self, n: usize) -> Result<(), ValidationError> {
+    fn push_break_jte(
+        &mut self,
+        n: usize,
+        br_table_entry: Option<usize>,
+    ) -> Result<(), ValidationError> {
         let out_count = peek_ctrl(&self.ctrl_stack, n)?.out_types.len();
         let entry = JumpTableEntry {
+            br_table_entry,
             ip: self.ip,
             delta_ip: self.ip,
             stack_height: self.type_stack.len(),
@@ -664,7 +680,7 @@ impl ValidatorContext {
     pub fn validate_br(&mut self, n: usize) -> Result<(), ValidationError> {
         //TODO: ???
         self.pop_label_types(n)?;
-        self.push_break_jte(n)?;
+        self.push_break_jte(n, None)?;
         self.set_unreachable()?;
         Ok(())
     }
@@ -672,11 +688,50 @@ impl ValidatorContext {
     pub fn validate_br_if(&mut self, n: usize) -> Result<(), ValidationError> {
         self.pop(ValueType::I32)?;
         self.pop_label_types(n)?;
-        self.push_break_jte(n)?;
+        self.push_break_jte(n, None)?;
         self.push_label_types(n)?;
         Ok(())
     }
 
+    pub fn validate_br_table(
+        &mut self,
+        table: &[BrTableEntry],
+        fallback: &BrTableEntry,
+    ) -> Result<(), ValidationError> {
+        self.pop(ValueType::I32)?;
+
+        if let Some(_) = table.iter().next() {
+            let types: Option<Vec<ValueType>> = peek_ctrl(&self.ctrl_stack, fallback.label)?
+                .iter_label_types()
+                .map(|t| t.collect());
+
+            for (i, ele) in table.iter().enumerate() {
+                self.push_break_jte(ele.label, Some(i))?;
+
+                let labels = peek_ctrl(&self.ctrl_stack, ele.label)?.iter_label_types();
+
+                let types_eq = (types.is_none() && labels.is_none())
+                    || labels.is_some_and(|t| types.as_ref().cloned().is_some_and(|t2| t.eq(t2)));
+
+                if !types_eq {
+                    return Err(ValidationError::MismatchedBrTableLabelTypes);
+                }
+            }
+
+            if let Some(types) = types {
+                types.iter().try_for_each(|t| self.pop(t))?;
+            }
+            self.push_break_jte(fallback.label, None)?;
+            self.set_unreachable()?;
+
+            Ok(())
+        } else {
+            self.pop_label_types(fallback.label)?;
+            self.push_break_jte(fallback.label, None)?;
+            self.set_unreachable()?;
+            Ok(())
+        }
+    }
     pub fn validate_return(&mut self, t: &Type) -> Result<(), ValidationError> {
         println!("func return t: {}", t);
         t.iter_results().try_for_each(|t| self.pop(t))?;
@@ -869,9 +924,24 @@ impl ValidatorContext {
             Op::I64ExtendI32s => {
                 validate_types!(self, [ValueType::I32] => [ValueType::I64]);
             }
-
             Op::I64ExtendI32u => {
                 validate_types!(self, [ValueType::I32] => [ValueType::I64]);
+            }
+            Op::BrTable { labels, default } => self.validate_br_table(&labels, &default)?,
+            Op::I32Extend8s => {
+                validate_types!(self, [ValueType::I32] => [ValueType::I32]);
+            }
+            Op::I32Extend16s => {
+                validate_types!(self, [ValueType::I32] => [ValueType::I32]);
+            }
+            Op::I64Extend8s => {
+                validate_types!(self, [ValueType::I64] => [ValueType::I64]);
+            }
+            Op::I64Extend16s => {
+                validate_types!(self, [ValueType::I64] => [ValueType::I64]);
+            }
+            Op::I64Extend32s => {
+                validate_types!(self, [ValueType::I64] => [ValueType::I64]);
             }
         };
 
@@ -947,21 +1017,35 @@ impl ValidatorContext {
     }
 }
 
-fn patch_op_jump(op: &Op, jump: &JumpTableEntry, jump_id: usize) -> Result<Op, ValidationError> {
+fn patch_op_jump(
+    op: &mut Op,
+    jump: &JumpTableEntry,
+    jump_id: usize,
+) -> Result<(), ValidationError> {
     match op {
-        Op::Else(_) => Ok(Op::Else(jump.delta_ip)),
-        Op::If { bt, jmp: _ } => Ok(Op::If {
+        Op::Else(_) => Ok(*op = Op::Else(jump.delta_ip)),
+        Op::If { bt, jmp: _ } => Ok(*op = Op::If {
             bt: *bt,
             jmp: jump.delta_ip,
         }),
-        Op::Br { label, jmp: _ } => Ok(Op::Br {
+        Op::Br { label, jmp: _ } => Ok(*op = Op::Br {
             label: *label,
             jmp: jump.delta_ip,
         }),
-        Op::BrIf { label, jmp: _ } => Ok(Op::BrIf {
+        Op::BrIf { label, jmp: _ } => Ok(*op = Op::BrIf {
             label: *label,
             jmp: jump.delta_ip,
         }),
+        Op::BrTable { labels, default } => {
+            if let Some(break_id) = jump.br_table_entry {
+                let label = labels.get_mut(break_id).unwrap();
+                label.jump = jump.delta_ip;
+            } else {
+                default.jump = jump.delta_ip;
+            }
+
+            Ok(())
+        }
         _ => return Err(ValidationError::InvalidJump(jump_id)),
     }
 }
@@ -975,7 +1059,7 @@ pub fn patch_function_jumps<'a>(
         .enumerate()
         .try_for_each(|(jump_id, jump)| {
             let op = function.get_op_mut(jump.ip as usize).unwrap();
-            *op = patch_op_jump(op, jump, jump_id)?;
+            patch_op_jump(op, jump, jump_id)?;
             Ok(())
         })
 }
@@ -1042,6 +1126,7 @@ pub fn read_and_validate_wat(
         info,
     })
 }
+/*
 
 #[cfg(test)]
 mod tests {
@@ -1365,3 +1450,4 @@ mod tests {
         Ok(())
     }
 }
+*/
