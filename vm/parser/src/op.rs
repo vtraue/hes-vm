@@ -156,6 +156,20 @@ pub enum Op {
     I32Ges,
     I32Geu,
 
+    F32Eq,
+    F32Ne,
+    F32Lt,
+    F32Gt,
+    F32Le,
+    F32Ge,
+
+    F64Eq,
+    F64Ne,
+    F64Lt,
+    F64Gt,
+    F64Le,
+    F64Ge,
+
     I64Eqz,
     I64Eq,
     I64Ne,
@@ -167,6 +181,7 @@ pub enum Op {
     I64Leu,
     I64Ges,
     I64Geu,
+
     I32Add,
     I32Sub,
     I32Mul,
@@ -182,6 +197,7 @@ pub enum Op {
     I32Shru,
     I32Rotl,
     I32Rotr,
+
     I64Add,
     I64Sub,
     I64Mul,
@@ -197,6 +213,37 @@ pub enum Op {
     I64Shru,
     I64Rotl,
     I64Rotr,
+
+    F32Abs,
+    F32Neg,
+    F32Ceil,
+    F32Floor,
+    F32Trunc,
+    F32Nearest,
+    F32Sqrt,
+    F32Add,
+    F32Sub,
+    F32Mul,
+    F32Div,
+    F32Min,
+    F32Max,
+    F32Copysign,
+
+    F64Abs,
+    F64Neg,
+    F64Ceil,
+    F64Floor,
+    F64Trunc,
+    F64Nearest,
+    F64Sqrt,
+    F64Add,
+    F64Sub,
+    F64Mul,
+    F64Div,
+    F64Min,
+    F64Max,
+    F64Copysign,
+
     I32WrapI64,
     I64ExtendI32s,
     I64ExtendI32u,
@@ -205,6 +252,15 @@ pub enum Op {
     I64Extend8s,
     I64Extend16s,
     I64Extend32s,
+
+    I32TruncSatF32s,
+    I32TruncSatF32u,
+    I32TruncSatF64s,
+    I32TruncSatF64u,
+    I64TruncSatF32s,
+    I64TruncSatF32u,
+    I64TruncSatF64s,
+    I64TruncSatF64u,
 
     MemoryCopy {
         extra_1: usize,
@@ -269,6 +325,14 @@ impl Op {
 pub fn read_fc_op(reader: &mut impl BytecodeReader) -> Result<Op, ParserError> {
     let opcode = reader.read_u8()?;
     let instr = match opcode {
+        0x00 => Op::I32TruncSatF32s,
+        0x01 => Op::I32TruncSatF32u,
+        0x02 => Op::I32TruncSatF64s,
+        0x03 => Op::I64TruncSatF64u,
+        0x04 => Op::I64TruncSatF32s,
+        0x05 => Op::I64TruncSatF32u,
+        0x06 => Op::I64TruncSatF64s,
+        0x07 => Op::I64TruncSatF64u,
         0x08 => Op::MemoryInit {
             data_id: reader.parse()?,
             extra: reader.parse()?,
@@ -281,7 +345,7 @@ pub fn read_fc_op(reader: &mut impl BytecodeReader) -> Result<Op, ParserError> {
             extra: reader.parse()?,
         },
 
-        _ => todo!(),
+        _ => todo!("OP not implemented: 0xFC, {:0x}", opcode),
     };
     Ok(instr)
 }
@@ -347,8 +411,8 @@ impl FromBytecode for Op {
             0x3E => Self::I64Store32(reader.parse()?),
             0x41 => Self::I32Const(reader.parse()?),
             0x42 => Self::I64Const(reader.parse()?),
-            0x43 => todo!(), //const f32
-            0x44 => todo!(), //const f64
+            0x43 => Self::F32Const(reader.parse()?),
+            0x44 => Self::F64Const(reader.parse()?),
             0x45 => Op::I32Eqz,
             0x46 => Op::I32Eq,
             0x47 => Op::I32Ne,
@@ -372,6 +436,20 @@ impl FromBytecode for Op {
             0x58 => Op::I64Leu,
             0x59 => Op::I64Ges,
             0x5A => Op::I64Geu,
+
+            0x5B => Op::F32Eq,
+            0x5C => Op::F32Ne,
+            0x5D => Op::F32Lt,
+            0x5E => Op::F32Gt,
+            0x5F => Op::F32Le,
+            0x60 => Op::F32Ge,
+
+            0x61 => Op::F64Eq,
+            0x62 => Op::F64Ne,
+            0x63 => Op::F64Lt,
+            0x64 => Op::F64Gt,
+            0x65 => Op::F64Le,
+            0x66 => Op::F64Ge,
 
             0x6A => Op::I32Add,
             0x6B => Op::I32Sub,
@@ -401,9 +479,40 @@ impl FromBytecode for Op {
             0x85 => Op::I64Xor,
             0x86 => Op::I64Shl,
             0x87 => Op::I64Shrs,
-            0x89 => Op::I64Shru,
-            0x8A => Op::I64Rotl,
-            0x8B => Op::I64Rotr,
+            0x88 => Op::I64Shru,
+            0x89 => Op::I64Rotl,
+            0x8A => Op::I64Rotr,
+
+            0x8B => Op::F32Abs,
+            0x8C => Op::F32Neg,
+            0x8D => Op::F32Ceil,
+            0x8E => Op::F32Floor,
+            0x8F => Op::F32Trunc,
+            0x90 => Op::F32Nearest,
+            0x91 => Op::F32Sqrt,
+            0x92 => Op::F32Add,
+            0x93 => Op::F32Sub,
+            0x94 => Op::F32Mul,
+            0x95 => Op::F32Div,
+            0x96 => Op::F32Min,
+            0x97 => Op::F32Max,
+            0x98 => Op::F32Copysign,
+
+            0x99 => Op::F64Abs,
+            0x9A => Op::F64Neg,
+            0x9B => Op::F64Ceil,
+            0x9C => Op::F64Floor,
+            0x9D => Op::F64Trunc,
+            0x9E => Op::F64Nearest,
+            0x9F => Op::F64Sqrt,
+            0xA0 => Op::F64Add,
+            0xA1 => Op::F64Sub,
+            0xA2 => Op::F64Mul,
+            0xA3 => Op::F64Div,
+            0xA4 => Op::F64Min,
+            0xA5 => Op::F64Max,
+            0xA6 => Op::F64Copysign,
+
             0xA7 => Op::I32WrapI64,
             0xAC => Op::I64ExtendI32s,
             0xAD => Op::I64ExtendI32u,
@@ -561,6 +670,7 @@ impl fmt::Display for Op {
             Op::I64Extend8s => write!(f, "i64.extend8_s"),
             Op::I64Extend16s => write!(f, "i64.extend16_s"),
             Op::I64Extend32s => write!(f, "i64.extend32_ls"),
+            _ => write!(f, "TODO: {:?}", self),
         }
     }
 }

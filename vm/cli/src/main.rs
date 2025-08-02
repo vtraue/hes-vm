@@ -18,7 +18,6 @@ use std::{
     io::{Cursor, Read, Seek},
     path::PathBuf,
 };
-use tracing_subscriber::layer::SubscriberExt;
 use validator::validator::{ValidateResult, read_and_validate, read_and_validate_wat};
 
 use crate::env::HeadlessEnv;
@@ -83,10 +82,6 @@ pub fn execute_run_command(func_name: &str, params: &[LocalValue], file: &mut Fi
 }
 
 pub fn main() -> Result<()> {
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
-    )
-    .expect("setup tracy layer");
     let args = Args::parse();
 
     match args.command {

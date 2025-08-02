@@ -8,4 +8,10 @@ print: build
     wasm-tools print out.wasm
 
 run: build
-    set CARGO_PROFILE_RELEASE_DEBUG=true; cargo flamegraph --release -- out.wasm console 
+    set CARGO_PROFILE_RELEASE_DEBUG=true; cargo run --release out.wasm console 
+
+profile: build
+    set CARGO_PROFILE_RELEASE_DEBUG=true;\
+    cargo build --release;\
+    cp out.wasm ../target/release/out.wasm;\
+    samply record ../target/release/wasm-cli out.wasm console

@@ -397,6 +397,11 @@ impl ValidatorContext {
         validate_types!(self, [val_type] => [ValueType::I32]);
         Ok(())
     }
+    pub fn validate_unop(&mut self, val_type: ValueType) -> Result<(), ValidationError> {
+        validate_types!(self, [val_type] => [val_type]);
+        Ok(())
+    }
+
     pub fn check_memarg(
         &self,
         info: &BytecodeInfo,
@@ -914,6 +919,12 @@ impl ValidatorContext {
             | Op::I64Shru
             | Op::I64Rotl
             | Op::I64Rotr => self.validate_binop(I64)?,
+            Op::F32Eq | Op::F32Ne | Op::F32Lt | Op::F32Gt | Op::F32Le | Op::F32Ge => {
+                self.validate_relop(F32)?
+            }
+            Op::F64Eq | Op::F64Ne | Op::F64Lt | Op::F64Gt | Op::F64Le | Op::F64Ge => {
+                self.validate_relop(F64)?
+            }
             Op::MemoryCopy { .. } => self.validate_memory_copy(info)?,
             Op::MemoryFill { .. } => self.validate_memory_fill(info)?,
             Op::MemoryInit { data_id, .. } => self.validate_memory_init(bytecode, info, data_id)?,
@@ -942,6 +953,49 @@ impl ValidatorContext {
             }
             Op::I64Extend32s => {
                 validate_types!(self, [ValueType::I64] => [ValueType::I64]);
+            }
+            Op::F32Abs
+            | Op::F32Neg
+            | Op::F32Ceil
+            | Op::F32Floor
+            | Op::F32Trunc
+            | Op::F32Sqrt
+            | Op::F32Nearest => self.validate_unop(ValueType::F32)?,
+            Op::F32Add
+            | Op::F32Sub
+            | Op::F32Mul
+            | Op::F32Div
+            | Op::F32Min
+            | Op::F32Max
+            | Op::F32Copysign => self.validate_binop(ValueType::F32)?,
+            Op::F64Abs
+            | Op::F64Neg
+            | Op::F64Ceil
+            | Op::F64Floor
+            | Op::F64Trunc
+            | Op::F64Sqrt
+            | Op::F64Nearest => self.validate_unop(ValueType::F64)?,
+            Op::F64Add
+            | Op::F64Sub
+            | Op::F64Mul
+            | Op::F64Div
+            | Op::F64Min
+            | Op::F64Max
+            | Op::F64Copysign => self.validate_binop(ValueType::F64)?,
+            Op::I32TruncSatF32s | Op::I32TruncSatF32u => {
+                validate_types!(self, [ValueType::F32] => [ValueType::I32]);
+            }
+            Op::I32TruncSatF64s | Op::I32TruncSatF64u => {
+                validate_types!(self, [ValueType::F64] => [ValueType::I32]);
+            }
+            Op::I64TruncSatF32s => {
+                validate_types!(self, [ValueType::F32] => [ValueType::I64]);
+            }
+            Op::I64TruncSatF32u => {
+                validate_types!(self, [ValueType::F32] => [ValueType::I64]);
+            }
+            Op::I64TruncSatF64s | Op::I64TruncSatF64u => {
+                validate_types!(self, [ValueType::F64] => [ValueType::I64]);
             }
         };
 

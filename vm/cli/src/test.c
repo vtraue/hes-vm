@@ -40,8 +40,8 @@ __attribute__((import_module("env"), import_name("system_shutdown"))) void vm_sh
 
 
 #define WASM_PAGE_SIZE 65536
-#define FB_WIDTH 640
-#define FB_HEIGHT 360
+#define FB_WIDTH 512
+#define FB_HEIGHT 288
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -175,6 +175,7 @@ typedef struct Game_Data {
   u32 frame_count;
   Snake snake;
   Point fruit;
+  float test;
 } Game_Data;
 
 Game_Data* alloc_game_data() {
@@ -311,6 +312,7 @@ void render_weird_gradient(u8* dest_buffer, int x_offset, int y_offset) {
       uint8_t blue = (x + x_offset);
       uint8_t green = (y + y_offset);
       uint32_t p = ((blue << 16) | (green << 8));
+
       *pixel++ = (u64) p << 32 | p;
     }
     row += pitch;
@@ -331,7 +333,7 @@ Point get_glyph_index(char c) {
   }
   else if(is_number(c)) {
      offset = (c - '0') + (13 * 4);
-      }
+  }
   else {
     return (Point){0};
   } 
@@ -346,12 +348,13 @@ void draw_glyph(u8* framebuffer, Bitmap* font, u32 x, u32 y, char glyph) {
   blit_glyph(framebuffer, font, x, y, p.x, p.y);
 }
 
-void draw_string(u8* framebuffer, Bitmap* font, u32 x, u32 y, char* str) {
+
+void draw_string(u8* framebuffer, Bitmap* font, u32 x, u32 y, char* str, u32 len) {
   u32 x_offset = 0;  
   u32 y_offset = 0;
   char* s = str;
-
-  while(*s != 0) {
+  u32 n = 0;
+  while(n < len) {
     if(*s == '\n') {
       y_offset += 10;
       x_offset = 0;
@@ -365,17 +368,67 @@ void draw_string(u8* framebuffer, Bitmap* font, u32 x, u32 y, char* str) {
       x_offset += 6;
       s++;
     }
+    n++;
   }
+}
+void draw_cstring(u8* framebuffer, Bitmap* font, u32 x, u32 y, char* str) {
+  draw_string(framebuffer, font, x,y, str, cstr_len(str));
+}
+
+int itoa(int value, char *sp, int radix)
+{
+    char tmp[32];// be careful with the length of the buffer
+    char *tp = tmp;
+    int i;
+    unsigned v;
+
+    int sign = (radix == 10 && value < 0);    
+    if (sign)
+        v = -value;
+    else
+        v = (unsigned)value;
+
+    while (v || tp == tmp)
+    {
+        i = v % radix;
+        v /= radix;
+        if (i < 10)
+          *tp++ = i+'0';
+        else
+          *tp++ = i + 'a' - 10;
+    }
+
+    int len = tp - tmp;
+
+    if (sign) 
+    {
+        *sp++ = '-';
+        len++;
+    }
+
+    while (tp > tmp)
+        *sp++ = *--tp;
+
+    return len;
+}
+
+void draw_number(u8* framebuffer, Bitmap* font, u32 x, u32 y, int num) {
+  char num_string[32] = {0};
+  int str_len = itoa(num, num_string, 10);
+  draw_string(framebuffer, font, x, y, num_string, str_len);
+
 }
 
 void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
+
   game->frame_count += 1;
   int64_t then = vm_get_time_ms();
-
+  game->test += 1;
+  // 
   //cstr_print("Hello from rint64_t numun!\n");
   //fill_framebuffer(game->framebuffer, 0, 255, 255, 255);
-  render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
-  //vm_clear(game->framebuffer, 0, 0, 200);
+  // render_weird_gradient(game->framebuffer, global_xoffset, global_yoffset);
+  vm_clear(game->framebuffer, 0, 0, 200);
   if(vm_get_key(KEYCODE_UP)) {
     if(game->position_y - game->current_speed + 16 > 0) {
       game->position_y -= game->current_speed;
@@ -438,9 +491,9 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   global_yoffset += 4;
 
   i64 time_passed = vm_get_time_ms() - then;
-  cstr_print("Time passed: ");
-  vm_print_int64(time_passed);
-  cstr_print("\n");
+  //cstr_print("Time passed: ");
+  //vm_print_int64(time_passed);
+  //cstr_print("\n");
   last_time_passed = time_passed;
 
   if(vm_get_key(KEYCODE_DOWN)) {
@@ -487,7 +540,11 @@ void run(Game_Data* game, u32 framebuffer_width, u32 framebuffer_height) {
   // blit_bitmap(game->framebuffer, 0, 0, &game->font, 0, 0, 6, 10);
   // blit_bitmap(game->framebuffer, 6, 0, &game->font, 6, 0, 6, 10);
   //draw_glyph(game->framebuffer, &game->font, 0, 0, 'C');
-  draw_string(game->framebuffer, &game->font, 0, 0, "HES VM praesentiert\nHallo Welt 123450\nPunktestand 500");
+  //draw_cstring(game->framebuffer, &game->font, 0, 0, "HES VM praesentiert\nHallo Welt 123450\nPunktestand 500");
+  
+  draw_number(game->framebuffer, &game->font, 0, 0, time_passed);
+  draw_number(game->framebuffer, &game->font, 20, 20, (i32)game->test);
+
   vm_paint(game->framebuffer, FB_WIDTH, FB_HEIGHT);
  
 }

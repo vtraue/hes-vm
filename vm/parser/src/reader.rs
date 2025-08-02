@@ -8,7 +8,7 @@ use std::{
     usize,
 };
 
-use byteorder::ReadBytesExt;
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use itertools::Itertools;
 use log::{error, info, trace};
 use parser_derive::FromBytecode;
@@ -107,6 +107,7 @@ impl FromBytecode for i32 {
         Ok(Leb::read_i32(reader)?)
     }
 }
+
 impl FromBytecode for i64 {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         Ok(Leb::read_i64(reader)?)
@@ -132,6 +133,16 @@ impl FromBytecode for usize {
 impl FromBytecode for isize {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
         Ok(Leb::read_u32(reader)? as isize)
+    }
+}
+impl FromBytecode for f32 {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        Ok(reader.read_f32::<LittleEndian>()?)
+    }
+}
+impl FromBytecode for f64 {
+    fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
+        Ok(reader.read_f64::<LittleEndian>()?)
     }
 }
 

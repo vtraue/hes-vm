@@ -1,23 +1,21 @@
 use std::marker::PhantomData;
-use std::ops::DerefMut;
-
-use parser::op::BrTableEntry;
-use parser::reader::{Data, iter_without_position};
-use std::slice;
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-};
-use thiserror::Error;
-use tracing::{Level, span};
+use std::ops::{DerefMut, Neg};
 
 use itertools::Itertools;
+use parser::op::BrTableEntry;
+use parser::reader::{Data, iter_without_position};
 use parser::{
     info::BytecodeInfo,
     op::{Blocktype, Memarg, Op},
     reader::{Bytecode, BytecodeReader, ValueType},
 };
 use smallvec::SmallVec;
+use std::slice;
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display},
+};
+use thiserror::Error;
 use validator::validator::{ReadAndValidateError, ValidateResult};
 
 use crate::env::{Env, NativeFuncCallError, NativeFuncCallErrorType};
@@ -84,8 +82,8 @@ pub struct Label {
 
 #[derive(Debug, Clone)]
 pub struct InternalFunctionInstance {
-    locals: Vec<ValueType>,
-    code_offset: usize,
+    pub locals: Vec<ValueType>,
+    pub code_offset: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -112,9 +110,9 @@ impl From<&parser::reader::Type> for Type {
 
 #[derive(Debug, Clone)]
 pub struct NativeFunctionInstance {
-    module: String,
-    name: String,
-    id: usize,
+    pub module: String,
+    pub name: String,
+    pub id: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -125,8 +123,8 @@ pub enum FunctionType {
 
 #[derive(Debug, Clone)]
 pub struct Function {
-    t: Type,
-    kind: FunctionType,
+    pub t: Type,
+    pub kind: FunctionType,
 }
 
 #[derive(Debug, Clone)]
@@ -260,6 +258,7 @@ impl Code {
         info: &BytecodeInfo,
     ) -> Result<Self, InstanceError> {
         let (functions, instructions) = Self::get_function_instances::<E>(module, info)?;
+        //let (functions, instructions) = Optimizer::optimize::<E>(module, info)?;
 
         Ok(Self {
             instructions,
@@ -523,7 +522,9 @@ impl<E: Env> Vm<E> {
     }
 
     fn init(bytecode: &Bytecode, info: &BytecodeInfo) -> Result<Vm<E>, InstanceError> {
-        let code = Code::from_module::<E>(bytecode, info)?;
+        let mut code = Code::from_module::<E>(bytecode, info)?;
+        //code.instructions = Optimizer::optimize(code.instructions, &code.functions);
+        // println!("{}", code.instructions.iter().rev().format("\n"));
         let mut mem = Self::make_memory(bytecode, info);
         let locals = Vec::with_capacity(20);
         let start_func_id = bytecode.start.as_ref().map(|i| i.data as usize);
@@ -613,11 +614,15 @@ impl<E: Env> Vm<E> {
     }
 
     pub fn push_value(&mut self, val: impl Into<StackValue> + Debug) {
-        // println!("Pushing value: {:?}", val);
+        // println!(
+        // "Pushing value: {:?}, len: {}",
+        // val,
+        // self.value_stack.len() + 1
+        // );
         self.value_stack.push(val.into());
     }
     pub fn pop_any(&mut self) -> StackValue {
-        //println!("pop any");
+        // println!("pop any");
         match self.value_stack.pop() {
             Some(s) => s,
             None => unreachable!(),
@@ -631,7 +636,7 @@ impl<E: Env> Vm<E> {
     pub unsafe fn pop_value<T: PopFromValueStack + Debug>(&mut self) -> T {
         unsafe {
             let val = T::pop(self);
-            // println!("Popping: {:?}", val);
+            // println!("Popping: {:?}, len: {}", val, self.value_stack.len());
             val
         }
     }
@@ -647,8 +652,7 @@ impl<E: Env> Vm<E> {
         self.labels.push(label);
     }
     pub fn exec_local_get(&mut self, id: usize) {
-        debug_assert!(self.locals.get(self.local_offset + id).is_some());
-        let local_val = self.locals.get(self.local_offset + id).unwrap();
+        let local_val = unsafe { self.locals.get(self.local_offset + id).unwrap() };
         self.push_value(*local_val);
         self.ip += 1;
     }
@@ -663,9 +667,9 @@ impl<E: Env> Vm<E> {
     }
 
     pub fn exec_local_set(&mut self, id: usize) {
-        let val = self.value_stack.pop().unwrap();
+        let val = unsafe { self.value_stack.pop().unwrap_unchecked() };
         debug_assert!(self.locals.get(self.local_offset + id).is_some());
-        let local_val = self.locals.get_mut(self.local_offset + id).unwrap();
+        let local_val = unsafe { self.locals.get_unchecked_mut(self.local_offset + id) };
 
         unsafe { local_val.set_inner_from_stack_val(val) };
         //dbg!("local set: {:?}", local_val);
@@ -679,7 +683,7 @@ impl<E: Env> Vm<E> {
     }
     pub fn exec_local_tee(&mut self, id: usize) {
         let val = unsafe { self.value_stack.last().unwrap_unchecked() };
-        let local_val = &mut self.locals[self.local_offset + id];
+        let local_val = unsafe { &mut self.locals.get_unchecked_mut(self.local_offset + id) };
         unsafe { local_val.set_inner_from_stack_val(*val) };
         self.ip += 1;
     }
@@ -709,6 +713,17 @@ impl<E: Env> Vm<E> {
             self.push_value(res);
             self.ip += 1;
         }
+    }
+    pub fn exec_convert<S, F, T>(&mut self, op: F)
+    where
+        S: PopFromValueStack + Debug,
+        T: Into<StackValue> + Debug,
+        F: FnOnce(S) -> T,
+    {
+        let v = unsafe { self.pop_value::<S>() };
+        let res = op(v);
+        self.push_value(res);
+        self.ip += 1;
     }
 
     #[inline(always)]
@@ -744,7 +759,6 @@ impl<E: Env> Vm<E> {
         func_id: usize,
         params: &[LocalValue],
     ) -> Result<(), RuntimeError> {
-        let _span = span!(Level::TRACE, "entering native function").entered();
         let next_frame = self.get_return_frame();
         match &self.code.functions[func_id].kind {
             FunctionType::Wasm(internal_function_instance) => {
@@ -787,8 +801,6 @@ impl<E: Env> Vm<E> {
         params: &[LocalValue],
         env: &mut E,
     ) -> Result<(), RuntimeError> {
-        let next_frame = self.get_return_frame();
-
         match &self.code.functions[func_id].kind {
             FunctionType::Wasm(_) => self.enter_native_function(func_id, params),
 
@@ -815,21 +827,17 @@ impl<E: Env> Vm<E> {
             }
         }
     }
-    pub fn pop_type_params<'a>(
-        &mut self,
-        params: impl IntoIterator<Item = &'a ValueType>,
-    ) -> SmallVec<[LocalValue; 16]> {
-        params
-            .into_iter()
-            .cloned()
-            .map(|t| LocalValue::init_from_type_and_val(t, self.pop_any()))
-            .collect()
-    }
 
     pub fn exec_call(&mut self, id: usize, env: &mut E) -> Result<(), RuntimeError> {
         //println!("calling: {id}");
         let func = &self.code.functions[id];
         let params = &func.t.params.clone(); //TODO: (joh): Ich hasse das
+
+        // println!(
+        //     "expected: {}, len: {}",
+        //     params.len(),
+        //     self.value_stack.len()
+        // );
 
         let popped = (1..params.len() + 1)
             .rev()
@@ -1146,8 +1154,8 @@ impl<E: Env> Vm<E> {
             Op::I64Shrs => self.exec_binop_push(|a: i64, b: i64| a >> b),
             Op::I64Shru => self.exec_binop_push(|a: u64, b: u64| a >> b),
             Op::MemoryInit { data_id, .. } => self.exec_memory_init(bytecode, *data_id)?,
-            Op::I64Rotl => todo!(),
-            Op::I64Rotr => todo!(),
+            Op::I64Rotl => self.exec_binop_push(|a: i64, b: i64| a.rotate_left(b as u32)),
+            Op::I64Rotr => self.exec_binop_push(|a: i64, b: i64| a.rotate_right(b as u32)),
             Op::MemoryCopy { .. } => self.exec_memory_copy()?,
             Op::MemoryFill { .. } => self.exec_memory_fill()?,
             Op::MemoryGrow { .. } => self.exec_memory_grow(),
@@ -1164,6 +1172,54 @@ impl<E: Env> Vm<E> {
             Op::I64Extend8s => impl_convert2!(self, a, i64, i8, i64, a as i64),
             Op::I64Extend16s => impl_convert2!(self, a, i64, i16, i64, a as i64),
             Op::I64Extend32s => impl_convert2!(self, a, i64, i32, i64, a as i64),
+            Op::F32Eq => self.exec_binop_push(|a: f32, b: f32| a == b),
+            Op::F32Ne => self.exec_binop_push(|a: f32, b: f32| a != b),
+            Op::F32Lt => self.exec_binop_push(|a: f32, b: f32| a < b),
+            Op::F32Gt => self.exec_binop_push(|a: f32, b: f32| a > b),
+            Op::F32Le => self.exec_binop_push(|a: f32, b: f32| a <= b),
+            Op::F32Ge => self.exec_binop_push(|a: f32, b: f32| a >= b),
+            Op::F64Eq => self.exec_binop_push(|a: f64, b: f64| a == b),
+            Op::F64Ne => self.exec_binop_push(|a: f64, b: f64| a != b),
+            Op::F64Lt => self.exec_binop_push(|a: f64, b: f64| a < b),
+            Op::F64Gt => self.exec_binop_push(|a: f64, b: f64| a > b),
+            Op::F64Le => self.exec_binop_push(|a: f64, b: f64| a <= b),
+            Op::F64Ge => self.exec_binop_push(|a: f64, b: f64| a >= b),
+            Op::F32Abs => self.exec_unop_push(|a: f32| a.abs()),
+            Op::F32Neg => self.exec_unop_push(|a: f32| a.neg()),
+            Op::F32Ceil => self.exec_unop_push(|a: f32| a.ceil()),
+            Op::F32Floor => self.exec_unop_push(|a: f32| a.floor()),
+            Op::F32Trunc => self.exec_unop_push(|a: f32| a.trunc()),
+            Op::F32Nearest => self.exec_unop_push(|a: f32| a.round()),
+            Op::F32Sqrt => self.exec_unop_push(|a: f32| a.sqrt()),
+            Op::F32Add => self.exec_binop_push(|a: f32, b: f32| a + b),
+            Op::F32Sub => self.exec_binop_push(|a: f32, b: f32| a - b),
+            Op::F32Mul => self.exec_binop_push(|a: f32, b: f32| a * b),
+            Op::F32Div => self.exec_binop_push(|a: f32, b: f32| a / b),
+            Op::F32Min => self.exec_binop_push(|a: f32, b: f32| a.min(b)),
+            Op::F32Max => self.exec_binop_push(|a: f32, b: f32| a.max(b)),
+            Op::F32Copysign => self.exec_binop_push(|a: f32, b: f32| a.copysign(b)),
+            Op::F64Abs => self.exec_unop_push(|a: f64| a.abs()),
+            Op::F64Neg => self.exec_unop_push(|a: f64| a.neg()),
+            Op::F64Ceil => self.exec_unop_push(|a: f64| a.ceil()),
+            Op::F64Floor => self.exec_unop_push(|a: f64| a.floor()),
+            Op::F64Trunc => self.exec_unop_push(|a: f64| a.trunc()),
+            Op::F64Nearest => self.exec_unop_push(|a: f64| a.round()),
+            Op::F64Sqrt => self.exec_unop_push(|a: f64| a.sqrt()),
+            Op::F64Add => self.exec_binop_push(|a: f64, b: f64| a + b),
+            Op::F64Sub => self.exec_binop_push(|a: f64, b: f64| a - b),
+            Op::F64Mul => self.exec_binop_push(|a: f64, b: f64| a * b),
+            Op::F64Div => self.exec_binop_push(|a: f64, b: f64| a / b),
+            Op::F64Min => self.exec_binop_push(|a: f64, b: f64| a.min(b)),
+            Op::F64Max => self.exec_binop_push(|a: f64, b: f64| a.max(b)),
+            Op::F64Copysign => self.exec_binop_push(|a: f64, b: f64| a.copysign(b)),
+            Op::I32TruncSatF32s => self.exec_convert(|v: f32| v.trunc() as i32),
+            Op::I32TruncSatF32u => self.exec_convert(|v: f32| v.trunc() as i32),
+            Op::I32TruncSatF64s => self.exec_convert(|v: f64| v.trunc() as i32),
+            Op::I32TruncSatF64u => self.exec_convert(|v: f64| v.trunc() as i32),
+            Op::I64TruncSatF32s => self.exec_convert(|v: f32| v.trunc() as i64),
+            Op::I64TruncSatF32u => self.exec_convert(|v: f32| v.trunc() as i64),
+            Op::I64TruncSatF64s => self.exec_convert(|v: f64| v.trunc() as i64),
+            Op::I64TruncSatF64u => self.exec_convert(|v: f64| v.trunc() as i64),
         };
         Ok(false)
     }

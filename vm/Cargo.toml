@@ -1,3 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["parser", "validator", "interpreter", "cli", "parser_derive", "validator_derive", "console"]
+
+[profile.release]
+debug = true
+
+[profile.profiling]
+inherits = "release"
+debug = true

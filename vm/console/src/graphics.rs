@@ -207,7 +207,7 @@ const VERTICES: &[Vertex] = &[
 ];
 const INDICES: &[u16] = &[0, 1, 3, 1, 2, 3];
 */
-const FB_SIZE: (u32, u32) = (640, 360);
+const FB_SIZE: (u32, u32) = (512, 288);
 #[derive(Debug)]
 struct State {
     window: Arc<Window>,
@@ -719,6 +719,15 @@ impl Env for State {
                 result: vec![],
                 id: 10,
             }),
+            "system_save" => Some(ExternalFunction {
+                params: vec![
+                    ValueType::I32, //ptr
+                    ValueType::I32, //size
+                ],
+                result: vec![], //TODO: Errorhandling
+                id: 11,
+            }),
+
             _ => None,
         }
     }
@@ -726,6 +735,7 @@ impl Env for State {
     fn get_global(env: &str, name: &str) -> Option<interpreter::env::ExternalGlobal> {
         None
     }
+
     fn call(
         &mut self,
         vm: &mut Vm<Self>,
