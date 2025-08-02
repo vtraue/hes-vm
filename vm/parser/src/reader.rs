@@ -75,6 +75,9 @@ pub enum ParserError {
 
     #[error("{0}")]
     WatParseError(#[from] wat::Error),
+
+    #[error("Invalid reference type encoding")]
+    InvalidReferenceTypeEncoding(u8),
 }
 impl ParserError {
     pub fn is_eof(&self) -> bool {
@@ -347,6 +350,19 @@ pub fn read_wasm_header(reader: &mut impl BytecodeReader) -> Result<Header, Pars
     reader.parse()
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[repr(u8)]
+pub enum Reftype {
+    Funcref = 0x70,
+    Externref = 0x6F,
+}
+impl std::convert::TryFrom<u8> for Reftype {
+    type Error = ParserError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
 #[derive(Debug, PartialEq, PartialOrd, Copy, Clone, Eq)]
 #[repr(u8)]
 pub enum ValueType {
@@ -778,7 +794,7 @@ impl Data {
 
 impl FromBytecode for Data {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        println!("Reading data");
+        // println!("Reading data");
         match reader.parse::<u32>()? {
             0 => Data::parse_active(reader, 0),
             1 => Ok(Self::Passive(parse_data_with_pos(reader)?)),
@@ -805,7 +821,7 @@ impl Display for Expression {
 }
 impl FromBytecode for Expression {
     fn from_reader<R: BytecodeReader>(reader: &mut R) -> Result<Self, ParserError> {
-        println!("Reading expression...");
+        // println!("Reading expression...");
         Ok(Self {
             data: iter_expr(reader).collect::<Result<Vec<_>, _>>()?,
         })
@@ -866,7 +882,7 @@ impl Function {
         let op = self.get_op(ip as usize)?;
         let jmp = op.get_jmp()?;
         let next = (ip + jmp) + offset;
-        println!("jmp: {}", next);
+        // println!("jmp: {}", next);
         let op = self.get_op(next as usize)?;
 
         Some((op, next))
@@ -874,6 +890,13 @@ impl Function {
     pub fn get_op_after(&self, ip: isize) -> Option<(&Op, isize)> {
         self.get_op_after_offset(ip, -1)
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ElementType {
+    Active { table: u32, offset: ConstExpr },
+    Passive,
+    Declarative,
 }
 
 #[derive(Debug, Clone)]

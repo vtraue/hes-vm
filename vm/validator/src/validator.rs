@@ -173,7 +173,6 @@ pub fn pop_type(
     unreachable: bool,
 ) -> Result<ValueStackType, ValidationError> {
     if frame_stack_len == stack.len() {
-        println!("blubbi!");
         if unreachable {
             Ok(ValueStackType::Unknown)
         } else {
@@ -181,7 +180,7 @@ pub fn pop_type(
         }
     } else {
         let val = stack.pop().ok_or(ValidationError::TypeStackUnderflow)?;
-        println!("popping {}", val);
+        // println!("popping {}", val);
         Ok(val)
     }
 }
@@ -209,7 +208,7 @@ pub fn pop_values(
     unreachable: bool,
     expected: impl Iterator<Item = impl Into<ValueStackType>>,
 ) -> Result<(), ValidationError> {
-    println!("unreachable: {unreachable}");
+    // println!("unreachable: {unreachable}");
     for val in expected {
         pop_type_expect(stack, frame_stack_len, unreachable, val)?;
     }
@@ -217,7 +216,7 @@ pub fn pop_values(
 }
 pub fn push_type(stack: &mut Vec<ValueStackType>, val: impl Into<ValueStackType>) {
     let val = val.into();
-    println!("Pushing: {}", val);
+    // println!("Pushing: {}", val);
     stack.push(val)
 }
 
@@ -603,7 +602,7 @@ impl ValidatorContext {
     }
 
     pub fn validate_end(&mut self) -> Result<(), ValidationError> {
-        println!("Validate end");
+        // println!("Validate end");
         let ctrl = self.pop_ctrl()?;
 
         ctrl.out_types.iter().for_each(|t| self.push(t));
@@ -738,7 +737,7 @@ impl ValidatorContext {
         }
     }
     pub fn validate_return(&mut self, t: &Type) -> Result<(), ValidationError> {
-        println!("func return t: {}", t);
+        // println!("func return t: {}", t);
         t.iter_results().try_for_each(|t| self.pop(t))?;
         self.set_unreachable()
     }
@@ -816,7 +815,6 @@ impl ValidatorContext {
         op: WithPosition<Op>,
     ) -> Result<(), ValidationError> {
         use ValueType::*;
-        println!("Validating op: {}", op.data);
         match op.data {
             Op::Unreachable => self.set_unreachable()?,
             Op::Drop => self.pop_any()?,
@@ -1000,7 +998,7 @@ impl ValidatorContext {
         };
 
         self.ip += 1;
-        println!("Stack now: {:?}", self.type_stack);
+        // println!("Stack now: {:?}", self.type_stack);
         Ok(())
     }
     pub fn set_locals_from_func_t(&mut self, t: &Type, code: &Function) {
@@ -1022,8 +1020,8 @@ impl ValidatorContext {
 
         let results = t.iter_results().cloned().collect::<Vec<_>>();
 
-        println!("=====Validating func with t: {}=====", t);
-        println!("out_count: {}", results.len());
+        // println!("=====Validating func with t: {}=====", t);
+        // println!("out_count: {}", results.len());
         self.push_ctrl(None, Vec::new(), results);
         code.iter_ops()
             .try_for_each(|op| self.validate_op(bytecode, t, info, op))?;
@@ -1044,7 +1042,7 @@ impl ValidatorContext {
                     ..Default::default()
                 };
                 let t = bytecode.get_type(func.type_id).unwrap();
-                println!("validating function type: {}", t);
+                // println!("validating function type: {}", t);
                 validator.validate_code(bytecode, info, t, code)
             }
             FunctionType::Imported { .. } => Ok(Vec::new()),

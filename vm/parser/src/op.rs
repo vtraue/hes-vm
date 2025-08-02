@@ -110,6 +110,9 @@ pub enum Op {
         table: usize,
         type_id: isize,
     },
+    RefNull,
+    RefIsNull,
+    RefFunc,
     Drop,
     Select(Option<ValueType>),
     LocalGet(usize),
@@ -276,6 +279,20 @@ pub enum Op {
     MemoryGrow {
         extra: usize,
     },
+    TableGet(u32),
+    TableSet(u32),
+    TableInit {
+        elem_id: u32,
+        table_id: u32,
+    },
+    ElemDrop(u32),
+    TableCopy {
+        table_id_1: u32,
+        table_id_2: u32,
+    },
+    TableGrow(u32),
+    TableSize(u32),
+    TableFill(u32),
 }
 
 impl Op {
@@ -333,6 +350,7 @@ pub fn read_fc_op(reader: &mut impl BytecodeReader) -> Result<Op, ParserError> {
         0x05 => Op::I64TruncSatF32u,
         0x06 => Op::I64TruncSatF64s,
         0x07 => Op::I64TruncSatF64u,
+
         0x08 => Op::MemoryInit {
             data_id: reader.parse()?,
             extra: reader.parse()?,
@@ -344,7 +362,18 @@ pub fn read_fc_op(reader: &mut impl BytecodeReader) -> Result<Op, ParserError> {
         11 => Op::MemoryFill {
             extra: reader.parse()?,
         },
-
+        12 => Op::TableInit {
+            elem_id: reader.parse()?,
+            table_id: reader.parse()?,
+        },
+        13 => Op::ElemDrop(reader.parse()?),
+        14 => Op::TableCopy {
+            table_id_1: reader.parse()?,
+            table_id_2: reader.parse()?,
+        },
+        15 => Op::TableGrow(reader.parse()?),
+        16 => Op::TableSize(reader.parse()?),
+        17 => Op::TableFill(reader.parse()?),
         _ => todo!("OP not implemented: 0xFC, {:0x}", opcode),
     };
     Ok(instr)
@@ -378,6 +407,7 @@ impl FromBytecode for Op {
                 table: reader.parse()?,
                 type_id: reader.parse()?,
             },
+
             0x1A => Self::Drop,
             0x1B => Self::Select(None),
             0x1C => Self::Select(Some(reader.parse()?)),
@@ -545,6 +575,8 @@ impl FromBytecode for Op {
                     },
                 }
             }
+            0x25 => Op::TableGet(reader.parse()?),
+            0x26 => Op::TableSet(reader.parse()?),
             _ => panic!("Unimplemented Opcode {:0X}", opcode),
         };
 
@@ -670,6 +702,7 @@ impl fmt::Display for Op {
             Op::I64Extend8s => write!(f, "i64.extend8_s"),
             Op::I64Extend16s => write!(f, "i64.extend16_s"),
             Op::I64Extend32s => write!(f, "i64.extend32_ls"),
+
             _ => write!(f, "TODO: {:?}", self),
         }
     }
