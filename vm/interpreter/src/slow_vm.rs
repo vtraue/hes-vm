@@ -1220,6 +1220,20 @@ impl<E: Env> Vm<E> {
             Op::I64TruncSatF32u => self.exec_convert(|v: f32| v.trunc() as i64),
             Op::I64TruncSatF64s => self.exec_convert(|v: f64| v.trunc() as i64),
             Op::I64TruncSatF64u => self.exec_convert(|v: f64| v.trunc() as i64),
+            Op::RefNull => todo!(),
+            Op::RefIsNull => todo!(),
+            Op::RefFunc => todo!(),
+            Op::TableGet(_) => todo!(),
+            Op::TableSet(_) => todo!(),
+            Op::TableInit { elem_id, table_id } => todo!(),
+            Op::ElemDrop(_) => todo!(),
+            Op::TableCopy {
+                table_id_1,
+                table_id_2,
+            } => todo!(),
+            Op::TableGrow(_) => todo!(),
+            Op::TableSize(_) => todo!(),
+            Op::TableFill(_) => todo!(),
         };
         Ok(false)
     }

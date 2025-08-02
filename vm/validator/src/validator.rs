@@ -995,6 +995,20 @@ impl ValidatorContext {
             Op::I64TruncSatF64s | Op::I64TruncSatF64u => {
                 validate_types!(self, [ValueType::F64] => [ValueType::I64]);
             }
+            Op::RefNull => todo!(),
+            Op::RefIsNull => todo!(),
+            Op::RefFunc => todo!(),
+            Op::TableGet(_) => todo!(),
+            Op::TableSet(_) => todo!(),
+            Op::TableInit { elem_id, table_id } => todo!(),
+            Op::ElemDrop(_) => todo!(),
+            Op::TableCopy {
+                table_id_1,
+                table_id_2,
+            } => todo!(),
+            Op::TableGrow(_) => todo!(),
+            Op::TableSize(_) => todo!(),
+            Op::TableFill(_) => todo!(),
         };
 
         self.ip += 1;
