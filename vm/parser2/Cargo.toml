@@ -1,0 +1,17 @@
+[package]
+name = "parser2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = "2.0.12"
+byteorder = "1.5.0"
+itertools = "0.14.0"
+wat = "1.227.1"
+strum = "0.27"
+strum_macros = "0.27"
+parser_derive2 = {path = "../parser_derive2"}
+leb128 = "0.2.5"
+bumpalo = {version = "3.19.0", features = ["boxed", "collections"]}
+log = "0.4.27"
+
